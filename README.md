@@ -110,20 +110,20 @@ go build ./cmd/server/
 
 ## コンポーネント構成
 
-```
-外部送信者 --[SMTP]--> 既存MTA --[SMTP :10025]--> smtp-gateway
-                                                        |
-                                        +---------------+---------------+
-                                        |               |               |
-                                   [MinIO]         [MariaDB]       [RabbitMQ]
-                                   EML保存          メタデータ       イベント
-                                                                        |
-                                                           [検査・変換・ポリシー評価]
-                                                                        |
-                                                              配送先 MTA（設定による）
+```mermaid
+flowchart LR
+    Sender([外部送信者]) -->|SMTP| MTA["既存 MTA"]
+    MTA -->|"SMTP :10025"| GW["smtp-gateway"]
 
-管理者ブラウザ --[HTTPS]--> Web UI --[REST API]--> api-server --+--> MariaDB
-                                                               +--> MinIO
+    GW --> MinIO[("MinIO\nEML 保存")]
+    GW --> DB[("MariaDB\nメタデータ")]
+    GW --> MQ[("RabbitMQ\nイベント")]
+    GW -->|"検査・変換・ポリシー評価"| Dest(["配送先 MTA"])
+
+    Admin([管理者ブラウザ]) -->|HTTPS| WebUI["Web UI"]
+    WebUI -->|REST API| API["api-server"]
+    API --> DB
+    API --> MinIO
 ```
 
 詳細は [アーキテクチャ概要](docs/architecture.md) を参照。

@@ -11,25 +11,17 @@
 
 ## 構成の概要
 
-```
-インターネット / テストクライアント
-    |
-    | port 25
-    v
-[Postfix（開発用受信 MTA）]
-    |  milter（port 11332）
-    +---> [Rspamd] → Authentication-Results ヘッダを付与
-    |                  SPF / DKIM / DMARC / ARC を検証
-    | after-queue content_filter（port 10025）
-    v
-[smtp-gateway]
-    |  検査・変換・ポリシー評価
-    | 再インジェクト（port 10026）
-    v
-[Postfix（再配送）]
-    |
-    v
- Mailpit（port 8025）
+```mermaid
+flowchart TD
+    Client([インターネット / テストクライアント]) -->|"SMTP :25"| Postfix["Postfix\n開発用受信 MTA"]
+
+    Postfix -->|"milter :11332"| Rspamd["Rspamd\nSPF / DKIM / DMARC / ARC を検証\nAuthentication-Results ヘッダを付与"]
+    Rspamd -.->|ヘッダを付与して返す| Postfix
+
+    Postfix -->|"after-queue content_filter\nSMTP :10025"| GW["smtp-gateway\n検査・変換・ポリシー評価"]
+
+    GW -->|"再インジェクト\nSMTP :10026"| Postfix2["Postfix（再配送）"]
+    Postfix2 --> Mailpit(["Mailpit :8025"])
 ```
 
 設定ファイルは `examples/mta/` にあります。

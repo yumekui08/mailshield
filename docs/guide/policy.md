@@ -7,15 +7,14 @@ MailShield のポリシーエンジンは、検査ワーカーの結果をもと
 
 ## 仕組み
 
-```
-[検査ワーカー群（並列実行）]
-        ↓ InspectResult（score, detected, details）
-[変換ワーカー群（直列実行）]
-        ↓
-[ポリシーエンジン]
-  rules を上から順に評価 → 最初にマッチしたルールのアクションを実行
-        ↓
-  deliver / reject / quarantine / approval
+```mermaid
+flowchart TD
+    A["検査ワーカー群\n（並列実行）"] -->|"InspectResult\nscore / detected / details"| B["変換ワーカー群\n（直列実行）"]
+    B --> C["ポリシーエンジン\nrules を上から順に評価\n最初にマッチしたルールを実行"]
+    C -->|deliver| D(["配送先 MTA へ SMTP 送信"])
+    C -->|quarantine| E(["隔離\nMinIO + DB"])
+    C -->|reject| F(["バウンス返却"])
+    C -->|approval| G(["承認キュー保留"])
 ```
 
 ---

@@ -34,54 +34,35 @@ MTA（Postfix 等）が一度キューに受け付けたメールを受け取り
 
 ## 全体アーキテクチャ図
 
-```
-インターネット
-    |
-    | SMTP（port 25）
-    v
-┌─────────────────────────┐
-│  受信 MTA（Postfix 等）  │  ← MailShield のスコープ外
-│  ・TLS 終端              │    自前の MTA を用意する
-│  ・SPF/DKIM/DMARC 検証  │
-│  ・キューイング           │
-└────────────┬────────────┘
-             │ content_filter（SMTP port 10025）
-             v
-┌────────────────────────────────────────────────────────┐
-│                   MailShield                           │
-│                                                        │
-│  smtp-gateway                                          │
-│  ┌────────────────────────────────────────────────┐   │
-│  │ 1. 接続元ホワイトリスト検証                      │   │
-│  │ 2. 原本 EML を MinIO に保存                     │   │
-│  │ 3. メタデータを MariaDB に記録                   │   │
-│  │ 4. 検査パイプライン（ワーカー並列実行）           │   │
-│  │ 5. 変換パイプライン（ワーカー直列実行）           │   │
-│  │ 6. ポリシーエンジン（ルール評価・アクション決定）  │   │
-│  └────────────────────────────────────────────────┘   │
-│       |            |              |                    │
-│    deliver       quarantine     reject                 │
-└───────|────────────|──────────────|────────────────────┘
-        |            |              |
-        |            v              v
-        |    ┌──────────────┐  送信者へバウンス
-        |    │  MinIO       │  （SMTP エラー返却）
-        |    │ （EML 保存）  │
-        |    └──────────────┘
-        |
-        v SMTP
-┌─────────────────────────┐
-│  再インジェクト MTA      │  ← 配送先（通常は受信 MTA と同一または別ポート）
-│  （または直接配送先）    │
-└─────────────────────────┘
-        |
-        v
-    最終的な配送先（受信者のメールボックス）
+```mermaid
+flowchart TD
+    Internet([インターネット]) -->|"SMTP :25"| MTA
 
+    subgraph MTA["受信 MTA（Postfix 等） ※ MailShield スコープ外"]
+        MTA_desc["TLS 終端 / SPF・DKIM・DMARC 検証 / キューイング"]
+    end
 
-─ 通知メール（隔離通知・OTP メール）─────────────────────────
+    MTA -->|"content_filter\nSMTP :10025"| GW
 
-smtp-gateway ──SMTP──> 通知用 SMTP リレー ──> 受信者のメールアドレス
+    subgraph GW["MailShield / smtp-gateway"]
+        direction TB
+        S1["① 接続元ホワイトリスト検証"]
+        S2["② 原本 EML を MinIO に保存"]
+        S3["③ メタデータを MariaDB に記録"]
+        S4["④ 検査パイプライン（ワーカー並列実行）"]
+        S5["⑤ 変換パイプライン（ワーカー直列実行）"]
+        S6["⑥ ポリシーエンジン（ルール評価・アクション決定）"]
+        S1 --> S2 --> S3 --> S4 --> S5 --> S6
+    end
+
+    S6 -->|deliver| Reinject["再インジェクト MTA\n（policy.yaml の destination）"]
+    S6 -->|quarantine| MinIO[("MinIO\nEML 保存")]
+    S6 -->|reject| Bounce(["送信者へバウンス\nSMTP エラー返却"])
+
+    Reinject --> Mailbox([受信者のメールボックス])
+
+    GW -->|"通知メール\n隔離通知・OTP 等"| NotifySMTP["通知用 SMTP リレー"]
+    NotifySMTP --> Recipient([受信者のメールアドレス])
 ```
 
 ---
@@ -196,31 +177,35 @@ open http://localhost:8025   # Mailpit
 
 ### 最小構成（Docker Compose + 既存 MTA）
 
-```
-[既存の Postfix]
-    ↓ content_filter（port 10025）
-[MailShield ホスト]
-    ├─ smtp-gateway
-    ├─ MariaDB
-    ├─ RabbitMQ
-    ├─ MinIO
-    └─ Redis（Docker Compose infra プロファイル）
-    ↓ deliver → 既存 Postfix の port 10026
-[既存の Postfix]
-    ↓
-[メールボックスサーバー]
+```mermaid
+flowchart TD
+    ExtMTA["既存の Postfix"] -->|"content_filter :10025"| MS
+
+    subgraph MS["MailShield ホスト（Docker Compose infra）"]
+        GW["smtp-gateway"]
+        DB[("MariaDB")]
+        MQ[("RabbitMQ")]
+        S3[("MinIO")]
+        RD[("Redis")]
+    end
+
+    MS -->|"deliver → :10026"| ExtMTA
+    ExtMTA --> Mailbox(["メールボックスサーバー"])
 ```
 
 ### 外部インフラを使う構成
 
-```
-[既存の Postfix]
-    ↓ content_filter（port 10025）
-[MailShield ホスト]
-    ├─ smtp-gateway（Docker）
-    └─ api-server（Docker）
-    ↓ MariaDB, MinIO, Redis, RabbitMQ は外部サービスを .env で指定
-[クラウドサービス群]
+```mermaid
+flowchart TD
+    ExtMTA["既存の Postfix"] -->|"content_filter :10025"| MS
+
+    subgraph MS["MailShield ホスト（Docker）"]
+        GW["smtp-gateway"]
+        API["api-server"]
+    end
+
+    MS <-->|".env で接続先を指定"| Cloud["クラウドサービス群\nMariaDB / MinIO / Redis / RabbitMQ"]
+    MS -->|deliver| ExtMTA
 ```
 
 ---

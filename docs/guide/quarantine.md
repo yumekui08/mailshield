@@ -7,15 +7,15 @@
 
 ## 隔離の仕組み
 
-```
-[ポリシーエンジン] → quarantine アクション決定
-        ↓
-MariaDB: mail_messages.status = "quarantined"
-MinIO:   /{direction}/raw/.../uuid.eml （原本保存済み）
-        ↓
-受信者へ即時通知メール送信（設定で enabled の場合）
-        ↓
-[管理画面 / API で解放・削除]
+```mermaid
+flowchart TD
+    A["ポリシーエンジン\nquarantine アクション決定"] --> B["MariaDB\nstatus = quarantined"]
+    A --> C[("MinIO\n原本 EML 保存済み")]
+    B --> D{"quarantine_notification\nenabled?"}
+    D -->|true| E["受信者へ即時通知メール送信"]
+    D -->|false| F["待機"]
+    E --> G(["管理画面 / API で\n解放・削除"])
+    F --> G
 ```
 
 ---
