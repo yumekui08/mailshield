@@ -1,0 +1,14 @@
+rules:
+  - name: av_detected
+    condition: "av-worker.detected == true"
+    action: quarantine
+
+  - name: virus_subject
+    condition: "subject-virus-inspector.detected == true"
+    action: deliver
+    destination: "mailpit:1025"
+
+  - name: default_deliver
+    condition: "true"
+    action: deliver
+    destination: "mailpit:1025"

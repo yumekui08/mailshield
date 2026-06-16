@@ -1,0 +1,45 @@
+# Postfix マスタープロセス設定 (MailShield OSS 開発環境用)
+#
+# サービス名      type  private unpriv chroot wakeup maxproc コマンド
+smtp              inet  n       -      n      -      -       smtpd
+  -o content_filter=smtp:[smtp-gateway]:10025
+
+# after-queue content filter からの再インジェクト受付 (port 10026)
+# smtp-gateway がメール処理後にここへ返す
+# content_filter= を空にしてループを防ぐ
+# smtpd_milters= を空にして Rspamd milter の二重適用を防ぐ
+10026             inet  n       -      n      -      -       smtpd
+  -o content_filter=
+  -o smtpd_milters=
+  -o non_smtpd_milters=
+  -o mynetworks=0.0.0.0/0
+  -o smtpd_recipient_restrictions=permit_mynetworks,reject
+  -o local_header_rewrite_clients=
+  -o smtpd_helo_restrictions=
+  -o smtpd_client_restrictions=
+  -o smtpd_sender_restrictions=
+
+pickup            unix  n       -      n      60     1       pickup
+cleanup           unix  n       -      n      -      0       cleanup
+qmgr              unix  n       -      n      300    1       qmgr
+tlsmgr            unix  -       -      n      1000?  1       tlsmgr
+rewrite           unix  -       -      n      -      -       trivial-rewrite
+bounce            unix  -       -      n      -      0       bounce
+defer             unix  -       -      n      -      0       bounce
+trace             unix  -       -      n      -      0       bounce
+verify            unix  -       -      n      -      1       verify
+flush             unix  n       -      n      1000?  0       flush
+proxymap          unix  -       -      n      -      -       proxymap
+proxywrite        unix  -       -      y      -      1       proxymap
+smtp              unix  -       -      n      -      -       smtp
+relay             unix  -       -      n      -      -       smtp
+showq             unix  n       -      n      -      -       showq
+error             unix  -       -      n      -      -       error
+retry             unix  -       -      n      -      -       error
+discard           unix  -       -      n      -      -       discard
+local             unix  -       n      n      -      -       local
+virtual           unix  -       n      n      -      -       virtual
+lmtp              unix  -       -      n      -      -       lmtp
+anvil             unix  -       -      n      -      1       anvil
+scache            unix  -       -      n      -      1       scache
+postlog           unix-dgram n  -      n      -      1       postlogd

@@ -1,0 +1,21 @@
+# header-inspector 設定
+threshold: 60   # このスコア以上で detected=true
+
+scores:
+  spf_fail: 30
+  dkim_fail: 40
+  dmarc_fail: 30
+  reply_to_mismatch: 40
+  brand_spoofing: 60
+
+brand_names:
+  - amazon
+  - google
+  - microsoft
+  - paypal
+  - apple
+  - rakuten
+  - yahoo
+  - ntt
+  - docomo
+  - softbank

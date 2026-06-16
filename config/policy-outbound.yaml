@@ -1,0 +1,12 @@
+rules:
+  - name: dlp_quarantine
+    condition: "dlp-worker.detected == true"
+    action: quarantine
+
+  - name: default_deliver
+    condition: "true"
+    action: deliver
+    # destination: 配送先 MTA の SMTP アドレスを指定する
+    # 例（開発）: "mailpit:1025"
+    # 例（本番）: "smtp-relay.example.com:25"
+    destination: "${MAILSHIELD_DELIVER_DESTINATION:-mailpit:1025}"

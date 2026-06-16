@@ -1,0 +1,44 @@
+# ─── ローカル専用ファイル ───────────────────────────────────────────
+/CLAUDE.md
+/.claude/
+
+# 実装計画ファイル（ローカル作業ログ・Git 追跡対象外）
+docs/PLAN.md
+
+# ─── 環境変数・シークレット ────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Go ビルド成果物 ───────────────────────────────────────────────
+services/smtp-gateway/server
+services/api-server/server
+**/tmp/
+vendor/
+
+# ─── Node.js / フロントエンド ──────────────────────────────────────
+web/node_modules/
+web/dist/
+web/.next/
+web/out/
+web/.nuxt/
+web/.output/
+web/.cache/
+*.tsbuildinfo
+
+# ─── Docker ────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ─── エディタ・IDE ─────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ─── テスト・カバレッジ ────────────────────────────────────────────
+coverage/
+*.coverprofile
+*.out

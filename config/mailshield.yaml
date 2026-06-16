@@ -1,0 +1,174 @@
+server:
+  smtp_port: 10025
+  smtp_hostname: smtp-gateway           # SMTP EHLO/HELO で返すホスト名
+  max_message_size_mb: 50
+  smtp_max_recipients: 100
+  smtp_read_timeout_seconds: 30
+  smtp_write_timeout_seconds: 30
+  handler_timeout_seconds: 60           # 複数ルートの処理も考慮して長めに設定
+  health_port: 8080
+  shutdown_timeout_seconds: 30
+  # 処理後メールの再インジェクト先 MTA
+  # 本番環境: 自前の MTA ホスト名または IP に変更すること
+  # 開発環境: docker-compose dev プロファイルの Postfix（postfix:10026）
+  reinject_host: ${MAILSHIELD_REINJECT_HOST:-postfix}
+  reinject_port: ${MAILSHIELD_REINJECT_PORT:-10026}
+  trusted_sources:                      # smtp-gateway への SMTP 接続を許可するホスト/IP
+    # 本番環境: 自前の MTA の IP またはホスト名に変更すること
+    # 例: - 10.0.0.5
+    - postfix
+    - postfix-submission
+    - 127.0.0.1
+
+storage:
+  backend: minio                        # minio | s3
+  endpoint: minio:9000
+  bucket_eml: mailshield-eml
+  bucket_attachments: mailshield-attachments
+  use_ssl: false
+
+database:
+  driver: mariadb
+  host: mariadb
+  port: 3306
+  name: mailshield
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_max_lifetime_minutes: 5
+
+queue:
+  backend: rabbitmq
+  host: rabbitmq
+  port: 5672
+
+log:
+  level: info          # debug / info / warn / error
+  format: json         # json / text
+  output: stdout       # stdout / syslog
+  syslog_tag: smtp-gateway
+
+# システムメール（隔離通知等）の送信 SMTP 設定
+# 本番環境: 内部 SMTP リレーのホスト名/IP に変更すること（content_filter ループを避けるため
+#           smtp-gateway に再注入する MTA とは別のポートまたは別ホストを使用する）
+# 開発環境: docker-compose dev プロファイルの Mailpit（mailpit:1025）
+notification:
+  smtp_host: ${MAILSHIELD_NOTIFICATION_SMTP_HOST:-mailpit}
+  smtp_port: ${MAILSHIELD_NOTIFICATION_SMTP_PORT:-1025}
+  from_address: noreply@mailshield.internal
+
+# 隔離即時通知: ActionQuarantine 決定時に受信者へ通知メールを送信する
+quarantine_notification:
+  enabled: true
+  ui_base_url: "http://localhost:3000"   # 通知メール内のログインリンクのベース URL
+
+# 添付ファイルダウンロード認証方式（全ルート共通）
+attachment_download:
+  flows:
+    - match: outbound
+      mode: otp
+    - match: inbound
+      mode: auth
+      allowed_roles: [member, owner, admin]
+    - match: internal
+      mode: auth
+      allowed_roles: [member, owner, admin]
+
+# ─────────────────────────────────────────────────────────────
+# ルート定義
+# MAIL FROM / RCPT TO の正規表現に基づいて処理を振り分ける。
+# 設定順に評価し、最初にマッチしたルートが適用される（first-match-wins）。
+# match の from / to を省略すると全アドレスにマッチする。
+# ─────────────────────────────────────────────────────────────
+routes:
+  # ─────────────────────────────────────────────────────
+  # 受信ルート: RCPT TO が内部ドメイン宛てのメール
+  # 外部 → 内部ドメイン（Postfix の inbound から届く）
+  # ─────────────────────────────────────────────────────
+  - name: inbound
+    direction: inbound
+    match:
+      to: "@example\\.com$"
+      to_match: any
+    workers:
+      workers_dir: /app/workers
+      worker_config_dir: /app/config/workers/conf
+      inspect:
+        - name: subject-virus-inspector   # Lua ダミーワーカー（開発用）
+          enabled: true
+          timeout_seconds: 5
+        - name: av-worker                 # ClamAV ウイルス検査
+          enabled: true
+          timeout_seconds: 30
+        - name: dlp-worker                # DLP 検査（受信時は無効）
+          enabled: false
+          timeout_seconds: 30
+        - name: header-inspector          # ヘッダーなりすまし検査
+          enabled: true
+          timeout_seconds: 5
+        - name: url-worker                # URL レピュテーション検査
+          enabled: true
+          timeout_seconds: 15
+        - name: qr-worker                 # QR コード検査
+          enabled: true
+          timeout_seconds: 15
+      transform:
+        - name: sanitize-worker           # HTML 無害化
+          enabled: true
+          order: 1
+        - name: url-rewrite-worker        # URL プロキシ書き換え
+          enabled: true
+          order: 2
+        - name: subject-virus-transformer # Lua ダミーワーカー（開発用）
+          enabled: true
+          order: 3
+        - name: filesep-worker            # 添付ファイル分離
+          enabled: true
+          order: 4
+    policy:
+      rules_file: /app/config/policy-inbound.yaml
+
+  # ─────────────────────────────────────────────────────
+  # 送信ルート: MAIL FROM が内部ドメインのメール
+  # 内部ドメイン → 外部（Postfix の submission から届く）
+  # ─────────────────────────────────────────────────────
+  - name: outbound
+    direction: outbound
+    match:
+      from: "@example\\.com$"
+    workers:
+      workers_dir: /app/workers
+      worker_config_dir: /app/config/workers/conf
+      inspect:
+        - name: dlp-worker                # DLP 検査（送信時は情報漏洩防止）
+          enabled: true
+          timeout_seconds: 60
+        - name: av-worker                 # ウイルス検査（送信時は無効）
+          enabled: false
+          timeout_seconds: 30
+        - name: subject-virus-inspector
+          enabled: false
+          timeout_seconds: 5
+        - name: header-inspector
+          enabled: false
+          timeout_seconds: 5
+        - name: url-worker
+          enabled: false
+          timeout_seconds: 15
+        - name: qr-worker
+          enabled: false
+          timeout_seconds: 15
+      transform:
+        - name: sanitize-worker           # 送信時はコンテンツを変更しない
+          enabled: false
+          order: 1
+        - name: url-rewrite-worker
+          enabled: false
+          order: 2
+        - name: subject-virus-transformer
+          enabled: false
+          order: 3
+        - name: filesep-worker            # 送信時も分離してOTPダウンロードリンクを挿入
+          enabled: true
+          order: 4
+    policy:
+      rules_file: /app/config/policy-outbound.yaml

@@ -1,0 +1,291 @@
+// Package urlcheck はメール本文内の URL を deny リストおよび外部レピュテーション API
+// で検査する inspect ワーカーを実装する。
+// 外部 API は Safe Browsing（非商用）と Web Risk（商用）を設定で切り替えられる。
+package urlcheck
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"github.com/jhillyerd/enmime"
+	"gopkg.in/yaml.v3"
+
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+)
+
+const workerName = "url-worker"
+
+// reputationChecker は外部 URL レピュテーション API の抽象インターフェース。
+// コンシューマー側（本パッケージ）で定義し、実装は safebrowsing.go / webrisk.go が担う。
+type reputationChecker interface {
+	Check(ctx context.Context, urls []string) (hits []string, err error)
+}
+
+// ReputationAPIConfig は外部 API の設定を保持する。
+type ReputationAPIConfig struct {
+	// Backend は使用するバックエンド（none / safe_browsing / web_risk）。
+	Backend string `yaml:"backend"`
+	// APIKey はバックエンドの API キー。環境変数 REPUTATION_API_KEY で上書き可能。
+	APIKey string `yaml:"api_key"`
+}
+
+// ScoresConfig は各検知項目のスコアを保持する。
+type ScoresConfig struct {
+	DenyListMatch    int `yaml:"deny_list_match"`
+	ReputationAPIHit int `yaml:"reputation_api_hit"`
+}
+
+// Config は url-worker の設定を保持する。
+type Config struct {
+	// MaxURLs はメール1通で検査する URL の上限。パフォーマンスとコストを制御する。
+	MaxURLs       int                 `yaml:"max_urls"`
+	DenyList      []string            `yaml:"deny_list"`
+	ReputationAPI ReputationAPIConfig `yaml:"reputation_api"`
+	Scores        ScoresConfig        `yaml:"scores"`
+}
+
+// Worker は URL レピュテーション検査ワーカーである。
+type Worker struct {
+	maxURLs    int
+	denyList   []string // 小文字に正規化済み
+	reputation reputationChecker
+	scores     ScoresConfig
+}
+
+var (
+	urlInTextPattern = regexp.MustCompile(`https?://\S+`)
+	htmlAttrPattern  = regexp.MustCompile(`(?i)(?:href|src)="(https?://[^"]*)"`)
+)
+
+// New は url-worker を初期化する。
+func New(workerConfigDir string) (*Worker, error) {
+	cfg, err := loadConfig(workerConfigDir)
+	if err != nil {
+		return nil, fmt.Errorf("url-worker 設定ロード失敗: %w", err)
+	}
+
+	denyList := make([]string, len(cfg.DenyList))
+	for i, d := range cfg.DenyList {
+		denyList[i] = strings.ToLower(d)
+	}
+
+	apiKey := cfg.ReputationAPI.APIKey
+	if envKey := os.Getenv("REPUTATION_API_KEY"); envKey != "" {
+		apiKey = envKey
+	}
+
+	var checker reputationChecker
+	switch cfg.ReputationAPI.Backend {
+	case "safe_browsing":
+		if apiKey != "" {
+			checker = newSafeBrowsingChecker(apiKey)
+		}
+	case "web_risk":
+		if apiKey != "" {
+			checker = newWebRiskChecker(apiKey)
+		}
+	}
+
+	return &Worker{
+		maxURLs:    cfg.MaxURLs,
+		denyList:   denyList,
+		reputation: checker,
+		scores:     cfg.Scores,
+	}, nil
+}
+
+func (w *Worker) Name() string { return workerName }
+
+// Inspect は EML から URL を抽出し deny リストと外部 API で検査する。
+func (w *Worker) Inspect(ctx context.Context, m *domain.Mail) (*domain.InspectResult, error) {
+	result := &domain.InspectResult{
+		WorkerName: workerName,
+		Details:    make(map[string]any),
+	}
+
+	urls := w.extractURLs(m.RawEML)
+	result.Details["total_urls_checked"] = len(urls)
+
+	if len(urls) == 0 {
+		return result, nil
+	}
+
+	var denyHits, apiHits []string
+	maxScore := 0
+
+	// 1. deny リスト照合（ローカル・高速）
+	for _, u := range urls {
+		if w.isDenied(u) {
+			denyHits = append(denyHits, u)
+			if w.scores.DenyListMatch > maxScore {
+				maxScore = w.scores.DenyListMatch
+			}
+		}
+	}
+
+	// 2. 外部 API 照合（deny リストにない URL のみ）
+	if w.reputation != nil {
+		toCheck := exclude(urls, denyHits)
+		if len(toCheck) > 0 {
+			hits, err := w.reputation.Check(ctx, toCheck)
+			if err != nil {
+				// API エラーは Details に記録して続行（deny リスト結果は維持）
+				result.Details["api_error"] = err.Error()
+			} else {
+				apiHits = hits
+				if len(hits) > 0 && w.scores.ReputationAPIHit > maxScore {
+					maxScore = w.scores.ReputationAPIHit
+				}
+			}
+		}
+	}
+
+	if len(denyHits) > 0 {
+		result.Details["deny_list_hits"] = denyHits
+	}
+	if len(apiHits) > 0 {
+		result.Details["reputation_api_hits"] = apiHits
+	}
+
+	if maxScore > 100 {
+		maxScore = 100
+	}
+	result.Score = maxScore
+	result.Detected = len(denyHits) > 0 || len(apiHits) > 0
+
+	return result, nil
+}
+
+// extractURLs は EML からユニークな URL を最大 maxURLs 件抽出する。
+// enmime パース失敗時は raw テキストから直接抽出する。
+func (w *Worker) extractURLs(rawEML []byte) []string {
+	env, err := enmime.ReadEnvelope(bytes.NewReader(rawEML))
+	if err != nil {
+		return w.extractFromRaw(string(rawEML))
+	}
+
+	seen := make(map[string]struct{})
+	var result []string
+
+	addURL := func(raw string) {
+		u := strings.TrimRight(raw, ".,;:!?\"')")
+		if u == "" {
+			return
+		}
+		key := strings.ToLower(u)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		if len(result) >= w.maxURLs {
+			return
+		}
+		seen[key] = struct{}{}
+		result = append(result, u)
+	}
+
+	for _, u := range urlInTextPattern.FindAllString(env.Text, -1) {
+		addURL(u)
+	}
+	for _, m := range htmlAttrPattern.FindAllStringSubmatch(env.HTML, -1) {
+		if len(m) == 2 {
+			addURL(m[1])
+		}
+	}
+	return result
+}
+
+func (w *Worker) extractFromRaw(text string) []string {
+	seen := make(map[string]struct{})
+	var result []string
+	for _, u := range urlInTextPattern.FindAllString(text, -1) {
+		u = strings.TrimRight(u, ".,;:!?\"')")
+		if u == "" {
+			continue
+		}
+		key := strings.ToLower(u)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		if len(result) >= w.maxURLs {
+			break
+		}
+		seen[key] = struct{}{}
+		result = append(result, u)
+	}
+	return result
+}
+
+// isDenied はホスト名が deny リストに一致するか確認する（サブドメインも対象）。
+func (w *Worker) isDenied(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, d := range w.denyList {
+		if host == d || strings.HasSuffix(host, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+// exclude は all スライスから remove に含まれる要素を除外して返す。
+func exclude(all, remove []string) []string {
+	if len(remove) == 0 {
+		return all
+	}
+	removeSet := make(map[string]struct{}, len(remove))
+	for _, r := range remove {
+		removeSet[strings.ToLower(r)] = struct{}{}
+	}
+	var result []string
+	for _, u := range all {
+		if _, ok := removeSet[strings.ToLower(u)]; !ok {
+			result = append(result, u)
+		}
+	}
+	return result
+}
+
+func loadConfig(dir string) (*Config, error) {
+	path := filepath.Join(dir, workerName+".yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return defaultConfig(), nil
+		}
+		return nil, fmt.Errorf("設定ファイル読み込み失敗 (%s): %w", path, err)
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("設定ファイルパース失敗 (%s): %w", path, err)
+	}
+	if cfg.MaxURLs <= 0 {
+		cfg.MaxURLs = defaultConfig().MaxURLs
+	}
+	if cfg.Scores == (ScoresConfig{}) {
+		cfg.Scores = defaultConfig().Scores
+	}
+	return &cfg, nil
+}
+
+func defaultConfig() *Config {
+	return &Config{
+		MaxURLs: 20,
+		ReputationAPI: ReputationAPIConfig{
+			Backend: "none",
+		},
+		Scores: ScoresConfig{
+			DenyListMatch:    100,
+			ReputationAPIHit: 90,
+		},
+	}
+}

@@ -1,0 +1,33 @@
+# Postfix メイン設定 (MailShield OSS 送信MTA)
+# 役割: 内部クライアントから port 587 でメールを受け取り、after-queue content filter として
+#       smtp-gateway (port 10025) に転送する（受信 MTA と同じ smtp-gateway を使用）
+# このファイルは docker-entrypoint.sh によって envsubst で展開される
+
+compatibility_level = 3.6
+myhostname = ${MAILSHIELD_SUBMISSION_HOSTNAME}
+mydomain = ${MAILSHIELD_SUBMISSION_HOSTNAME}
+myorigin = $mydomain
+mydestination = $myhostname, localhost
+relay_domains =
+
+# リスナー設定
+inet_interfaces = all
+inet_protocols = ipv4
+
+# 受信制限（Docker 環境では 0.0.0.0/0）
+mynetworks = 0.0.0.0/0
+
+# メールボックスは使わない（after-queue filter へ全転送）
+local_transport = error:local mail delivery is disabled
+
+# after-queue content filter 設定
+# smtp-gateway (port 10025) へ転送する（受信と同じインスタンス、ルーティングで方向を判定）
+content_filter = smtp:[smtp-gateway]:10025
+
+# メッセージサイズ上限 50MB
+message_size_limit = 52428800
+
+# Rspamd milter は使わない（送信メールは SPF/DKIM 検証不要）
+
+# ログ
+maillog_file = /dev/stdout

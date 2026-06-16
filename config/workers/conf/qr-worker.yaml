@@ -1,0 +1,31 @@
+# qr-worker 設定
+# メール添付画像から QR コードをデコードし、埋め込まれた URL をレピュテーション検査する
+
+# 1通のメールで検査する画像の上限
+max_images: 10
+
+# QR コードデコード（gozxing・外部サービス不要）
+qr_decode:
+  enabled: true
+
+# OCR テキスト抽出（Tesseract REST API・オプション）
+# 画像内に URL が文字として写っている場合に検出する
+ocr:
+  enabled: false
+  endpoint: "http://tesseract:8884"
+  timeout_seconds: 30
+
+# deny リスト（ホスト名の完全一致またはサブドメイン一致）
+deny_list: []
+#  - malware.example.com
+
+# 外部レピュテーション API
+reputation_api:
+  # backend: none | safe_browsing | web_risk
+  backend: none
+  # api_key: ""  # 環境変数 REPUTATION_API_KEY でも設定可
+
+# スコア設定（0-100）
+scores:
+  deny_list_match: 100
+  reputation_api_hit: 90

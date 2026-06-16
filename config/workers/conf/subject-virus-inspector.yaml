@@ -1,0 +1,12 @@
+# subject-virus-inspector ワーカー設定
+#
+# Lua スクリプト内で inspect(mail, config) の config テーブルとして参照できる。
+
+# 検知対象キーワード（大文字小文字を区別しない部分一致）
+keywords:
+  - virus
+  - malware
+  - trojan
+
+# 検知時のスコア（0〜100）
+score: 100

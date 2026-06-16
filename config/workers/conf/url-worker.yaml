@@ -1,0 +1,24 @@
+# url-worker 設定
+# メール本文から URL を抽出し deny リスト・外部レピュテーション API で検査する
+
+# メール1通で検査する URL の上限（API コスト・パフォーマンス制御）
+max_urls: 20
+
+# deny リスト（ホスト名の完全一致またはサブドメイン一致）
+deny_list: []
+#  - malware.example.com
+#  - phishing.example.net
+
+# 外部レピュテーション API
+reputation_api:
+  # backend: none | safe_browsing | web_risk
+  #   none         - 外部 API を使わない（deny リストのみ）
+  #   safe_browsing - Google Safe Browsing API v4（非商用利用向け・無料）
+  #   web_risk      - Google Web Risk API v1（商用利用向け・Google Cloud 従量課金）
+  backend: none
+  # api_key: ""  # 環境変数 REPUTATION_API_KEY でも設定可
+
+# スコア設定（0-100）
+scores:
+  deny_list_match: 100      # deny リストに一致した URL のスコア
+  reputation_api_hit: 90    # 外部 API で検出された URL のスコア

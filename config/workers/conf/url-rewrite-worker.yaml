@@ -1,0 +1,19 @@
+# url-rewrite-worker 設定
+# proxy_base_url: 書き換え後 URL のベース。末尾に元 URL（エンコード済み）を付加する。
+# 本番運用時は実際のプロキシサービスの URL に変更すること。
+proxy_base_url: "https://safelink.example.com/check?url="
+
+# url_encode: 元 URL のエンコード方式（base64 / rawurl / none）
+url_encode: base64
+
+# rewrite_html: HTML 本文の href/src 属性を書き換える
+rewrite_html: true
+
+# rewrite_text: プレーンテキスト本文の URL を書き換える
+rewrite_text: true
+
+# skip_domains: これらのドメインの URL は書き換えない（サブドメインも対象）
+skip_domains:
+  - internal.test
+  - localhost
+  - 127.0.0.1

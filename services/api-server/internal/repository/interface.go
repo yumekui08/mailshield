@@ -1,0 +1,135 @@
+// Package repository はRepositoryインターフェースを定義する。
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+)
+
+// Repository はDBへのアクセスを抽象化するインターフェースである。
+type Repository interface {
+	// ListMessages はメッセージ一覧と総件数を返す。
+	ListMessages(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error)
+	// GetMessage はメッセージの詳細情報（検査結果を含む）を返す。
+	GetMessage(ctx context.Context, id string) (*domain.MessageDetail, error)
+	// ListQuarantine は隔離メッセージ一覧と総件数を返す（status=quarantined固定）。
+	ListQuarantine(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error)
+	// GetQuarantine は隔離メッセージの詳細情報を返す。
+	GetQuarantine(ctx context.Context, id string) (*domain.MessageDetail, error)
+	// UpdateMessageStatus はメッセージの処理状態を更新する。
+	UpdateMessageStatus(ctx context.Context, id string, status domain.MessageStatus) error
+	// BulkUpdateMessageStatus は複数メッセージの処理状態を一括更新する。status=quarantined のものだけ対象。
+	BulkUpdateMessageStatus(ctx context.Context, ids []string, status domain.MessageStatus) error
+
+	// FindUserByEmail はメールアドレスでユーザーを検索する。
+	FindUserByEmail(ctx context.Context, email string) (*User, error)
+	// CreateUser はユーザーを登録する。
+	CreateUser(ctx context.Context, user *User) error
+	// CountUsers はユーザー数を返す。
+	CountUsers(ctx context.Context) (int, error)
+	// ListUsers はユーザー一覧を返す。
+	ListUsers(ctx context.Context) ([]User, error)
+	// UpdateUserPassword はユーザーのパスワードハッシュを更新する。
+	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
+	// UpdateUserRole はユーザーのロールを更新する。
+	UpdateUserRole(ctx context.Context, userID string, role domain.Role) error
+	// DeleteUser はユーザーを論理削除する（is_active=0）。
+	DeleteUser(ctx context.Context, userID string) error
+
+	// CreateMailbox はメールボックスを登録する。
+	CreateMailbox(ctx context.Context, mailbox *Mailbox) error
+	// ListMailboxes はメールボックス一覧を返す。
+	ListMailboxes(ctx context.Context) ([]Mailbox, error)
+	// GetMailbox は指定メールボックスを返す。見つからない場合は nil, nil を返す。
+	GetMailbox(ctx context.Context, id string) (*Mailbox, error)
+	// UpdateMailbox はメールボックスの表示名と有効フラグを更新する。
+	UpdateMailbox(ctx context.Context, id, displayName string, isActive bool) error
+	// DeleteMailbox はメールボックスを削除する（割り当ても CASCADE 削除）。
+	DeleteMailbox(ctx context.Context, id string) error
+
+	// ListAssignments はメールボックスの割り当て一覧を返す。
+	ListAssignments(ctx context.Context, mailboxID string) ([]MailboxAssignment, error)
+	// AddAssignment はメールボックスにユーザーを割り当てる。重複は無視する。
+	AddAssignment(ctx context.Context, assignment *MailboxAssignment) error
+	// RemoveAssignment はメールボックスからユーザーの割り当てを削除する。
+	RemoveAssignment(ctx context.Context, mailboxID, userID string, role domain.AssignmentRole) error
+
+	// GetMailboxAddressesForUser は指定ロールを持つユーザーのメールボックスアドレス一覧を返す。
+	// 隔離一覧の可視性フィルターに使用する。
+	GetMailboxAddressesForUser(ctx context.Context, userID string, roles []domain.AssignmentRole) ([]string, error)
+
+	// GetStats はダッシュボード表示用の集計統計を返す。
+	// filter が nil の場合は全体の統計を返す（admin/operator 向け）。
+	// filter が指定された場合はメールボックス可視性で絞り込んだ統計を返す（viewer 向け）。
+	GetStats(ctx context.Context, filter *domain.MailboxVisibilityFilter) (*domain.Stats, error)
+
+	// ListAttachmentsByMessage はメッセージに紐づく添付ファイル一覧を返す（削除済み除く）。
+	ListAttachmentsByMessage(ctx context.Context, messageID string) ([]domain.Attachment, error)
+	// ListAttachmentsByToken は download_token に紐づく添付ファイル一覧を返す（削除済み除く）。
+	ListAttachmentsByToken(ctx context.Context, downloadToken string) ([]domain.Attachment, error)
+	// GetAttachmentByToken は download_token とファイル名で添付ファイルを取得する。
+	GetAttachmentByToken(ctx context.Context, downloadToken, filename string) (*domain.Attachment, error)
+	// ListAttachmentsByTokenPublic は download_token のみで添付ファイル一覧を返す（認証不要）。
+	ListAttachmentsByTokenPublic(ctx context.Context, downloadToken string) ([]domain.Attachment, error)
+	// GetAttachmentByTokenPublic は download_token とファイル名で添付ファイルを取得する（認証不要）。
+	GetAttachmentByTokenPublic(ctx context.Context, downloadToken, filename string) (*domain.Attachment, error)
+	// GetAttachmentToAddressesByToken は download_token に紐づく元メッセージの to_addresses を返す。
+	// mode=auth のメールボックスロール確認に使用する。
+	GetAttachmentToAddressesByToken(ctx context.Context, downloadToken string) ([]string, error)
+	// DisableAttachment は添付ファイルのダウンロードを無効化する。
+	DisableAttachment(ctx context.Context, id string, disabled bool) error
+	// DeleteAttachment は添付ファイルをソフトデリートする。
+	DeleteAttachment(ctx context.Context, id string) error
+
+	// CreateAuditLog は監査ログを1件記録する。
+	CreateAuditLog(ctx context.Context, log *domain.AuditLog) error
+	// ListAuditLogs は監査ログを絞り込み・ページネーションして返す。
+	ListAuditLogs(ctx context.Context, q domain.AuditLogQuery) ([]domain.AuditLog, int, error)
+
+	// CreateAPIKey は API キーを登録する。keyHash は SHA-256 ハッシュ値。
+	CreateAPIKey(ctx context.Context, key *domain.APIKey, keyHash string) error
+	// ListAPIKeys は API キー一覧を返す（revoked 含む）。
+	ListAPIKeys(ctx context.Context) ([]domain.APIKey, error)
+	// FindAPIKeyByHash は key_hash で API キーを検索する。見つからない場合は nil, nil。
+	FindAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	// RevokeAPIKey は API キーを即時失効させる。
+	RevokeAPIKey(ctx context.Context, id string) error
+	// UpdateAPIKeyLastUsed は last_used_at を現在時刻に更新する。
+	UpdateAPIKeyLastUsed(ctx context.Context, id string) error
+}
+
+// Mailbox はメールボックス情報を保持する。
+type Mailbox struct {
+	ID           string
+	EmailAddress string
+	DisplayName  string
+	IsActive     bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// MailboxAssignment はメールボックスとユーザーの割り当て情報を保持する。
+type MailboxAssignment struct {
+	ID        string
+	MailboxID string
+	UserID    string
+	Role      domain.AssignmentRole
+	// 表示用（JOIN して取得）
+	UserEmail       string
+	UserDisplayName string
+	CreatedAt       time.Time
+}
+
+// User はスタンドアロン認証のユーザー情報を保持する。
+type User struct {
+	ID           string
+	Email        string
+	DisplayName  string
+	PasswordHash string
+	Role         domain.Role
+	IsActive     bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}

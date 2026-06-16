@@ -1,0 +1,331 @@
+services:
+
+  # ═══════════════════════════════════════════════════════════════
+  # コア（profile なし = 常時起動）
+  # ═══════════════════════════════════════════════════════════════
+
+  smtp-gateway:
+    build:
+      context: ./services/smtp-gateway
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"     # ヘルスチェック
+    environment:
+      CONFIG_FILE: /app/config/mailshield.yaml
+      DB_HOST:     ${DB_HOST:-mariadb}
+      DB_PORT:     ${DB_PORT:-3306}
+      DB_NAME:     ${DB_NAME:-mailshield}
+      DB_USER:     ${DB_USER:-mailshield}
+      DB_PASSWORD: ${DB_PASSWORD:-mailshield}
+      MINIO_ENDPOINT:   ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-mailshield}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-mailshield}
+      MINIO_USE_SSL:    ${MINIO_USE_SSL:-false}
+      RABBITMQ_HOST:     ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT:     ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER:     ${RABBITMQ_USER:-mailshield}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-mailshield}
+    volumes:
+      - ./config:/app/config:ro
+      - ./workers:/app/workers:ro
+    depends_on:
+      mariadb:
+        condition: service_healthy
+        required: false   # infra profile が無効なら外部DBを使うためスキップ
+      rabbitmq:
+        condition: service_healthy
+        required: false
+      minio:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ═══════════════════════════════════════════════════════════════
+  # 同梱インフラ（profile: infra）
+  # 外部サービスに切り替える場合は .env で接続先を上書きし、
+  # このprofileを起動コマンドから外すだけでよい
+  # ═══════════════════════════════════════════════════════════════
+
+  mariadb:
+    profiles: [infra]
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-rootpassword}
+      MARIADB_DATABASE:      ${DB_NAME:-mailshield}
+      MARIADB_USER:          ${DB_USER:-mailshield}
+      MARIADB_PASSWORD:      ${DB_PASSWORD:-mailshield}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./infra/mariadb/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    profiles: [infra]
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-mailshield}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-mailshield}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    ports:
+      - "15672:15672"   # 管理UI（開発時のみ。本番はTraefik経由を推奨）
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    profiles: [infra]
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER:     ${MINIO_ACCESS_KEY:-mailshield}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-mailshield}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"   # S3 互換 API（presigned URL のダウンロード先）
+      - "9001:9001"   # コンソールUI（開発時のみ。本番はTraefik経由を推奨）
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    profiles: [infra]
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ENDPOINT:      ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ROOT_USER:     ${MINIO_ACCESS_KEY:-mailshield}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-mailshield}
+    volumes:
+      - ./infra/minio/init.sh:/init.sh:ro
+    entrypoint: ["/bin/sh", "/init.sh"]
+    restart: "no"
+
+  redis:
+    profiles: [infra]
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ═══════════════════════════════════════════════════════════════
+  # 開発用 MTA（profile: dev）
+  # 動作確認用の Postfix + Rspamd。本番環境では自前の MTA を使うこと。
+  # 参考設定: examples/mta/
+  # ═══════════════════════════════════════════════════════════════
+
+  rspamd:
+    profiles: [dev]
+    image: rspamd/rspamd:latest
+    restart: unless-stopped
+    volumes:
+      - ./examples/mta/rspamd/local.d:/etc/rspamd/local.d:ro
+      - rspamd_data:/var/lib/rspamd
+    healthcheck:
+      test: ["CMD", "rspamadm", "control", "stat"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  postfix:
+    profiles: [dev]
+    build:
+      context: ./examples/mta/postfix
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "25:25"     # SMTP 受信
+    environment:
+      # 受信するドメイン（カンマ区切りで複数指定可）
+      # 例: MAILSHIELD_RELAY_DOMAINS=example.com,example.org
+      MAILSHIELD_RELAY_DOMAINS: ${MAILSHIELD_RELAY_DOMAINS:-internal.test}
+      # このMTAのホスト名
+      MAILSHIELD_MTA_HOSTNAME:  ${MAILSHIELD_MTA_HOSTNAME:-mail.internal.test}
+    depends_on:
+      smtp-gateway:
+        condition: service_healthy
+      rspamd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "postfix", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postfix-submission:
+    profiles: [dev]
+    build:
+      context: ./examples/mta/postfix-submission
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "587:587"     # SMTP submission（内部ユーザー向け）
+    environment:
+      MAILSHIELD_SUBMISSION_HOSTNAME: ${MAILSHIELD_MTA_HOSTNAME:-mail.internal.test}
+    depends_on:
+      smtp-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "postfix", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ═══════════════════════════════════════════════════════════════
+  # スキャナー（profile: scanners）
+  # ═══════════════════════════════════════════════════════════════
+
+  clamav:
+    profiles: [scanners]
+    image: clamav/clamav:latest
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 180s   # ウイルスDB のロードに時間がかかる
+
+  tika:
+    profiles: [scanners]
+    image: apache/tika:latest
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9998/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tesseract:
+    profiles: [scanners]
+    image: hertzg/tesseract-server:latest
+    restart: unless-stopped
+    environment:
+      - PORT=8884
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8884/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ═══════════════════════════════════════════════════════════════
+  # 開発ツール（profile: dev）
+  # ═══════════════════════════════════════════════════════════════
+
+  mailpit:
+    profiles: [dev]
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP（policy-engine の deliver 先）
+      - "8025:8025"   # Web UI
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/livez"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ═══════════════════════════════════════════════════════════════
+  # API サーバー（profile: api）
+  # ═══════════════════════════════════════════════════════════════
+
+  api-server:
+    profiles: [api]
+    build:
+      context: ./services/api-server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8090:8090"   # REST API
+    environment:
+      CONFIG_FILE: /app/config/api-server.yaml
+      DB_HOST:     ${DB_HOST:-mariadb}
+      DB_PORT:     ${DB_PORT:-3306}
+      DB_NAME:     ${DB_NAME:-mailshield}
+      DB_USER:     ${DB_USER:-mailshield}
+      DB_PASSWORD: ${DB_PASSWORD:-mailshield}
+      REDIS_HOST:  ${REDIS_HOST:-redis}
+      REDIS_PORT:  ${REDIS_PORT:-6379}
+      MINIO_ENDPOINT:   ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-mailshield}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-mailshield}
+      MINIO_USE_SSL:    ${MINIO_USE_SSL:-false}
+      NOTIFICATION_AUTH_PASS: ${NOTIFICATION_AUTH_PASS:-}
+      OIDC_CLIENT_SECRET:     ${OIDC_CLIENT_SECRET:-}
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      mariadb:
+        condition: service_healthy
+        required: false   # infra profile が無効なら外部DBを使うためスキップ
+      redis:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    profiles: [api]
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:80"   # http://localhost:3000 でアクセス
+    depends_on:
+      api-server:
+        condition: service_healthy
+        required: false   # api profile が無効でも起動できるようスキップ可
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ═══════════════════════════════════════════════════════════════
+  # リバースプロキシ（profile: traefik）  ※ 将来実装
+  # ═══════════════════════════════════════════════════════════════
+
+  # traefik:
+  #   profiles: [traefik]
+  #   image: traefik:v3
+  #   ...
+
+volumes:
+  mariadb_data:
+  rabbitmq_data:
+  minio_data:
+  redis_data:
+  rspamd_data:
+  clamav_db:

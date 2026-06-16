@@ -1,0 +1,180 @@
+package smtp
+
+import (
+	"testing"
+
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+)
+
+func TestExtractSubject(t *testing.T) {
+	tests := []struct {
+		name string
+		eml  string
+		want string
+	}{
+		{
+			name: "Subjectヘッダーを取り出す",
+			eml:  "From: sender@example.com\nSubject: Hello World\nTo: user@example.com\n\nBody",
+			want: "Hello World",
+		},
+		{
+			name: "subject: と小文字でも取り出せる",
+			eml:  "From: sender@example.com\nsubject: hello world\n\nBody",
+			want: "hello world",
+		},
+		{
+			name: "Subjectがない場合は空文字列",
+			eml:  "From: sender@example.com\nTo: user@example.com\n\nBody",
+			want: "",
+		},
+		{
+			name: "空行より後のSubjectは取得しない",
+			eml:  "From: sender@example.com\n\nSubject: In Body",
+			want: "",
+		},
+		{
+			name: "空のEMLは空文字列",
+			eml:  "",
+			want: "",
+		},
+		{
+			name: "前後のスペースをトリムする",
+			eml:  "Subject:   spaces around   \n\nBody",
+			want: "spaces around",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractSubject([]byte(tt.eml))
+			if got != tt.want {
+				t.Errorf("extractSubject() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractAuthResults(t *testing.T) {
+	tests := []struct {
+		name     string
+		eml      string
+		wantSPF  domain.AuthResult
+		wantDKIM domain.AuthResult
+		wantDMARC domain.AuthResult
+	}{
+		{
+			name: "Authentication-Resultsヘッダーがない場合はすべてnone",
+			eml:  "From: sender@example.com\nSubject: test\n\nBody",
+			wantSPF: domain.AuthNone, wantDKIM: domain.AuthNone, wantDMARC: domain.AuthNone,
+		},
+		{
+			name: "SPF/DKIM/DMARCがすべてpass",
+			eml: "From: sender@example.com\nAuthentication-Results: postfix;" +
+				" spf=pass smtp.mailfrom=sender@example.com;" +
+				" dkim=pass header.d=example.com;" +
+				" dmarc=pass (p=QUARANTINE) header.from=example.com\n\nBody",
+			wantSPF: domain.AuthPass, wantDKIM: domain.AuthPass, wantDMARC: domain.AuthPass,
+		},
+		{
+			name: "SPF/DKIM/DMARCがすべてfail",
+			eml: "From: sender@example.com\nAuthentication-Results: postfix;" +
+				" spf=fail smtp.mailfrom=sender@example.com;" +
+				" dkim=fail header.d=example.com;" +
+				" dmarc=fail\n\nBody",
+			wantSPF: domain.AuthFail, wantDKIM: domain.AuthFail, wantDMARC: domain.AuthFail,
+		},
+		{
+			name: "softfailはfailとして扱う",
+			eml: "From: sender@example.com\nAuthentication-Results: postfix;" +
+				" spf=softfail smtp.mailfrom=sender@example.com;" +
+				" dkim=none; dmarc=none\n\nBody",
+			wantSPF: domain.AuthFail, wantDKIM: domain.AuthNone, wantDMARC: domain.AuthNone,
+		},
+		{
+			name: "SPFのみpassで残りはnone",
+			eml: "From: sender@example.com\nAuthentication-Results: postfix;" +
+				" spf=pass smtp.mailfrom=sender@example.com\n\nBody",
+			wantSPF: domain.AuthPass, wantDKIM: domain.AuthNone, wantDMARC: domain.AuthNone,
+		},
+		{
+			name: "折り畳みヘッダー（継続行）を正しくパースする",
+			eml: "From: sender@example.com\nAuthentication-Results: postfix;\r\n" +
+				"\tspf=pass smtp.mailfrom=sender@example.com;\r\n" +
+				"\tdkim=pass header.d=example.com;\r\n" +
+				"\tdmarc=pass\n\nBody",
+			wantSPF: domain.AuthPass, wantDKIM: domain.AuthPass, wantDMARC: domain.AuthPass,
+		},
+		{
+			name: "neutralはnoneとして扱う",
+			eml: "From: sender@example.com\nAuthentication-Results: postfix;" +
+				" spf=neutral smtp.mailfrom=sender@example.com;" +
+				" dkim=none; dmarc=none\n\nBody",
+			wantSPF: domain.AuthNone, wantDKIM: domain.AuthNone, wantDMARC: domain.AuthNone,
+		},
+		{
+			name: "結果の後に理由文が続いてもパースできる",
+			eml: "From: sender@example.com\nAuthentication-Results: postfix;" +
+				" dkim=fail (bad signature) header.d=example.com;" +
+				" spf=pass (sender is authorized);" +
+				" dmarc=fail (p=REJECT)\n\nBody",
+			wantSPF: domain.AuthPass, wantDKIM: domain.AuthFail, wantDMARC: domain.AuthFail,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractAuthResults([]byte(tt.eml))
+			if got.SPF != tt.wantSPF {
+				t.Errorf("SPF = %q, want %q", got.SPF, tt.wantSPF)
+			}
+			if got.DKIM != tt.wantDKIM {
+				t.Errorf("DKIM = %q, want %q", got.DKIM, tt.wantDKIM)
+			}
+			if got.DMARC != tt.wantDMARC {
+				t.Errorf("DMARC = %q, want %q", got.DMARC, tt.wantDMARC)
+			}
+		})
+	}
+}
+
+func TestIsTrusted(t *testing.T) {
+	b := &smtpBackend{
+		trustedSources: []string{"127.0.0.1", "192.168.1.100"},
+	}
+
+	tests := []struct {
+		name     string
+		remoteIP string
+		want     bool
+	}{
+		{
+			name:     "ホワイトリストのIPは信頼する",
+			remoteIP: "127.0.0.1",
+			want:     true,
+		},
+		{
+			name:     "2番目のIPも信頼する",
+			remoteIP: "192.168.1.100",
+			want:     true,
+		},
+		{
+			name:     "ホワイトリストにないIPは拒否する",
+			remoteIP: "10.0.0.1",
+			want:     false,
+		},
+		{
+			name:     "空文字列は拒否する",
+			remoteIP: "",
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := b.isTrusted(tt.remoteIP)
+			if got != tt.want {
+				t.Errorf("isTrusted(%q) = %v, want %v", tt.remoteIP, got, tt.want)
+			}
+		})
+	}
+}

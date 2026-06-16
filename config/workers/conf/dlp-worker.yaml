@@ -1,0 +1,19 @@
+# dlp-worker 設定（Apache Tika）
+tika_url: http://tika:9998
+timeout_seconds: 30
+
+# DLP 検査パターン
+# score は加算方式（複数マッチで合計、最大100）
+patterns:
+  - name: credit_card
+    regex: '\b(?:\d{4}[- ]?){3}\d{4}\b'
+    score: 80
+  - name: phone_jp
+    regex: '\b0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{4}\b'
+    score: 30
+  - name: email_address
+    regex: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+    score: 20
+  - name: my_number_jp
+    regex: '\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'
+    score: 80

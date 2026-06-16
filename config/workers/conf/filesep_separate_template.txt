@@ -1,0 +1,6 @@
+元のメール「{{.Subject}}」（{{.ReceivedAt}}）の添付ファイルを分離しました。
+{{.ExpiryHours}}時間以内に下記リンクからダウンロードしてください。
+{{range .Attachments}}
+- {{.Name}} ({{printf "%.1f" .SizeKB}} KB)
+{{end}}
+ダウンロードリンク: {{.DownloadURL}}

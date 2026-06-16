@@ -1,0 +1,182 @@
+// Package mariadb は MailRepository インターフェースの MariaDB 実装を提供する。
+package mariadb
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	_ "github.com/go-sql-driver/mysql" // MariaDB/MySQL ドライバー
+	"github.com/google/uuid"
+
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+)
+
+// Config は DB 接続プールの設定を保持する。
+type Config struct {
+	MaxOpenConns           int
+	MaxIdleConns           int
+	ConnMaxLifetimeMinutes int
+}
+
+// Repository は MariaDB を使った MailRepository 実装である。
+type Repository struct {
+	db *sql.DB
+}
+
+// New は MariaDB 接続を確立して Repository を返す。
+// プール設定が 0 の場合は安全なデフォルト値を使用する。
+func New(dsn string, cfg Config) (*Repository, error) {
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("MariaDB 接続オープン失敗: %w", err)
+	}
+
+	maxOpen := cfg.MaxOpenConns
+	if maxOpen == 0 {
+		maxOpen = 10
+	}
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle == 0 {
+		maxIdle = 5
+	}
+	maxLifetime := cfg.ConnMaxLifetimeMinutes
+	if maxLifetime == 0 {
+		maxLifetime = 5
+	}
+
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
+	db.SetConnMaxLifetime(time.Duration(maxLifetime) * time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("MariaDB 疎通確認失敗: %w", err)
+	}
+
+	return &Repository{db: db}, nil
+}
+
+// Close はDB接続を閉じる。
+func (r *Repository) Close() error {
+	return r.db.Close()
+}
+
+// SaveMessage はメールメタデータを mail_messages テーブルに保存する。
+func (r *Repository) SaveMessage(ctx context.Context, msg *domain.Mail) error {
+	toJSON, err := json.Marshal(msg.ToAddresses)
+	if err != nil {
+		return fmt.Errorf("to_addresses JSON エンコード失敗: %w", err)
+	}
+
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO mail_messages
+			(id, eml_path, from_address, to_addresses, subject,
+			 size_bytes, has_attachment, rspamd_score,
+			 spf_result, dkim_result, dmarc_result,
+			 status, received_at, direction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		msg.MessageID,
+		msg.EMLPath,
+		msg.FromAddress,
+		toJSON,
+		msg.Subject,
+		msg.SizeBytes,
+		boolToInt(msg.HasAttachment),
+		msg.RspamdScore,
+		string(msg.AuthResults.SPF),
+		string(msg.AuthResults.DKIM),
+		string(msg.AuthResults.DMARC),
+		string(domain.StatusReceived),
+		msg.ReceivedAt.UTC(),
+		string(msg.Direction),
+	)
+	if err != nil {
+		return fmt.Errorf("mail_messages 保存失敗 (message_id=%s): %w",
+			msg.MessageID, err)
+	}
+	return nil
+}
+
+// UpdateMessageStatus はメッセージの処理状態を更新する。
+func (r *Repository) UpdateMessageStatus(ctx context.Context, messageID string, status domain.MessageStatus) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE mail_messages SET status = ? WHERE id = ?`,
+		string(status), messageID,
+	)
+	if err != nil {
+		return fmt.Errorf("status 更新失敗 (message_id=%s): %w", messageID, err)
+	}
+	return nil
+}
+
+// SaveInspectResult は検査ワーカーの結果を inspect_results テーブルに保存する。
+func (r *Repository) SaveInspectResult(ctx context.Context, result *domain.InspectResult, messageID string) error {
+	detailsJSON, err := json.Marshal(result.Details)
+	if err != nil {
+		return fmt.Errorf("details JSON エンコード失敗: %w", err)
+	}
+
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO inspect_results (id, message_id, worker_name, score, detected, details)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		uuid.New().String(),
+		messageID,
+		result.WorkerName,
+		result.Score,
+		boolToInt(result.Detected),
+		detailsJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("inspect_results 保存失敗 (message_id=%s, worker=%s): %w",
+			messageID, result.WorkerName, err)
+	}
+	return nil
+}
+
+// SaveAttachment は分離した添付ファイルのメタデータを mail_attachments テーブルに保存する。
+func (r *Repository) SaveAttachment(ctx context.Context, att *domain.MailAttachment) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO mail_attachments
+			(id, message_id, download_token, filename, content_type,
+			 size_bytes, storage_backend, storage_path, download_mode)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		att.ID,
+		att.MessageID,
+		att.DownloadToken,
+		att.Filename,
+		att.ContentType,
+		att.SizeBytes,
+		string(att.StorageBackend),
+		att.StoragePath,
+		string(att.DownloadMode),
+	)
+	if err != nil {
+		return fmt.Errorf("mail_attachments 保存失敗 (message_id=%s, filename=%s): %w",
+			att.MessageID, att.Filename, err)
+	}
+	return nil
+}
+
+// UpdateProcessedEMLPath は変換後 EML の MinIO パスを mail_messages テーブルに記録する。
+func (r *Repository) UpdateProcessedEMLPath(ctx context.Context, messageID, path string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE mail_messages SET processed_eml_path = ? WHERE id = ?`,
+		path, messageID,
+	)
+	if err != nil {
+		return fmt.Errorf("processed_eml_path 更新失敗 (message_id=%s): %w", messageID, err)
+	}
+	return nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

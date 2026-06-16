@@ -1,0 +1,12 @@
+# subject-virus-transformer ワーカー設定
+#
+# Lua スクリプト内で transform(mail, config) の config テーブルとして参照できる。
+
+# 検知対象キーワード（大文字小文字を区別しない部分一致）
+keywords:
+  - virus
+  - malware
+  - trojan
+
+# 件名冒頭に付加するプレフィックス
+prefix: "[迷惑メール注意] "

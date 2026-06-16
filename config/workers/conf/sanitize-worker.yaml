@@ -1,0 +1,4 @@
+# sanitize-worker 設定（HTML 無害化）
+# strict   : HTML タグをすべて除去してテキストのみにする
+# standard : 安全なタグ（b, i, a, p, ul など）と属性のみを許可する
+policy: standard

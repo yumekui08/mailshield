@@ -1,0 +1,90 @@
+server:
+  port: 8090
+  shutdown_timeout_seconds: 30
+  frontend_url: "http://localhost:3000"
+
+database:
+  driver: mariadb
+  host: mariadb
+  port: 3306
+  name: mailshield
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_max_lifetime_minutes: 5
+
+redis:
+  host: redis
+  port: 6379
+  db: 1
+
+storage:
+  endpoint: minio:9000           # api-server から MinIO への内部接続先
+  public_endpoint: localhost:9000 # ブラウザからアクセスする際のエンドポイント（空なら endpoint をそのまま使用）
+  access_key: mailshield
+  secret_key: mailshield
+  bucket_eml: mailshield-eml
+  bucket_attachments: mailshield-attachments
+  use_ssl: false
+  public_use_ssl: false
+  presigned_url_expiry_hours: 1
+
+auth:
+  providers:
+    standalone:
+      enabled: true
+    oidc:
+      enabled: false
+      # OIDC を有効にする場合は以下を設定して enabled: true にする
+      # issuer: "https://your-idp.example.com/application/o/mailshield/"
+      # client_id: "mailshield-api"
+      # client_secret: ""   # 環境変数 OIDC_CLIENT_SECRET で設定
+      # redirect_uri: "http://localhost:8090/api/v1/auth/callback"
+      # scopes: [openid, email, profile, groups]
+  group_mappings:
+    admin: "mailshield-admins"
+    operator: "mailshield-operators"
+    viewer: "mailshield-viewers"
+  session:
+    ttl_minutes: 480
+    cookie_name: "mailshield_session"
+    cookie_secure: false
+
+mailbox_policy:
+  inbound_quarantine:
+    visible_to: [member]    # To=内部ドメイン → メールボックスの所属ユーザ(member)が閲覧可
+    release_by: [member]    # To=内部ドメイン → メールボックスの所属ユーザ(member)が再配送可
+  outbound_quarantine:
+    visible_to: [owner]     # From=内部ドメイン → メールボックスの所有ユーザ(owner)が閲覧可
+    release_by: [admin]     # From=内部ドメイン → メールボックスの管理者ユーザ(admin)が再配送可
+
+attachment_download:
+  auth_mode:
+    # mode=auth のとき、どのメールボックスロールのユーザーにダウンロードを許可するか。
+    # 空の場合は member/owner/admin の全ロールを許可する。
+    allowed_roles: [member, owner, admin]
+
+# システムが送信するメール（通知・OTP・隔離解放）の共通 SMTP 設定
+notification:
+  from_address: noreply@mailshield.internal   # システムメール共通の送信元アドレス
+  # 開発環境: Mailpit へ直接送信（postfix 経由にすると content_filter で smtp-gateway を通るため）
+  # 本番環境: 社内 SMTP リレーを指定する
+  smtp_host: mailpit
+  smtp_port: 1025
+  starttls: false
+  auth_user: ""
+  auth_pass: ""                               # 環境変数 NOTIFICATION_AUTH_PASS で上書き可
+  # 隔離解放時に処理済み EML を送信する最終配送先 SMTP の接続先
+  # smtp-gateway の deliver アクションと同じ宛先を指定する
+  # 開発環境: mailpit:1025、本番環境: 下流の MTA を指定
+  reinject_host: mailpit
+  reinject_port: 1025
+
+settings:
+  # smtp-gateway が読む設定ファイルのパス（設定画面から GUI で編集するファイル）
+  # docker-compose で api-server と smtp-gateway が同じ config ボリュームをマウントする
+  policy_file: /app/config/policy.yaml
+  smtp_gateway_config_file: /app/config/mailshield.yaml
+
+log:
+  level: info
+  format: json
