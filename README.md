@@ -46,6 +46,7 @@ open http://localhost:8025
 ### セットアップ
 | ドキュメント | 内容 |
 |------------|------|
+| [システム概要と前提アーキテクチャ](docs/setup/overview.md) | **まず読む** — 必要な MTA・インフラ要件 |
 | [クイックスタート](docs/setup/quick-start.md) | Docker Compose で最速起動 |
 | [プロファイルガイド](docs/setup/profiles.md) | Docker Compose プロファイルの組み合わせ |
 | [自前 MTA との連携](docs/setup/mta-self-managed.md) | Postfix 等の既存 MTA への組み込み方法 |

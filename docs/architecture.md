@@ -81,15 +81,15 @@ Cookie セッションを優先し、Cookie がなければ `Authorization: Bear
 **隔離解放フロー:**
 api-server が MinIO から処理済み EML を取得し、`config/api-server.yaml` の `notification.reinject_host:reinject_port` へ直接 SMTP 送信する。
 
-### Postfix（MTA・スコープ外）
+### 受信 MTA（MailShield のスコープ外）
 
-MailShield のスコープ外だが Docker Compose にオプション同梱。
+MailShield のスコープ外。インターネットから SMTP(:25) でメールを受け取り、
+`content_filter` として smtp-gateway(port 10025) へ転送する。
 
-| 役割 | 詳細 |
-|------|------|
-| 受信（:25） | 外部からのメールを受け取り、content_filter として smtp-gateway へ転送する |
-| キューイング | 一時的な障害時に自動リトライする |
-| TLS 終端 | 外部 → Postfix 間の TLS 処理 |
+開発・動作確認用の Postfix + Rspamd が `examples/mta/` に同梱されており、
+`dev` プロファイルで起動できる。本番環境では自前の MTA を使うこと。
+
+詳細は [システム概要と前提アーキテクチャ](./setup/overview.md) を参照。
 
 ### インフラ
 
@@ -144,11 +144,14 @@ mailshield/
 │   ├── architecture.md              # 本ドキュメント
 │   ├── decisions/                   # ADR
 │   └── specs/                       # 技術仕様
+├── examples/                        # 参考設定（開発・動作確認用）
+│   └── mta/                         # 開発用 MTA（本番環境では自前の MTA を使うこと）
+│       ├── postfix/
+│       ├── postfix-submission/
+│       └── rspamd/
 ├── infra/                           # インフラ設定（コードなし）
 │   ├── mariadb/init/                # 初期スキーマ・マイグレーション SQL
 │   ├── minio/
-│   ├── postfix/
-│   ├── postfix-submission/
 │   └── rabbitmq/
 ├── docker-compose.yml               # 全サービス（profiles で組み合わせ）
 ├── Makefile
