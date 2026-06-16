@@ -76,7 +76,7 @@ swaks --to test@internal.test \
 
 MailShield は既存の MTA（Postfix・Exchange・Sendmail 等）の **after-queue content filter**
 として動作します。本番環境では `make dev-up` の MTA コンポーネント（Postfix）は使用せず、
-自前の MTA から smtp-gateway (port 10025) に転送するよう設定してください。
+自前の MTA から smtp-gateway (port 10024) に転送するよう設定してください。
 
 詳細は [自前 MTA との連携](./mta-self-managed.md) を参照。
 

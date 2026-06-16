@@ -52,7 +52,7 @@ rules:
   - name: default_deliver      # フォールバック（必ず最後に置く）
     condition: "true"
     action: deliver
-    destination: "postfix:10026"
+    destination: "postfix:10025"
 ```
 
 ---
@@ -70,7 +70,7 @@ rules:
 
 ```yaml
 action: deliver
-destination: "postfix:10026"     # ホスト:ポート
+destination: "postfix:10025"     # ホスト:ポート
 destination: "mailpit:1025"      # 開発環境（Mailpit）
 destination: "10.0.0.1:25"       # IP 指定
 destination: "postfix"           # ポート省略時は :25
@@ -142,7 +142,7 @@ rules:
   - name: default
     condition: "true"
     action: deliver
-    destination: "postfix:10026"
+    destination: "postfix:10025"
 ```
 
 ```yaml
@@ -155,7 +155,7 @@ rules:
   - name: default
     condition: "true"
     action: deliver
-    destination: "postfix:10026"
+    destination: "postfix:10025"
 ```
 
 ---

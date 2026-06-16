@@ -1,5 +1,5 @@
 server:
-  smtp_port: 10025
+  smtp_port: 10024
   smtp_hostname: smtp-gateway           # SMTP EHLO/HELO で返すホスト名
   max_message_size_mb: 50
   smtp_max_recipients: 100
@@ -10,9 +10,9 @@ server:
   shutdown_timeout_seconds: 30
   # 処理後メールの再インジェクト先 MTA
   # 本番環境: 自前の MTA ホスト名または IP に変更すること
-  # 開発環境: docker-compose dev プロファイルの Postfix（postfix:10026）
+  # 開発環境: docker-compose dev プロファイルの Postfix（postfix:10025）
   reinject_host: ${MAILSHIELD_REINJECT_HOST:-postfix}
-  reinject_port: ${MAILSHIELD_REINJECT_PORT:-10026}
+  reinject_port: ${MAILSHIELD_REINJECT_PORT:-10025}
   trusted_sources:                      # smtp-gateway への SMTP 接続を許可するホスト/IP
     # 本番環境: 自前の MTA の IP またはホスト名に変更すること
     # 例: - 10.0.0.5

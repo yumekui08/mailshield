@@ -433,7 +433,7 @@ func (h *QuarantineHandler) HandleDelete(w http.ResponseWriter, r *http.Request)
 }
 
 // reinject は処理済み EML を Postfix の再インジェクトポートへ SMTP 送信する。
-// content_filter なしのポート（デフォルト postfix:10026）に直接送信することで
+// content_filter なしのポート（デフォルト postfix:10025）に直接送信することで
 // 検査・変換パイプラインをスキップして最終配送先へ届ける。
 // ctx の deadline/cancel が TCP 接続・全 SMTP I/O に伝播する。
 func (h *QuarantineHandler) reinject(ctx context.Context, from string, to []string, eml []byte) error {

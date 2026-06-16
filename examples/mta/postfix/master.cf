@@ -2,13 +2,13 @@
 #
 # サービス名      type  private unpriv chroot wakeup maxproc コマンド
 smtp              inet  n       -      n      -      -       smtpd
-  -o content_filter=smtp:[smtp-gateway]:10025
+  -o content_filter=smtp:[smtp-gateway]:10024
 
-# after-queue content filter からの再インジェクト受付 (port 10026)
+# after-queue content filter からの再インジェクト受付 (port 10025)
 # smtp-gateway がメール処理後にここへ返す
 # content_filter= を空にしてループを防ぐ
 # smtpd_milters= を空にして Rspamd milter の二重適用を防ぐ
-10026             inet  n       -      n      -      -       smtpd
+10025             inet  n       -      n      -      -       smtpd
   -o content_filter=
   -o smtpd_milters=
   -o non_smtpd_milters=

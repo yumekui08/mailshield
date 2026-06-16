@@ -113,7 +113,7 @@ go build ./cmd/server/
 ```mermaid
 flowchart LR
     Sender([外部送信者]) -->|SMTP| MTA["既存 MTA"]
-    MTA -->|"SMTP :10025"| GW["smtp-gateway"]
+    MTA -->|"SMTP :10024"| GW["smtp-gateway"]
 
     GW --> MinIO[("MinIO\nEML 保存")]
     GW --> DB[("MariaDB\nメタデータ")]

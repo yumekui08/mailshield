@@ -9,10 +9,10 @@
 | コンポーネント | ポート | 役割 | 外部公開 |
 |-------------|-------|------|--------|
 | Postfix | :25 | 外部からの受信 | ✓ |
-| Postfix | :10026 | after-queue content filter 用再インジェクト受付（現在未使用） | ✗（Docker 内） |
+| Postfix | :10025 | after-queue content filter 用再インジェクト受付（現在未使用） | ✗（Docker 内） |
 | Postfix-submission | :587 | 内部ユーザーからの送信 | ✓ |
-| smtp-gateway | :10025 | Postfix の inbound content filter 受付 | ✗（Docker 内） |
-| smtp-gateway | :10587 | Postfix-submission の outbound content filter 受付 | ✗（Docker 内） |
+| smtp-gateway | :10024 | Postfix の inbound content filter 受付 | ✗（Docker 内） |
+| smtp-gateway | :10024 | Postfix-submission の outbound content filter 受付 | ✗（Docker 内） |
 | smtp-gateway | :8080 | ヘルスチェック | ✓ |
 | api-server | :8090 | REST API | ✓ |
 | Web UI | :3000 | 管理画面 | ✓ |
@@ -25,7 +25,7 @@
 flowchart TD
     Sender([外部送信者]) -->|SMTP :25| Postfix
 
-    Postfix -->|"SMTP :10025\ncontent filter"| GW
+    Postfix -->|"SMTP :10024\ncontent filter"| GW
 
     subgraph GW[smtp-gateway]
         direction TB
@@ -59,7 +59,7 @@ flowchart TD
 flowchart TD
     MUA([内部ユーザー MUA]) -->|"SMTP :587\nSMTP AUTH"| PostfixSub[Postfix-submission]
 
-    PostfixSub -->|"SMTP :10587\ncontent filter"| OutGW
+    PostfixSub -->|"SMTP :10024\ncontent filter"| OutGW
 
     subgraph OutGW[smtp-gateway（outbound ルート）]
         direction TB

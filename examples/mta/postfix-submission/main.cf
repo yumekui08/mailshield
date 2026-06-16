@@ -1,6 +1,6 @@
 # Postfix メイン設定 (MailShield OSS 送信GW開発環境用)
 # 役割: 内部クライアントから port 587 でメールを受け取り、after-queue content filter として
-#       smtp-gateway (port 10025) に転送する（受信 MTA と同じ smtp-gateway を使用）
+#       smtp-gateway (port 10024) に転送する（受信 MTA と同じ smtp-gateway を使用）
 
 compatibility_level = 3.6
 myhostname = postfix-submission
@@ -20,8 +20,8 @@ mynetworks = 0.0.0.0/0
 local_transport = error:local mail delivery is disabled
 
 # after-queue content filter 設定
-# smtp-gateway (port 10025) へ転送する（受信と同じインスタンス、ルーティングで方向を判定）
-content_filter = smtp:[smtp-gateway]:10025
+# smtp-gateway (port 10024) へ転送する（受信と同じインスタンス、ルーティングで方向を判定）
+content_filter = smtp:[smtp-gateway]:10024
 
 # メッセージサイズ上限 50MB
 message_size_limit = 52428800

@@ -14,7 +14,7 @@
 
 | キー | 型 | デフォルト | 説明 |
 |-----|-----|----------|------|
-| `smtp_port` | int | `10025` | SMTPサーバーの待受ポート |
+| `smtp_port` | int | `10024` | SMTPサーバーの待受ポート |
 | `smtp_hostname` | string | `smtp-gateway` | SMTP EHLO/HELO で返すホスト名 |
 | `max_message_size_mb` | int | `50` | 受け付けるメールの最大サイズ（MB） |
 | `smtp_max_recipients` | int | `100` | 1通あたりの最大宛先数 |
@@ -24,7 +24,7 @@
 | `health_port` | int | `8080` | ヘルスチェック HTTP エンドポイントのポート |
 | `shutdown_timeout_seconds` | int | `30` | グレースフルシャットダウンの最大待機時間（秒） |
 | `reinject_host` | string | `postfix` | 添付分離通知メールの送信先ホスト |
-| `reinject_port` | int | `10026` | 添付分離通知メールの送信先ポート |
+| `reinject_port` | int | `10025` | 添付分離通知メールの送信先ポート |
 | `trusted_sources` | []string | - | SMTP 接続を許可するIPまたはホスト名のリスト |
 
 ### storage

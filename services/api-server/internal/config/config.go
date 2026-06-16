@@ -57,7 +57,7 @@ type NotificationConfig struct {
 	AuthUser     string `mapstructure:"auth_user"`
 	AuthPass     string `mapstructure:"auth_pass"`
 	// ReinjectHost / ReinjectPort は隔離解放時に処理済み EML を再インジェクトする Postfix の接続先。
-	// Postfix の content_filter なしのポートを指定する（デフォルト: postfix:10026）。
+	// Postfix の content_filter なしのポートを指定する（デフォルト: postfix:10025）。
 	ReinjectHost string `mapstructure:"reinject_host"`
 	ReinjectPort int    `mapstructure:"reinject_port"`
 }

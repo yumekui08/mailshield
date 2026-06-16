@@ -2,7 +2,7 @@
 
 ## 決定
 
-smtp-inbound は Postfix の after-queue content filter として動作する（port 10025）。
+smtp-inbound は Postfix の after-queue content filter として動作する（port 10024）。
 
 ## 理由
 

@@ -91,7 +91,7 @@ mc mb mailshield/mailshield-attachments
 
 ```yaml
 server:
-  smtp_port: 10025
+  smtp_port: 10024
   trusted_sources:
     - <postfix-hostname-or-ip>
 

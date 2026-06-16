@@ -42,7 +42,7 @@ flowchart TD
         MTA_desc["TLS 終端 / SPF・DKIM・DMARC 検証 / キューイング"]
     end
 
-    MTA -->|"content_filter\nSMTP :10025"| GW
+    MTA -->|"content_filter\nSMTP :10024"| GW
 
     subgraph GW["MailShield / smtp-gateway"]
         direction TB
@@ -73,11 +73,11 @@ flowchart TD
 
 #### 1. 受信 MTA
 
-インターネットから SMTP（port 25）でメールを受け取り、MailShield（port 10025）に転送する。
+インターネットから SMTP（port 25）でメールを受け取り、MailShield（port 10024）に転送する。
 
 ```
 # Postfix の設定例（/etc/postfix/main.cf）
-content_filter = smtp:[mailshield-host]:10025
+content_filter = smtp:[mailshield-host]:10024
 ```
 
 MTA は `trusted_sources` として smtp-gateway のホワイトリストに追加する必要があります。
@@ -116,7 +116,7 @@ MailShield が動作するために必要なインフラです。Docker Compose 
 
 | パターン | 説明 |
 |---------|------|
-| 受信 MTA の別ポート | Postfix の `10026` ポートなど、content_filter をバイパスするポートに再インジェクト |
+| 受信 MTA の別ポート | Postfix の `10025` ポートなど、content_filter をバイパスするポートに再インジェクト |
 | 別の SMTP リレー | 社内メールサーバー・クラウド SMTP リレーなど |
 | 直接配送 | 外部 MX へ直接送信（MX ルックアップが必要な場合） |
 
@@ -156,7 +156,7 @@ notification:
 | 必要なコンポーネント | 開発環境での代替 |
 |-------------------|---------------|
 | 受信 MTA | Postfix（`examples/mta/postfix/` の設定） |
-| 再インジェクト MTA | 同じ Postfix の port 10026（ループ回避済み） |
+| 再インジェクト MTA | 同じ Postfix の port 10025（ループ回避済み） |
 | 通知用 SMTP リレー | Mailpit（port 1025）|
 
 ```bash
@@ -179,7 +179,7 @@ open http://localhost:8025   # Mailpit
 
 ```mermaid
 flowchart TD
-    ExtMTA["既存の Postfix"] -->|"content_filter :10025"| MS
+    ExtMTA["既存の Postfix"] -->|"content_filter :10024"| MS
 
     subgraph MS["MailShield ホスト（Docker Compose infra）"]
         GW["smtp-gateway"]
@@ -189,7 +189,7 @@ flowchart TD
         RD[("Redis")]
     end
 
-    MS -->|"deliver → :10026"| ExtMTA
+    MS -->|"deliver → :10025"| ExtMTA
     ExtMTA --> Mailbox(["メールボックスサーバー"])
 ```
 
@@ -197,7 +197,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    ExtMTA["既存の Postfix"] -->|"content_filter :10025"| MS
+    ExtMTA["既存の Postfix"] -->|"content_filter :10024"| MS
 
     subgraph MS["MailShield ホスト（Docker）"]
         GW["smtp-gateway"]

@@ -1,5 +1,5 @@
 // Package smtp は go-smtp を使った SMTP サーバーを実装する。
-// 信頼済みMTA（Postfix等）から port 10025 でメールを受け取り、
+// 信頼済みMTA（Postfix等）から port 10024 でメールを受け取り、
 // パイプライン処理を起動する。
 package smtp
 

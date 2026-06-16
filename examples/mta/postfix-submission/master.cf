@@ -2,7 +2,7 @@
 #
 # サービス名      type  private unpriv chroot wakeup maxproc コマンド
 587               inet  n       -      n      -      -       smtpd
-  -o content_filter=smtp:[smtp-gateway]:10025
+  -o content_filter=smtp:[smtp-gateway]:10024
 
 # smtp-gateway からの再インジェクト受付 (port 10028)
 # smtp-gateway がメール処理後にここへ返す（dev 環境では使用しない: policy engine が直接 mailpit に配送）

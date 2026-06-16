@@ -18,7 +18,7 @@ MTA は受信したメールを **そのまま** smtp-gateway の SMTP エンド
 | 項目 | 値 |
 |------|---|
 | 転送先ホスト | smtp-gateway のホスト名または IP |
-| 転送先ポート | 10025（デフォルト。`config/mailshield.yaml` の `server.smtp_port` で変更可） |
+| 転送先ポート | 10024（デフォルト。`config/mailshield.yaml` の `server.smtp_port` で変更可） |
 | プロトコル | SMTP（TLS 不要。同一信頼ネットワーク内を想定） |
 
 ### 2. 再インジェクトの受け付け
@@ -27,7 +27,7 @@ smtp-gateway が処理を完了したメールは、MTA の **再インジェク
 
 | 項目 | 値 |
 |------|---|
-| 受け付けポート | 10026（MTA 側で開けること） |
+| 受け付けポート | 10025（MTA 側で開けること） |
 | content_filter | 空（ループ防止） |
 | milter | 無効（二重適用防止） |
 
@@ -82,7 +82,7 @@ relay_domains = example.com
 # after-queue content filter として smtp-gateway に転送
 # MailShield が同じホストで動作している場合: localhost
 # 別ホスト（VM・コンテナ等）の場合: そのホスト名/IP
-content_filter = smtp:[<mailshield-host>]:10025
+content_filter = smtp:[<mailshield-host>]:10024
 
 # milter（Rspamd 等）
 smtpd_milters     = inet:rspamd-host:11332
@@ -94,12 +94,12 @@ milter_protocol = 6
 message_size_limit = 52428800
 ```
 
-### master.cf（再インジェクトポート 10026）
+### master.cf（再インジェクトポート 10025）
 
 ```
 # smtp-gateway からの再インジェクトを受け付けるポート
 # content_filter と milter を空にしてループと二重適用を防ぐ
-10026  inet  n  -  n  -  -  smtpd
+10025  inet  n  -  n  -  -  smtpd
   -o content_filter=
   -o smtpd_milters=
   -o non_smtpd_milters=
@@ -207,8 +207,8 @@ trusted_mta {
 
 ### 共通要件まとめ
 
-1. 受信メールを `<mailshield-host>:10025` に SMTP 転送する
-2. smtp-gateway からの戻りを `10026` で受け付ける（content_filter なし）
+1. 受信メールを `<mailshield-host>:10024` に SMTP 転送する
+2. smtp-gateway からの戻りを `10025` で受け付ける（content_filter なし）
 3. Rspamd（または同等の milter）で `Authentication-Results` ヘッダを付与する
 4. MailShield の接続元 IP を `trusted_sources` に登録する
 

@@ -9,7 +9,7 @@ MAIL FROM / RCPT TO の正規表現で動的に判定し、ルートごとに異
 
 ```mermaid
 flowchart TD
-    A(["SMTP 接続到着\n（port 10025）"]) --> B["MAIL FROM / RCPT TO を解析"]
+    A(["SMTP 接続到着\n（port 10024）"]) --> B["MAIL FROM / RCPT TO を解析"]
     B --> C{"routes を上から順に評価\nfirst-match-wins"}
     C -->|マッチ| D["マッチしたルートの\nワーカー・ポリシーを適用"]
     C -->|全ルートにマッチしない| E(["451 Try again later"])

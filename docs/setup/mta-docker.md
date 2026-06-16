@@ -4,7 +4,7 @@
 これは**開発・動作確認専用**のコンポーネントです。
 
 > **本番環境**: 同梱の Postfix は使用しないでください。
-> 自前の MTA から smtp-gateway（port 10025）に転送するよう設定してください。
+> 自前の MTA から smtp-gateway（port 10024）に転送するよう設定してください。
 > 詳細は [自前 MTA との連携](./mta-self-managed.md) を参照。
 
 ---
@@ -18,9 +18,9 @@ flowchart TD
     Postfix -->|"milter :11332"| Rspamd["Rspamd\nSPF / DKIM / DMARC / ARC を検証\nAuthentication-Results ヘッダを付与"]
     Rspamd -.->|ヘッダを付与して返す| Postfix
 
-    Postfix -->|"after-queue content_filter\nSMTP :10025"| GW["smtp-gateway\n検査・変換・ポリシー評価"]
+    Postfix -->|"after-queue content_filter\nSMTP :10024"| GW["smtp-gateway\n検査・変換・ポリシー評価"]
 
-    GW -->|"再インジェクト\nSMTP :10026"| Postfix2["Postfix（再配送）"]
+    GW -->|"再インジェクト\nSMTP :10025"| Postfix2["Postfix（再配送）"]
     Postfix2 --> Mailpit(["Mailpit :8025"])
 ```
 

@@ -99,7 +99,7 @@ func writeConfigFile(t *testing.T, dir, content string) {
 // ─── テスト ──────────────────────────────────────────────────
 
 func TestFileSepWorker_Name(t *testing.T) {
-	w, err := filesep.New(t.TempDir(), newStubStorage(), &stubRepository{}, "localhost", 10026, nil)
+	w, err := filesep.New(t.TempDir(), newStubStorage(), &stubRepository{}, "localhost", 10025, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestFileSepWorker_NoAttachment_ReturnsSameMail(t *testing.T) {
 	eml := []byte("From: a@b.com\r\nSubject: test\r\n\r\nBody text")
 	mail := makeMail(eml)
 
-	w, err := filesep.New(t.TempDir(), newStubStorage(), &stubRepository{}, "localhost", 10026, nil)
+	w, err := filesep.New(t.TempDir(), newStubStorage(), &stubRepository{}, "localhost", 10025, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ frontend_url: https://mail.example.com
 
 	stor := newStubStorage()
 	repo := &stubRepository{}
-	w, err := filesep.New(configDir, stor, repo, "localhost", 10026, nil)
+	w, err := filesep.New(configDir, stor, repo, "localhost", 10025, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ link_expiry_hours: 24
 `)
 
 	stor := newStubStorage()
-	w, err := filesep.New(configDir, stor, &stubRepository{}, "localhost", 10026, nil)
+	w, err := filesep.New(configDir, stor, &stubRepository{}, "localhost", 10025, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ link_expiry_hours: 24
 `)
 
 	stor := newStubStorage()
-	w, err := filesep.New(configDir, stor, &stubRepository{}, "localhost", 10026, nil)
+	w, err := filesep.New(configDir, stor, &stubRepository{}, "localhost", 10025, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ link_expiry_hours: 24
 `)
 
 	stor := newStubStorage()
-	w, err := filesep.New(configDir, stor, &stubRepository{}, "localhost", 10026, nil)
+	w, err := filesep.New(configDir, stor, &stubRepository{}, "localhost", 10025, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

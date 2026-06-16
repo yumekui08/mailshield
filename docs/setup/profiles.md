@@ -45,7 +45,7 @@ ClamAV, Apache Tika, Tesseract も起動します。av-worker / dlp-worker / qr-
 make core-up
 # = COMPOSE_PROFILES=infra docker compose up -d
 # smtp-gateway + インフラのみ
-# 自前の MTA から port 10025 に転送するよう設定すること
+# 自前の MTA から port 10024 に転送するよう設定すること
 ```
 
 ### API・Web UI 込み
@@ -96,7 +96,7 @@ RABBITMQ_PORT=5672
 |-------|---------|------|
 | 25 | postfix（dev profile） | SMTP 受信（開発用） |
 | 587 | postfix-submission（dev profile） | SMTP submission（開発用） |
-| 10025 | smtp-gateway | コンテンツフィルター SMTP（MTA からの接続先） |
+| 10024 | smtp-gateway | コンテンツフィルター SMTP（MTA からの接続先） |
 | 8080 | smtp-gateway | ヘルスチェック |
 | 8081 | api-server | REST API |
 | 8025 | mailpit（dev profile） | Web UI（開発用メール確認） |
