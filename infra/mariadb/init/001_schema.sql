@@ -128,3 +128,37 @@ CREATE TABLE IF NOT EXISTS attachment_otp_tokens (
     KEY idx_otp_tokens_expires_at     (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 監査ログテーブル
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id           CHAR(36)      NOT NULL,
+    event_type   VARCHAR(64)   NOT NULL,
+    actor_id     CHAR(36)      NULL,
+    actor_email  VARCHAR(512)  NULL,
+    target_type  VARCHAR(64)   NULL,
+    target_id    VARCHAR(255)  NULL,
+    detail       JSON          NULL,
+    ip_address   VARCHAR(45)   NULL,
+    created_at   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    KEY idx_audit_logs_event_type  (event_type),
+    KEY idx_audit_logs_actor_id    (actor_id),
+    KEY idx_audit_logs_created_at  (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- API キーテーブル
+-- 機械間認証用のキーを管理する（平文は保存せず SHA-256 ハッシュのみ）
+CREATE TABLE IF NOT EXISTS api_keys (
+    id           CHAR(36)      NOT NULL,
+    name         VARCHAR(128)  NOT NULL,
+    key_hash     CHAR(64)      NOT NULL,   -- SHA-256 ハッシュ（平文は保存しない）
+    role         ENUM('admin','operator','viewer') NOT NULL DEFAULT 'viewer',
+    created_by   CHAR(36)      NULL,
+    last_used_at DATETIME(6)   NULL,
+    expires_at   DATETIME(6)   NULL,
+    revoked_at   DATETIME(6)   NULL,
+    created_at   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_api_keys_hash      (key_hash),
+    KEY idx_api_keys_created_by (created_by)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
