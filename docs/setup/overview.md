@@ -83,19 +83,20 @@ content_filter = smtp:[mailshield-host]:10024
 MTA は `trusted_sources` として smtp-gateway のホワイトリストに追加する必要があります。
 詳細は [自前 MTA との連携](./mta-self-managed.md) を参照。
 
-#### 2. 同梱インフラ（Docker Compose `infra` プロファイル）
+#### 2. 同梱インフラ（Docker Compose オプションプロファイル）
 
 MailShield が動作するために必要なインフラです。Docker Compose で同梱しているため、
 自前で用意する必要はありません（外部サービスへの切り替えも可能）。
 
-| コンポーネント | 役割 | ポート（デフォルト） |
-|--------------|------|------------------|
-| **MariaDB** | メールメタデータ・ユーザー・ポリシー・監査ログ | 3306 |
-| **RabbitMQ** | ワーカー間イベントバス | 5672 |
-| **MinIO**（S3 互換） | 原本 EML・処理済み EML・添付ファイルの保存 | 9000 |
-| **Redis** | セッション・キャッシュ・レート制限 | 6379 |
+| コンポーネント | プロファイル | 役割 | ポート（デフォルト） |
+|--------------|------------|------|------------------|
+| **MariaDB** | _(なし・常時起動)_ | メールメタデータ・ユーザー・ポリシー・監査ログ | 3306 |
+| **RabbitMQ** | `queue` | 外部システムへのイベント通知 | 5672 |
+| **MinIO**（S3 互換） | `storage` | 原本 EML・処理済み EML・添付ファイルの保存 | 9000 |
+| **Redis** | `api` | セッション・キャッシュ・レート制限 | 6379 |
 
-外部サービスを使う場合は `.env` で接続先を切り替えられます。コードの変更は不要です。
+MariaDB は唯一の必須サービスです。RabbitMQ・MinIO・Redis はそれぞれのプロファイルを
+有効化した場合のみ起動します。外部サービスを使う場合は `.env` で接続先を切り替えられます。コードの変更は不要です。
 
 ### 必要なケースがある
 
@@ -181,7 +182,7 @@ open http://localhost:8025   # Mailpit
 flowchart TD
     ExtMTA["既存の Postfix"] -->|"content_filter :10024"| MS
 
-    subgraph MS["MailShield ホスト（Docker Compose infra）"]
+    subgraph MS["MailShield ホスト（Docker Compose）"]
         GW["smtp-gateway"]
         DB[("MariaDB")]
         MQ[("RabbitMQ")]

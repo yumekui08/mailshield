@@ -53,13 +53,9 @@ web/dist/            ← 静的ファイル（Nginx 等で配信）
 ## DB スキーマの適用
 
 ```bash
-# MariaDB に接続してスキーマを適用
+# MariaDB に接続してスキーマを適用（番号順にすべて適用すること）
 mysql -h <host> -u root -p mailshield < infra/mariadb/init/001_schema.sql
 mysql -h <host> -u root -p mailshield < infra/mariadb/init/002_seed.sql
-mysql -h <host> -u root -p mailshield < infra/mariadb/init/003_add_direction_download_mode.sql
-mysql -h <host> -u root -p mailshield < infra/mariadb/init/004_add_processed_eml_path.sql
-mysql -h <host> -u root -p mailshield < infra/mariadb/init/005_add_audit_logs.sql
-mysql -h <host> -u root -p mailshield < infra/mariadb/init/006_add_api_keys.sql
 ```
 
 ---

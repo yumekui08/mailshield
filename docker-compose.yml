@@ -87,7 +87,7 @@ services:
       - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
     ports:
-      - "15672:15672"   # 管理UI（開発時のみ。本番はTraefik経由を推奨）
+      - "15672:15672"   # 管理UI（開発時のみ）
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
@@ -112,7 +112,7 @@ services:
       - minio_data:/data
     ports:
       - "9000:9000"   # S3 互換 API（presigned URL のダウンロード先）
-      - "9001:9001"   # コンソールUI（開発時のみ。本番はTraefik経由を推奨）
+      - "9001:9001"   # コンソールUI（開発時のみ）
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
@@ -331,14 +331,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ═══════════════════════════════════════════════════════════════
-  # リバースプロキシ（profile: traefik）  ※ 将来実装
-  # ═══════════════════════════════════════════════════════════════
-
-  # traefik:
-  #   profiles: [traefik]
-  #   image: traefik:v3
-  #   ...
 
 volumes:
   mariadb_data:

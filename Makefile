@@ -15,20 +15,16 @@
 # scanners : ClamAV・Tika・Tesseract（スキャナー）
 # dev      : Mailpit + 開発用 MTA（Postfix + Rspamd）
 # api      : api-server・Web UI・Redis（api-server 用）
-# traefik  : Traefik reverse proxy（将来）
 #
-# 最小構成: make core-up（MariaDB + smtp-gateway のみ）
-# 標準開発: make dev-up（+ MinIO + RabbitMQ + Mailpit + Postfix）
-# 外部サービスに切り替える場合は .env で接続先を上書きしてプロファイルを除外する
-
-PROFILES_CORE     = storage,queue
-PROFILES_DEV      = storage,queue,dev
-PROFILES_OUTBOUND = storage,queue,outbound,dev
-PROFILES_SCANNERS = storage,queue,outbound,scanners,dev
-PROFILES_API      = storage,queue,dev,api
-PROFILES_FULL     = storage,queue,outbound,scanners,dev,api,traefik
 
 DC = COMPOSE_PROFILES
+
+PROFILES_CORE     =
+PROFILES_DEV      = storage,queue,dev
+PROFILES_OUTBOUND = storage,queue,outbound,dev
+PROFILES_SCANNERS = storage,queue,dev,scanners
+PROFILES_API      = storage,queue,dev,api
+PROFILES_FULL     = storage,queue,dev,scanners,api
 
 # ─── 起動・停止 ──────────────────────────────────────────────────
 
@@ -70,7 +66,7 @@ api-up:
 api-down:
 	$(DC)=$(PROFILES_API) docker compose down
 
-## 全サービス（Traefik 含む）
+## 全サービス
 full-up:
 	$(DC)=$(PROFILES_FULL) docker compose up -d
 
