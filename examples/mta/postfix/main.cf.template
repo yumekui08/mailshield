@@ -1,6 +1,6 @@
 # Postfix メイン設定 (MailShield OSS 受信MTA)
 # 役割: 外部から port 25 でメールを受け取り、after-queue content filter として
-#       smtp-gateway (port 10025) に転送する
+#       smtp-gateway (port 10024) に転送する
 # このファイルは docker-entrypoint.sh によって envsubst で展開される
 
 compatibility_level = 3.6
@@ -22,8 +22,8 @@ mynetworks = 0.0.0.0/0
 local_transport = error:local mail delivery is disabled
 
 # after-queue content filter 設定
-# smtp-gateway (port 10025) へ転送する
-content_filter = smtp:[smtp-gateway]:10025
+# smtp-gateway (port 10024) へ転送する
+content_filter = smtp:[smtp-gateway]:10024
 
 # メッセージサイズ上限 50MB
 message_size_limit = 52428800

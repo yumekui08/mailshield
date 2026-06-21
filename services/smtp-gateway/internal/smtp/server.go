@@ -43,8 +43,9 @@ type Options struct {
 
 // Server は SMTP サーバーのラッパーである。
 type Server struct {
-	server  *gosmtp.Server
-	backend *smtpBackend
+	server      *gosmtp.Server
+	backend     *smtpBackend
+	stopRefresh chan struct{}
 }
 
 // New は SMTP サーバーを初期化する。
@@ -71,6 +72,7 @@ func New(opts Options, handler Handler) *Server {
 	}
 
 	backend := &smtpBackend{
+		trustedSources: opts.TrustedSources,
 		trustedIPs:     resolveTrustedIPs(opts.TrustedSources),
 		maxMsgSize:     maxSize,
 		handler:        handler,
@@ -86,7 +88,10 @@ func New(opts Options, handler Handler) *Server {
 	s.ReadTimeout = time.Duration(opts.ReadTimeoutSeconds) * time.Second
 	s.WriteTimeout = time.Duration(opts.WriteTimeoutSeconds) * time.Second
 
-	return &Server{server: s, backend: backend}
+	stopRefresh := make(chan struct{})
+	go runTrustedIPRefresher(backend, stopRefresh, 30*time.Second)
+
+	return &Server{server: s, backend: backend, stopRefresh: stopRefresh}
 }
 
 // ListenAndServe は SMTP サーバーを起動する（ブロッキング）。
@@ -98,6 +103,7 @@ func (s *Server) ListenAndServe() error {
 // GracefulClose は新規接続の受付を停止し、進行中のセッションが完了するまで待機する。
 // ctx がタイムアウトした場合はその時点で返り、残セッションは強制終了される。
 func (s *Server) GracefulClose(ctx context.Context) error {
+	close(s.stopRefresh)
 	s.server.Close()
 
 	done := make(chan struct{})
@@ -119,7 +125,9 @@ func (s *Server) GracefulClose(ctx context.Context) error {
 // ────────────────────────────────────────────────────────────
 
 type smtpBackend struct {
-	trustedIPs     map[string]bool // 起動時に解決済み（接続ごとの DNS 解決を避ける）
+	trustedSources []string
+	mu             sync.RWMutex
+	trustedIPs     map[string]bool
 	maxMsgSize     int64
 	handler        Handler
 	handlerTimeout time.Duration
@@ -154,13 +162,36 @@ func (b *smtpBackend) NewSession(c *gosmtp.Conn) (gosmtp.Session, error) {
 }
 
 // isTrusted は接続元IPがホワイトリストに含まれるか確認する。
-// IP リストは起動時に解決済みのため、接続ごとの DNS 解決は行わない。
 func (b *smtpBackend) isTrusted(remoteIP string) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	return b.trustedIPs[remoteIP]
 }
 
+// refreshTrustedIPs は trusted_sources を再解決して trustedIPs を更新する。
+func (b *smtpBackend) refreshTrustedIPs() {
+	newIPs := resolveTrustedIPs(b.trustedSources)
+	b.mu.Lock()
+	b.trustedIPs = newIPs
+	b.mu.Unlock()
+}
+
+// runTrustedIPRefresher は trusted_sources の DNS 解決を定期的に実行する。
+// Docker Compose 環境でコンテナが後から起動した場合でも信頼リストに追加される。
+func runTrustedIPRefresher(b *smtpBackend, stop <-chan struct{}, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			b.refreshTrustedIPs()
+		}
+	}
+}
+
 // resolveTrustedIPs は trusted_sources のホスト名を DNS 解決して IP → bool マップを返す。
-// 起動時に一度だけ呼ぶことで、接続ごとの DNS 解決コスト・DNS キャッシュポイズニングリスクを排除する。
 func resolveTrustedIPs(sources []string) map[string]bool {
 	ips := make(map[string]bool, len(sources))
 	for _, src := range sources {
