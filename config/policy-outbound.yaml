@@ -7,6 +7,6 @@ rules:
     condition: "true"
     action: deliver
     # destination: 配送先 MTA の SMTP アドレスを指定する
-    # 例（開発）: "mailpit:1025"
+    # 本番環境では再インジェクト先の Postfix ホスト名とポートに変更すること
     # 例（本番）: "smtp-relay.example.com:25"
-    destination: "${MAILSHIELD_DELIVER_DESTINATION:-mailpit:1025}"
+    destination: "mailpit:1025"

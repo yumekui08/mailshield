@@ -45,18 +45,27 @@ RABBITMQ_PASSWORD=（任意のパスワード）
 
 STEP 2・3 はデフォルトのままで構いません。
 
-**3. 受信ドメインを設定**
+**3. 受信ドメインを設定（本番環境のみ）**
 
-`config/mailshield.yaml` を開いて受信ドメインを変更します。
+デフォルトの `config/mailshield.yaml` は開発用ドメイン `internal.test` が設定済みです。
+**開発・動作確認ならこの手順はスキップできます。**
+
+本番環境で自分のドメインを使う場合は `config/mailshield.yaml` を編集します。
 
 ```yaml
 routes:
   - name: inbound
     match:
-      to: "@example\\.com$"   # ← 自分のドメインに変更
+      to: "@internal\\.test$"   # ← 自分のドメインに変更（例: "@example\\.com$"）
 ```
 
-開発・テストなら `internal.test` のままでも動作します（`.env` の `MAILSHIELD_RELAY_DOMAINS` と一致させること）。
+`config/policy-inbound.yaml` の `destination` も変更してください。
+
+```yaml
+  - name: default_deliver
+    action: deliver
+    destination: "mailpit:1025"   # ← 本番の配送先 MTA に変更（例: "smtp-relay.example.com:25"）
+```
 
 **4. 起動**
 

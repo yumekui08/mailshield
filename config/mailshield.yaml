@@ -107,7 +107,7 @@ routes:
   - name: inbound
     direction: inbound
     match:
-      to: "@example\\.com$"
+      to: "@internal\\.test$"    # 本番環境では自分のドメインに変更すること（例: "@example\\.com$"）
       to_match: any
     workers:
       workers_dir: /app/workers
@@ -160,7 +160,7 @@ routes:
   - name: outbound
     direction: outbound
     match:
-      from: "@example\\.com$"
+      from: "@internal\\.test$"  # 本番環境では自分のドメインに変更すること（例: "@example\\.com$"）
     workers:
       workers_dir: /app/workers
       worker_config_dir: /app/config/workers/conf
