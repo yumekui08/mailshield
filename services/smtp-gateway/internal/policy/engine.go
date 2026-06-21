@@ -59,6 +59,20 @@ func New(rulesFile string) (*Engine, error) {
 	return &Engine{rules: pr.Rules}, nil
 }
 
+// Evaluate は検査結果を評価してアクション種別とマッチしたルール名を返す。
+// アクション（SMTP 配送・拒否等）の実行は行わない（シミュレーター用）。
+func (e *Engine) Evaluate(results []*domain.InspectResult) (action ActionType, matchedRule string) {
+	facts := buildFacts(results)
+	for _, rule := range e.rules {
+		matched, err := evaluate(rule.Condition, facts)
+		if err != nil || !matched {
+			continue
+		}
+		return ActionType(rule.Action), rule.Name
+	}
+	return "", ""
+}
+
 // EvaluateAndAct は検査結果を評価してアクションを実行し、実行したアクション種別を返す。
 // ルールは上から順に評価し、最初にマッチしたルールのアクションを実行する。
 // マッチするルールがない場合は空文字列の ActionType と nil を返す。

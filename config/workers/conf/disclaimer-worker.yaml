@@ -1,0 +1,17 @@
+# disclaimer-worker 設定
+# 送信メール（outbound ルート）のテキスト・HTML 本文にフッターを追加する。
+#
+# marker: 重複フッター防止のための識別マーカー。変更しないこと。
+# text_footer: text/plain 部に追加するフッター。空の場合は追加しない。
+# html_footer: text/html 部の </body> 直前に挿入するHTMLフラグメント。空の場合は追加しない。
+
+marker: "mailshield-disclaimer"
+
+text_footer: |
+  --
+  このメールは組織のメールフィルタリングシステムを通じて送信されました。
+
+html_footer: |
+  <div style="margin-top:16px;padding-top:8px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;font-family:sans-serif;">
+  このメールは組織のメールフィルタリングシステムを通じて送信されました。
+  </div>

@@ -14,3 +14,4 @@
 | [自前 MTA との連携](./mta-self-managed.md) | 既存の Postfix/Sendmail を使う場合の要件 |
 | [バイナリインストール](./binary-install.md) | Docker を使わないセットアップ |
 | [アップグレード](./upgrade.md) | バージョンアップ手順 |
+| [ARC 署名統合](./arc-integration.md) | Exchange Online / Google Workspace への ARC 登録手順 |

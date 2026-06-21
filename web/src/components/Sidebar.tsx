@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Shield, LogOut, Users, Inbox, LayoutDashboard, Mail, ClipboardList, Key } from "lucide-react";
+import { Shield, LogOut, Users, Inbox, LayoutDashboard, Mail, ClipboardList, Key, FlaskConical } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Badge } from "./ui/badge";
 import { useMe, useLogout } from "../hooks/useAuth";
@@ -103,6 +103,23 @@ export function Sidebar() {
           >
             <Users className="h-4 w-4" />
             ユーザー管理
+          </NavLink>
+        )}
+
+        {(user?.role === "admin" || user?.role === "operator") && (
+          <NavLink
+            to="/simulate"
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                isActive
+                  ? "bg-slate-700 text-white"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              )
+            }
+          >
+            <FlaskConical className="h-4 w-4" />
+            ポリシーシミュレーター
           </NavLink>
         )}
 

@@ -131,12 +131,15 @@ routes:
         - name: subject-virus-transformer # Lua ダミーワーカー（開発用）
           enabled: true
           order: 3
+        - name: disclaimer-worker         # メールフッター追加（受信時は無効）
+          enabled: false
+          order: 4
         - name: filesep-worker            # 添付ファイル分離
           enabled: true
-          order: 4
+          order: 5
         - name: arc-sealer               # ARC シール（変換後に実行・最後に設定すること）
           enabled: false                 # 有効化には config/arc/private.pem と DNS TXT レコードが必要
-          order: 5
+          order: 6
     policy:
       rules_file: /app/config/policy-inbound.yaml
 
@@ -180,8 +183,11 @@ routes:
         - name: subject-virus-transformer
           enabled: false
           order: 3
-        - name: filesep-worker            # 送信時も分離してOTPダウンロードリンクを挿入
+        - name: disclaimer-worker         # 送信メールに免責事項フッターを追加
           enabled: true
           order: 4
+        - name: filesep-worker            # 送信時も分離してOTPダウンロードリンクを挿入
+          enabled: true
+          order: 5
     policy:
       rules_file: /app/config/policy-outbound.yaml

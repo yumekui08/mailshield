@@ -84,6 +84,11 @@ notification:
   reinject_host: mailpit
   reinject_port: 1025
 
+gateway:
+  # smtp-gateway のヘルスポート URL（POST /simulate に使用）
+  # docker-compose 環境では smtp-gateway:8080 がデフォルト
+  url: "http://smtp-gateway:8080"
+
 settings:
   # smtp-gateway が読む設定ファイルのパス（設定画面から GUI で編集するファイル）
   # docker-compose で api-server と smtp-gateway が同じ config ボリュームをマウントする

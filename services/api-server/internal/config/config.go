@@ -19,7 +19,15 @@ type Config struct {
 	MailboxPolicy      MailboxPolicyConfig      `mapstructure:"mailbox_policy"`
 	AttachmentDownload AttachmentDownloadConfig `mapstructure:"attachment_download"`
 	Notification       NotificationConfig       `mapstructure:"notification"`
+	Gateway            GatewayConfig            `mapstructure:"gateway"`
 	Log                LogConfig                `mapstructure:"log"`
+}
+
+// GatewayConfig は smtp-gateway への内部接続設定を保持する。
+type GatewayConfig struct {
+	// URL は smtp-gateway のヘルスチェックポート（デフォルト: http://smtp-gateway:8080）。
+	// シミュレーション API がここに POST /simulate をプロキシする。
+	URL string `mapstructure:"url"`
 }
 
 // AttachmentDownloadConfig は添付ファイルダウンロードのアクセス制御設定を保持する。

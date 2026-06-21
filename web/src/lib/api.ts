@@ -416,3 +416,39 @@ export async function createAPIKey(req: CreateAPIKeyRequest): Promise<CreateAPIK
 export async function revokeAPIKey(id: string): Promise<void> {
   await request(`/api-keys/${id}`, { method: "DELETE" });
 }
+
+
+// ─── シミュレーション ──────────────────────────────────────────
+
+export interface SimulateInspectResult {
+  worker: string;
+  detected: boolean;
+  score: number;
+  details: Record<string, unknown>;
+}
+
+export interface SimulateResult {
+  route_name: string;
+  direction: string;
+  inspect_results: SimulateInspectResult[];
+  original_subject: string;
+  transformed_subject: string;
+  subject_changed: boolean;
+  action: string;
+  matched_rule: string;
+  processing_ms: number;
+}
+
+export async function simulatePolicy(eml: string): Promise<SimulateResult> {
+  const res = await fetch(`${BASE}/simulate/`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "message/rfc822" },
+    body: eml,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `simulate failed: ${res.status}`);
+  }
+  return res.json();
+}

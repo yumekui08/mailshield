@@ -3,12 +3,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -25,14 +30,15 @@ import (
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/smtp"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/storage"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/arcsealer"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/clamav"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/disclaimer"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/filesep"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/header"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/qrcheck"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/sanitize"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/tika"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/urlcheck"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/arcsealer"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/urlrewrite"
 )
 
@@ -193,6 +199,11 @@ func main() {
 		slog.Error("url-rewrite-worker 初期化失敗", "error", err)
 		os.Exit(1)
 	}
+	disclaimerWorker, err := disclaimer.New(configDir)
+	if err != nil {
+		slog.Error("disclaimer-worker 初期化失敗", "error", err)
+		os.Exit(1)
+	}
 	arcSealerWorker, err := arcsealer.New(configDir)
 	if err != nil {
 		// ARC シーラーは設定ファイルがない場合は警告のみ（オプション機能）
@@ -210,6 +221,7 @@ func main() {
 	builtinTransform := []domain.TransformWorker{
 		sanitizeWorker,
 		urlRewriteWorker,
+		disclaimerWorker,
 		filesepWorker,
 	}
 	if arcSealerWorker != nil {
@@ -303,13 +315,14 @@ func main() {
 		HandlerTimeoutSeconds: cfg.Server.HandlerTimeoutSeconds,
 	}, handler)
 
-	// ─── ヘルスチェックエンドポイント ────────────────────────
+	// ─── ヘルスチェック + シミュレーションエンドポイント ──────
 	healthAddr := fmt.Sprintf(":%d", cfg.Server.HealthPort)
 	httpServer := &http.Server{Addr: healthAddr}
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
+	http.HandleFunc("/simulate", handler.handleSimulate)
 	go func() {
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("ヘルスチェックサーバーエラー", "error", err)
@@ -566,6 +579,149 @@ func (h *mailHandler) archiveAsync(messageID string, eml []byte, receivedAt time
 			"error", err,
 		)
 	}
+}
+
+// ────────────────────────────────────────────────────────────
+// ポリシーシミュレーション（POST /simulate）
+// ────────────────────────────────────────────────────────────
+
+// SimulateResult はシミュレーション結果の JSON 表現である。
+type SimulateResult struct {
+	RouteName          string                   `json:"route_name"`
+	Direction          string                   `json:"direction"`
+	InspectResults     []simulateInspectResult  `json:"inspect_results"`
+	OriginalSubject    string                   `json:"original_subject"`
+	TransformedSubject string                   `json:"transformed_subject"`
+	SubjectChanged     bool                     `json:"subject_changed"`
+	Action             string                   `json:"action"`
+	MatchedRule        string                   `json:"matched_rule"`
+	ProcessingMS       int64                    `json:"processing_ms"`
+}
+
+type simulateInspectResult struct {
+	Worker   string         `json:"worker"`
+	Detected bool           `json:"detected"`
+	Score    int            `json:"score"`
+	Details  map[string]any `json:"details"`
+}
+
+// handleSimulate は EML を受け取ってパイプラインをドライランで実行する。
+// リクエスト: POST /simulate。ボディに生の EML バイト列を渡す（最大 10MB）。
+// レスポンス: SimulateResult の JSON。
+func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rawEML, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
+	if err != nil || len(rawEML) == 0 {
+		http.Error(w, "request body required (raw EML)", http.StatusBadRequest)
+		return
+	}
+
+	start := time.Now()
+
+	// EML ヘッダーから From / To / Subject を抽出
+	msg, err := mail.ReadMessage(bytes.NewReader(rawEML))
+	if err != nil {
+		http.Error(w, "invalid EML: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	fromAddr := parseFirstAddress(msg.Header.Get("From"))
+	toAddrs := parseAddressList(msg.Header.Get("To"))
+	subject := msg.Header.Get("Subject")
+
+	m := &domain.Mail{
+		MessageID:   "simulate-" + time.Now().Format("20060102150405"),
+		RawEML:      rawEML,
+		ReceivedAt:  time.Now().UTC(),
+		FromAddress: fromAddr,
+		ToAddresses: toAddrs,
+		Subject:     subject,
+		SizeBytes:   int64(len(rawEML)),
+		AuthResults: domain.DefaultAuthResults(),
+	}
+
+	// ルート解決
+	route, ok := h.router.Resolve(m.FromAddress, m.ToAddresses)
+	if !ok {
+		http.Error(w, "no matching route", http.StatusUnprocessableEntity)
+		return
+	}
+	rh := h.routeHandlers[route.Name]
+	m.Direction = domain.Direction(route.Direction)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	// 検査パイプライン（ドライラン: DB 保存なし）
+	inspectResults, _ := rh.inspect.Run(ctx, m)
+
+	// 変換パイプライン（ドライラン: storage 保存なし）
+	transformed, _ := rh.transform.Run(ctx, m)
+	if transformed == nil {
+		transformed = m
+	}
+
+	// ポリシー評価（アクション実行なし）
+	action, matchedRule := rh.policy.Evaluate(inspectResults)
+
+	out := SimulateResult{
+		RouteName:          route.Name,
+		Direction:          route.Direction,
+		OriginalSubject:    m.Subject,
+		TransformedSubject: transformed.Subject,
+		SubjectChanged:     transformed.Subject != m.Subject,
+		Action:             string(action),
+		MatchedRule:        matchedRule,
+		ProcessingMS:       time.Since(start).Milliseconds(),
+	}
+	for _, r := range inspectResults {
+		details := r.Details
+		if details == nil {
+			details = map[string]any{}
+		}
+		out.InspectResults = append(out.InspectResults, simulateInspectResult{
+			Worker:   r.WorkerName,
+			Detected: r.Detected,
+			Score:    r.Score,
+			Details:  details,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(out); err != nil {
+		slog.Warn("simulate: レスポンス書き込み失敗", "error", err)
+	}
+}
+
+// parseFirstAddress は "Name <addr>" 形式から addr のみを取り出す。
+func parseFirstAddress(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	addrs, err := mail.ParseAddressList(raw)
+	if err != nil || len(addrs) == 0 {
+		return strings.TrimSpace(raw)
+	}
+	return addrs[0].Address
+}
+
+// parseAddressList は To/CC ヘッダーからアドレスの一覧を取り出す。
+func parseAddressList(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	addrs, err := mail.ParseAddressList(raw)
+	if err != nil {
+		return []string{strings.TrimSpace(raw)}
+	}
+	result := make([]string, len(addrs))
+	for i, a := range addrs {
+		result[i] = a.Address
+	}
+	return result
 }
 
 func toMailEvent(mail *domain.Mail) *domain.MailEvent {

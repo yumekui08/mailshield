@@ -37,6 +37,7 @@ func NewRouter(
 
 	auditLogger := audit.New(repo)
 	apiKeysHandler := NewAPIKeysHandler(repo, auditLogger)
+	simulateHandler := NewSimulateHandler(cfg.Gateway.URL)
 
 	authHandler := NewAuthHandler(
 		standaloneProvider,
@@ -168,6 +169,13 @@ func NewRouter(
 			r.Get("/", apiKeysHandler.HandleList)
 			r.Post("/", apiKeysHandler.HandleCreate)
 			r.Delete("/{id}", apiKeysHandler.HandleRevoke)
+		})
+
+		// ポリシーシミュレーションエンドポイント（operator/admin）
+		r.Route("/simulate", func(r chi.Router) {
+			r.Use(authMW)
+			r.Use(middleware.RequireRole(domain.RoleOperator, domain.RoleAdmin))
+			r.Post("/", simulateHandler.HandleSimulate)
 		})
 
 		// 隔離エンドポイント

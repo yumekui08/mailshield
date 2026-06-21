@@ -181,6 +181,63 @@ skip_domains: [internal.test, localhost]
 
 ---
 
+### disclaimer-worker（フッター付与）
+
+- **パッケージ**: `internal/worker/builtin/disclaimer/`
+- **種別**: transform
+- **依存外部サービス**: なし
+- **用途**: outbound（inbound でも使用可）
+
+テキスト / HTML 本文の末尾に組織フッターを付与する。二重付与防止のためマーカー文字列を検索し、既にフッターが含まれる場合はスキップする。
+
+**設定ファイル** `config/workers/conf/disclaimer-worker.yaml`:
+
+```yaml
+marker: "mailshield-disclaimer"
+text_footer: |
+  --
+  このメールは組織のメールフィルタリングシステムを通じて送信されました。
+html_footer: |
+  <div style="margin-top:16px; font-size:12px; color:#666; border-top:1px solid #eee; padding-top:8px;">
+  このメールは組織のメールフィルタリングシステムを通じて送信されました。
+  </div>
+```
+
+| 設定項目 | 説明 |
+|---------|------|
+| `marker` | 二重付与防止用のマーカー文字列。テキストパートには `\r\n\r\n<marker>\r\n` の形式で先頭に挿入する |
+| `text_footer` | テキストパートの末尾に追加するフッター文字列 |
+| `html_footer` | HTML パートの `</body>` 直前（なければ末尾）に追加する HTML フラグメント |
+
+---
+
+### arcsealer-worker（ARC 署名）
+
+- **パッケージ**: `internal/worker/builtin/arcsealer/`
+- **種別**: transform
+- **依存外部サービス**: なし
+- **用途**: inbound / outbound（通常は全ルートで有効化）
+
+処理済みメールに ARC（Authenticated Received Chain）署名ヘッダー（`ARC-Seal`, `ARC-Message-Signature`, `ARC-Authentication-Results`）を付与する。他の変換ワーカーよりも後ろの order を指定すること。
+
+**設定ファイル** `config/workers/conf/arcsealer-worker.yaml`:
+
+```yaml
+selector: mailshield
+signing_domain: example.com
+private_key_path: /app/config/arc/private.pem
+```
+
+| 設定項目 | 説明 |
+|---------|------|
+| `selector` | DKIM/ARC セレクター。DNS TXT レコード名は `<selector>._domainkey.<signing_domain>` |
+| `signing_domain` | ARC 署名に使用するドメイン |
+| `private_key_path` | RSA 秘密鍵ファイルのパス。`config/arc/generate-key.sh` で生成する |
+
+Exchange Online と Google Workspace への登録手順は [ARC 署名統合ガイド](../setup/arc-integration.md) を参照。
+
+---
+
 ## Lua ワーカー
 
 ### インターフェース
