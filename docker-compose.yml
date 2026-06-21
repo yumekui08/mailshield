@@ -88,10 +88,11 @@ services:
     ports:
       - "15672:15672"   # 管理UI（開発時のみ）
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 15
+      start_period: 30s
 
   rabbitmq-init:
     profiles: [queue]
