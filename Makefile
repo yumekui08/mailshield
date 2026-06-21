@@ -7,22 +7,25 @@
 
 # ─── profile の組み合わせ ─────────────────────────────────────────
 #
-# infra    : MariaDB・RabbitMQ・MinIO・Redis（同梱インフラ）
+# （常時起動）: MariaDB のみ（必須サービス・プロファイル不要）
+# queue    : RabbitMQ（mail.received を外部システムに通知する場合）
+# storage  : MinIO（EML をオブジェクトストレージに保存する場合）
 # outbound : smtp-outbound（送信フィルタ）
 # scanners : ClamAV・Tika・Tesseract（スキャナー）
 # dev      : Mailpit + 開発用 MTA（Postfix + Rspamd）
-# api      : api-server・Web UI
+# api      : api-server・Web UI・Redis（api-server 用）
 # traefik  : Traefik reverse proxy（将来）
 #
-# 外部インフラを使う場合は .env で接続先を上書きし infra を除外する
-# 本番 MTA は examples/mta/ の参考設定を自前のインフラに組み込むこと
+# 最小構成: make core-up（MariaDB + smtp-gateway のみ）
+# 標準開発: make dev-up（+ MinIO + RabbitMQ + Mailpit + Postfix）
+# 外部サービスに切り替える場合は .env で接続先を上書きしてプロファイルを除外する
 
-PROFILES_CORE     = infra
-PROFILES_DEV      = infra,dev
-PROFILES_OUTBOUND = infra,outbound,dev
-PROFILES_SCANNERS = infra,outbound,scanners,dev
-PROFILES_API      = infra,dev,api
-PROFILES_FULL     = infra,outbound,scanners,dev,api,traefik
+PROFILES_CORE     = storage,queue
+PROFILES_DEV      = storage,queue,dev
+PROFILES_OUTBOUND = storage,queue,outbound,dev
+PROFILES_SCANNERS = storage,queue,outbound,scanners,dev
+PROFILES_API      = storage,queue,dev,api
+PROFILES_FULL     = storage,queue,outbound,scanners,dev,api,traefik
 
 DC = COMPOSE_PROFILES
 

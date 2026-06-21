@@ -66,6 +66,11 @@ func (r *Repository) Close() error {
 	return r.db.Close()
 }
 
+// DB は生の *sql.DB を返す。セッション/OTP ストア等の MariaDB 実装に渡すために使用する。
+func (r *Repository) DB() *sql.DB {
+	return r.db
+}
+
 // ListMessages はクエリパラメータに従ってメッセージ一覧を返す。
 func (r *Repository) ListMessages(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error) {
 	where, args := buildWhereClause(q)

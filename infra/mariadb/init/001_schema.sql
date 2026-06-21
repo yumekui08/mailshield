@@ -162,3 +162,61 @@ CREATE TABLE IF NOT EXISTS api_keys (
     KEY idx_api_keys_created_by (created_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- セッション管理テーブル（redis.backend: mariadb 時に使用）
+-- Redis 不要モードでセッション・OIDC ステート・OTP・パスワードリセットを格納する。
+-- 期限切れ行は NOT EXISTS のクエリで無視されるが、定期的なクリーンアップを推奨する。
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- セッションテーブル
+CREATE TABLE IF NOT EXISTS sessions (
+    id          CHAR(36)     NOT NULL,
+    data        TEXT         NOT NULL,   -- JSON エンコードされた domain.Session
+    expires_at  DATETIME(6)  NOT NULL,
+    created_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    KEY idx_sessions_expires_at (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- OIDC ステートテーブル（OIDC 認証フロー用ワンタイムステート）
+CREATE TABLE IF NOT EXISTS oidc_states (
+    state       VARCHAR(256) NOT NULL,
+    nonce       VARCHAR(256) NOT NULL,
+    redirect_to VARCHAR(2048),
+    expires_at  DATETIME(6)  NOT NULL,
+    PRIMARY KEY (state),
+    KEY idx_oidc_states_expires_at (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- OTP コードテーブル（添付ファイルダウンロード用ワンタイムパスワード）
+CREATE TABLE IF NOT EXISTS otp_codes (
+    id          CHAR(36)     NOT NULL,
+    token       CHAR(36)     NOT NULL,
+    email       VARCHAR(512) NOT NULL,
+    code        CHAR(6)      NOT NULL,
+    attempts    INT          NOT NULL DEFAULT 0,
+    expires_at  DATETIME(6)  NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_otp_codes_token_email (token, email),
+    KEY idx_otp_codes_expires_at (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- OTP セッションテーブル（OTP 検証後の一時セッション）
+CREATE TABLE IF NOT EXISTS otp_sessions (
+    id          CHAR(36)     NOT NULL,
+    token       CHAR(36)     NOT NULL,
+    email       VARCHAR(512) NOT NULL,
+    expires_at  DATETIME(6)  NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_otp_sessions_expires_at (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- パスワードリセットトークンテーブル
+CREATE TABLE IF NOT EXISTS pwreset_tokens (
+    token       CHAR(36)     NOT NULL,
+    user_id     CHAR(36)     NOT NULL,
+    expires_at  DATETIME(6)  NOT NULL,
+    PRIMARY KEY (token),
+    KEY idx_pwreset_tokens_expires_at (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

@@ -12,7 +12,7 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 )
 
-func newTestStore(t *testing.T) (*SessionStore, *miniredis.Miniredis) {
+func newTestStore(t *testing.T) (*RedisSessionStore, *miniredis.Miniredis) {
 	t.Helper()
 	mr, err := miniredis.Run()
 	if err != nil {

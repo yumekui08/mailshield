@@ -30,7 +30,7 @@ type AttachmentsHandler struct {
 	repo           repository.Repository
 	attachmentStor storage.AttachmentStorage
 	cfg            config.AttachmentDownloadConfig
-	otpStore       *otp.Store
+	otpStore       otp.Store
 	notifCfg       config.NotificationConfig
 }
 
@@ -39,7 +39,7 @@ func NewAttachmentsHandler(
 	repo repository.Repository,
 	attachmentStor storage.AttachmentStorage,
 	cfg config.AttachmentDownloadConfig,
-	otpStore *otp.Store,
+	otpStore otp.Store,
 	notifCfg config.NotificationConfig,
 ) *AttachmentsHandler {
 	return &AttachmentsHandler{

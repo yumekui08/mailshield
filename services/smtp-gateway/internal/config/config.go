@@ -98,6 +98,7 @@ type ServerConfig struct {
 }
 
 type StorageConfig struct {
+	// Backend はストレージバックエンドの種別（minio | s3 | filesystem）。
 	Backend           string `mapstructure:"backend"`
 	Endpoint          string `mapstructure:"endpoint"`
 	AccessKey         string `mapstructure:"access_key"`
@@ -105,6 +106,11 @@ type StorageConfig struct {
 	BucketEML         string `mapstructure:"bucket_eml"`
 	BucketAttachments string `mapstructure:"bucket_attachments"`
 	UseSSL            bool   `mapstructure:"use_ssl"`
+	// LocalDir はfallbackモード（backend: filesystem）でのEML保存先ディレクトリ。
+	LocalDir      string `mapstructure:"local_dir"`
+	// PublicBaseURL は filesystem モードで GetPresignedURL が返す URL のベース。
+	// 空の場合 GetPresignedURL はエラーを返す。
+	PublicBaseURL string `mapstructure:"public_base_url"`
 }
 
 type DatabaseConfig struct {

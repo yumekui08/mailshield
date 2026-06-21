@@ -19,18 +19,25 @@ const (
 
 var ErrTokenNotFound = errors.New("リセットトークンが見つかりません（期限切れか無効）")
 
-// Store は Redis を使ったパスワードリセットトークンの保管庫である。
-type Store struct {
+// Store はパスワードリセットトークン管理の抽象インターフェースである。
+// Redis 実装（RedisStore）と MariaDB 実装（MariaDBStore）が存在する。
+type Store interface {
+	GenerateToken(ctx context.Context, userID string) (string, error)
+	ConsumeToken(ctx context.Context, token string) (string, error)
+}
+
+// RedisStore は Redis を使ったパスワードリセットトークンの保管庫である。
+type RedisStore struct {
 	client *redis.Client
 }
 
-func NewStore(client *redis.Client) *Store {
-	return &Store{client: client}
+func NewStore(client *redis.Client) *RedisStore {
+	return &RedisStore{client: client}
 }
 
 // GenerateToken はユーザー ID に紐づくリセットトークンを生成して Redis に保存し、そのトークンを返す。
 // 既存トークンがあれば上書きする（再送信用）。
-func (s *Store) GenerateToken(ctx context.Context, userID string) (string, error) {
+func (s *RedisStore) GenerateToken(ctx context.Context, userID string) (string, error) {
 	token := uuid.New().String()
 	if err := s.client.Set(ctx, keyPrefix+token, userID, TokenTTL).Err(); err != nil {
 		return "", fmt.Errorf("リセットトークン保存失敗: %w", err)
@@ -40,7 +47,7 @@ func (s *Store) GenerateToken(ctx context.Context, userID string) (string, error
 
 // ConsumeToken はトークンを検証し、対応するユーザー ID を返す。
 // トークンは取得後即座に削除される（ワンタイム）。
-func (s *Store) ConsumeToken(ctx context.Context, token string) (string, error) {
+func (s *RedisStore) ConsumeToken(ctx context.Context, token string) (string, error) {
 	userID, err := s.client.GetDel(ctx, keyPrefix+token).Result()
 	if err == redis.Nil {
 		return "", ErrTokenNotFound

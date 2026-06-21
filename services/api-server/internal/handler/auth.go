@@ -29,11 +29,11 @@ import (
 type AuthHandler struct {
 	standalone  *auth.StandaloneProvider
 	oidc        *auth.OIDCProvider
-	store       *auth.SessionStore
+	store       auth.SessionStore
 	sessionCfg  *config.SessionConfig
 	frontendURL string
 	repo        repository.Repository
-	pwResetStore *pwreset.Store
+	pwResetStore pwreset.Store
 	notifCfg    config.NotificationConfig
 	auditLogger *audit.Logger
 }
@@ -43,11 +43,11 @@ type AuthHandler struct {
 func NewAuthHandler(
 	standalone *auth.StandaloneProvider,
 	oidc *auth.OIDCProvider,
-	store *auth.SessionStore,
+	store auth.SessionStore,
 	cfg *config.SessionConfig,
 	frontendURL string,
 	repo repository.Repository,
-	pwResetStore *pwreset.Store,
+	pwResetStore pwreset.Store,
 	notifCfg config.NotificationConfig,
 	auditLogger *audit.Logger,
 ) *AuthHandler {

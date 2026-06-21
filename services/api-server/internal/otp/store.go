@@ -28,18 +28,26 @@ type sessValue struct {
 	Email string `json:"email"`
 }
 
-// Store は Redis を使った OTP コード・セッションの保管庫である。
-type Store struct {
+// Store は OTP コード・セッション管理の抽象インターフェースである。
+// Redis 実装（RedisStore）と MariaDB 実装（MariaDBStore）が存在する。
+type Store interface {
+	GenerateCode(ctx context.Context, token, email string) (string, error)
+	Verify(ctx context.Context, token, email, code string) (string, error)
+	ValidateSession(ctx context.Context, sessID, token string) (string, error)
+}
+
+// RedisStore は Redis を使った OTP コード・セッションの保管庫である。
+type RedisStore struct {
 	client *redis.Client
 }
 
-func NewStore(client *redis.Client) *Store {
-	return &Store{client: client}
+func NewStore(client *redis.Client) *RedisStore {
+	return &RedisStore{client: client}
 }
 
 // GenerateCode は 6 桁の数字コードを生成して Redis に保存し、そのコードを返す。
 // 既存コードがあれば上書きする（再送信用）。
-func (s *Store) GenerateCode(ctx context.Context, token, email string) (string, error) {
+func (s *RedisStore) GenerateCode(ctx context.Context, token, email string) (string, error) {
 	code, err := generateCode()
 	if err != nil {
 		return "", fmt.Errorf("OTP コード生成失敗: %w", err)
@@ -57,7 +65,7 @@ func (s *Store) GenerateCode(ctx context.Context, token, email string) (string, 
 // Verify はコードを検証し、正しければ OTP セッション ID を返す。
 // コードは検証後に削除される（ワンタイム）。
 // 試行回数が maxAttempts を超えた場合はエラーを返す。
-func (s *Store) Verify(ctx context.Context, token, email, code string) (string, error) {
+func (s *RedisStore) Verify(ctx context.Context, token, email, code string) (string, error) {
 	aKey := attKey(token, email)
 	attempts, err := s.client.Incr(ctx, aKey).Result()
 	if err != nil {
@@ -97,7 +105,7 @@ func (s *Store) Verify(ctx context.Context, token, email, code string) (string, 
 }
 
 // ValidateSession はセッション ID とトークンを照合し、対応するメールアドレスを返す。
-func (s *Store) ValidateSession(ctx context.Context, sessID, token string) (string, error) {
+func (s *RedisStore) ValidateSession(ctx context.Context, sessID, token string) (string, error) {
 	data, err := s.client.Get(ctx, sessKeyPrefix+sessID).Bytes()
 	if err == redis.Nil {
 		return "", ErrSessionNotFound

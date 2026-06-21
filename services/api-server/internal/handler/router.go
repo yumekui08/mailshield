@@ -21,12 +21,12 @@ import (
 func NewRouter(
 	standaloneProvider *auth.StandaloneProvider,
 	oidcProvider *auth.OIDCProvider,
-	sessionStore *auth.SessionStore,
+	sessionStore auth.SessionStore,
 	repo repository.Repository,
 	stor storage.EMLStorage,
 	attachmentStor storage.AttachmentStorage,
-	otpStore *otp.Store,
-	pwResetStore *pwreset.Store,
+	otpStore otp.Store,
+	pwResetStore pwreset.Store,
 	cfg *config.Config,
 ) http.Handler {
 	r := chi.NewRouter()

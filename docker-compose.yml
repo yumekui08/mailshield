@@ -32,13 +32,13 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
-        required: false   # infra profile が無効なら外部DBを使うためスキップ
+        required: true    # MariaDB は必須サービス（常時起動）
       rabbitmq:
         condition: service_healthy
-        required: false
+        required: false   # profile: queue が有効なときのみ
       minio:
         condition: service_healthy
-        required: false
+        required: false   # profile: storage が有効なときのみ
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 10s
@@ -46,13 +46,13 @@ services:
       retries: 5
 
   # ═══════════════════════════════════════════════════════════════
-  # 同梱インフラ（profile: infra）
-  # 外部サービスに切り替える場合は .env で接続先を上書きし、
-  # このprofileを起動コマンドから外すだけでよい
+  # MariaDB（profile なし = 常時起動 = 唯一の必須サービス）
+  # 外部 MariaDB を使う場合は .env の DB_HOST 等を上書きして
+  # docker-compose.override.yml でこのサービスをオーバーライドするか
+  # このサービスを停止してください。
   # ═══════════════════════════════════════════════════════════════
 
   mariadb:
-    profiles: [infra]
     image: mariadb:11
     restart: unless-stopped
     environment:
@@ -69,8 +69,14 @@ services:
       timeout: 5s
       retries: 10
 
+  # ─────────────────────────────────────────────────────────────
+  # RabbitMQ（profile: queue）
+  # mail.received イベントを外部システムに通知する場合のみ起動。
+  # smtp-gateway の設定: queue.backend = rabbitmq（デフォルト）
+  # 不要な場合: queue.backend = none に変更してこのプロファイルを外す。
+  # ─────────────────────────────────────────────────────────────
   rabbitmq:
-    profiles: [infra]
+    profiles: [queue]
     image: rabbitmq:3.13-management
     restart: unless-stopped
     environment:
@@ -88,8 +94,14 @@ services:
       timeout: 5s
       retries: 10
 
+  # ─────────────────────────────────────────────────────────────
+  # MinIO（profile: storage）
+  # EML をオブジェクトストレージに保存する場合のみ起動。
+  # smtp-gateway の設定: storage.backend = minio（デフォルト）
+  # 不要な場合: storage.backend = filesystem に変更してこのプロファイルを外す。
+  # ─────────────────────────────────────────────────────────────
   minio:
-    profiles: [infra]
+    profiles: [storage]
     image: minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -108,7 +120,7 @@ services:
       retries: 10
 
   minio-init:
-    profiles: [infra]
+    profiles: [storage]
     image: minio/mc:latest
     depends_on:
       minio:
@@ -122,8 +134,14 @@ services:
     entrypoint: ["/bin/sh", "/init.sh"]
     restart: "no"
 
+  # ─────────────────────────────────────────────────────────────
+  # Redis（profile: api）
+  # api-server のセッション/OTP/パスワードリセット用。
+  # api-server の設定: redis.backend = redis（デフォルト）
+  # 不要な場合: redis.backend = mariadb に変更してこのプロファイルを外す。
+  # ─────────────────────────────────────────────────────────────
   redis:
-    profiles: [infra]
+    profiles: [api]
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
@@ -285,10 +303,10 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
-        required: false   # infra profile が無効なら外部DBを使うためスキップ
+        required: true    # MariaDB は必須
       redis:
         condition: service_healthy
-        required: false
+        required: false   # profile: api かつ redis.backend = redis のときのみ
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8090/healthz"]
       interval: 10s

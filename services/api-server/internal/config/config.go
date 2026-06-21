@@ -110,6 +110,9 @@ type DatabaseConfig struct {
 
 // RedisConfig はRedis接続の設定を保持する。
 type RedisConfig struct {
+	// Backend はキャッシュバックエンドの種別（redis | mariadb）。
+	// mariadb を選ぶと Redis 不要でセッション/OTP/パスワードリセットを MariaDB に保存する。
+	Backend  string `mapstructure:"backend"`
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
 	DB       int    `mapstructure:"db"`

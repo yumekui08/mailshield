@@ -46,7 +46,7 @@ func writeError(w http.ResponseWriter, statusCode int, code, message string) {
 // Authenticate はCookieからセッションを検索して認証を行うミドルウェアである。
 // セッションが有効な場合はcontextにセッション情報を格納して次のハンドラーに渡す。
 // 未認証の場合は401を返す。
-func Authenticate(store *auth.SessionStore, cfg *config.SessionConfig) func(http.Handler) http.Handler {
+func Authenticate(store auth.SessionStore, cfg *config.SessionConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie(cfg.CookieName)
@@ -74,7 +74,7 @@ func Authenticate(store *auth.SessionStore, cfg *config.SessionConfig) func(http
 }
 
 // AuthenticateOrAPIKey はCookieセッションを優先し、なければ Bearer API キーで認証するミドルウェアである。
-func AuthenticateOrAPIKey(store *auth.SessionStore, cfg *config.SessionConfig, repo repository.Repository) func(http.Handler) http.Handler {
+func AuthenticateOrAPIKey(store auth.SessionStore, cfg *config.SessionConfig, repo repository.Repository) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 1. Cookie セッション優先

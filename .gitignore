@@ -42,3 +42,6 @@ Thumbs.db
 coverage/
 *.coverprofile
 *.out
+
+# ARC 秘密鍵（コミットしない）
+config/arc/private.pem

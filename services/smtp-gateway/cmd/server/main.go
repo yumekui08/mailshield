@@ -32,6 +32,7 @@ import (
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/sanitize"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/tika"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/urlcheck"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/arcsealer"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/urlrewrite"
 )
 
@@ -61,21 +62,39 @@ func main() {
 		"log_output", cfg.Log.Output,
 	)
 
-	// ─── MinIO ───────────────────────────────────────────────
-	slog.Debug("MinIO 初期化", "endpoint", cfg.Storage.Endpoint)
-	emlStorage, err := storage.New(
-		cfg.Storage.Endpoint,
-		cfg.Storage.AccessKey,
-		cfg.Storage.SecretKey,
-		cfg.Storage.BucketEML,
-		cfg.Storage.BucketAttachments,
-		cfg.Storage.UseSSL,
+	// ─── ストレージ（MinIO / ローカルFS）───────────────────────
+	var (
+		emlStorage     domain.EMLStorage
+		archiveStorage domain.ArchiveStorage
+		attachStorage  domain.AttachmentStorage
 	)
-	if err != nil {
-		slog.Error("MinIO 初期化失敗", "error", err)
-		os.Exit(1)
+	switch cfg.Storage.Backend {
+	case "filesystem":
+		slog.Debug("ローカルファイルシステムストレージ初期化", "dir", cfg.Storage.LocalDir)
+		fs, err := storage.NewFilesystem(cfg.Storage.LocalDir, cfg.Storage.PublicBaseURL)
+		if err != nil {
+			slog.Error("ローカルストレージ初期化失敗", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("ローカルファイルシステムストレージ初期化完了", "dir", cfg.Storage.LocalDir)
+		emlStorage, archiveStorage, attachStorage = fs, fs, fs
+	default: // minio, s3
+		slog.Debug("MinIO 初期化", "endpoint", cfg.Storage.Endpoint)
+		ms, err := storage.New(
+			cfg.Storage.Endpoint,
+			cfg.Storage.AccessKey,
+			cfg.Storage.SecretKey,
+			cfg.Storage.BucketEML,
+			cfg.Storage.BucketAttachments,
+			cfg.Storage.UseSSL,
+		)
+		if err != nil {
+			slog.Error("MinIO 初期化失敗", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("MinIO 接続完了", "endpoint", cfg.Storage.Endpoint)
+		emlStorage, archiveStorage, attachStorage = ms, ms, ms
 	}
-	slog.Info("MinIO 接続完了", "endpoint", cfg.Storage.Endpoint)
 
 	// ─── MariaDB ─────────────────────────────────────────────
 	slog.Debug("MariaDB 初期化", "host", cfg.Database.Host, "port", cfg.Database.Port)
@@ -98,21 +117,28 @@ func main() {
 	defer repo.Close()
 	slog.Info("MariaDB 接続完了", "host", cfg.Database.Host)
 
-	// ─── RabbitMQ ────────────────────────────────────────────
-	slog.Debug("RabbitMQ 初期化", "host", cfg.Queue.Host, "port", cfg.Queue.Port)
-	amqpURL := fmt.Sprintf("amqp://%s:%s@%s:%d/",
-		cfg.Queue.User,
-		cfg.Queue.Password,
-		cfg.Queue.Host,
-		cfg.Queue.Port,
-	)
-	publisher, err := queue.New(amqpURL)
-	if err != nil {
-		slog.Error("RabbitMQ 初期化失敗", "error", err)
-		os.Exit(1)
+	// ─── キュー（RabbitMQ / noop）────────────────────────────
+	var publisher domain.EventPublisher
+	if cfg.Queue.Backend == "none" {
+		slog.Info("キュー: noop モード（mail.received イベントは発行しない）")
+		publisher = queue.NewNoop()
+	} else {
+		slog.Debug("RabbitMQ 初期化", "host", cfg.Queue.Host, "port", cfg.Queue.Port)
+		amqpURL := fmt.Sprintf("amqp://%s:%s@%s:%d/",
+			cfg.Queue.User,
+			cfg.Queue.Password,
+			cfg.Queue.Host,
+			cfg.Queue.Port,
+		)
+		pub, err := queue.New(amqpURL)
+		if err != nil {
+			slog.Error("RabbitMQ 初期化失敗", "error", err)
+			os.Exit(1)
+		}
+		defer pub.Close()
+		slog.Info("RabbitMQ 接続完了", "host", cfg.Queue.Host)
+		publisher = pub
 	}
-	defer publisher.Close()
-	slog.Info("RabbitMQ 接続完了", "host", cfg.Queue.Host)
 
 	// ─── 組み込みワーカー初期化（ルート間で共有）────────────
 	// ワーカーインスタンスはステートレスなので全ルートで共有する。
@@ -157,7 +183,7 @@ func main() {
 		mode, _ := cfg.AttachmentDownload.DownloadModeFor(string(dir))
 		return domain.DownloadMode(mode)
 	}
-	filesepWorker, err := filesep.New(configDir, emlStorage, repo, cfg.Server.ReinjectHost, cfg.Server.ReinjectPort, downloadModeFn)
+	filesepWorker, err := filesep.New(configDir, attachStorage, repo, cfg.Server.ReinjectHost, cfg.Server.ReinjectPort, downloadModeFn)
 	if err != nil {
 		slog.Error("filesep-worker 初期化失敗", "error", err)
 		os.Exit(1)
@@ -166,6 +192,12 @@ func main() {
 	if err != nil {
 		slog.Error("url-rewrite-worker 初期化失敗", "error", err)
 		os.Exit(1)
+	}
+	arcSealerWorker, err := arcsealer.New(configDir)
+	if err != nil {
+		// ARC シーラーは設定ファイルがない場合は警告のみ（オプション機能）
+		slog.Warn("arc-sealer 初期化スキップ（設定ファイルなし・ARC シールは無効）", "error", err)
+		arcSealerWorker = nil
 	}
 
 	builtinInspect := []domain.InspectWorker{
@@ -179,6 +211,9 @@ func main() {
 		sanitizeWorker,
 		urlRewriteWorker,
 		filesepWorker,
+	}
+	if arcSealerWorker != nil {
+		builtinTransform = append(builtinTransform, arcSealerWorker)
 	}
 
 	// ─── ルーター初期化 ───────────────────────────────────────
@@ -247,7 +282,7 @@ func main() {
 	// ─── メール処理ハンドラー ─────────────────────────────────
 	handler := &mailHandler{
 		storage:        emlStorage,
-		archiveStorage: emlStorage,
+		archiveStorage: archiveStorage,
 		repo:           repo,
 		publisher:      publisher,
 		router:         rt,

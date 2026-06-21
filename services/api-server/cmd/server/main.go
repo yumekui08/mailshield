@@ -70,37 +70,44 @@ func main() {
 	}()
 	slog.Info("MariaDB 接続完了", "host", cfg.Database.Host)
 
-	// ─── Redis ────────────────────────────────────────────────
-	slog.Debug("Redis 初期化", "host", cfg.Redis.Host, "port", cfg.Redis.Port)
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
-	})
+	// ─── セッション/OTP ストア（Redis または MariaDB）────────────
+	var (
+		sessionStore auth.SessionStore
+		otpStore     otp.Store
+		pwResetStore pwreset.Store
+	)
+	if cfg.Redis.Backend == "mariadb" {
+		slog.Info("キャッシュバックエンド: MariaDB（Redis 不要）")
+		sessionStore = auth.NewMariaDBSessionStore(repo.DB(), &cfg.Auth.Session)
+		otpStore = otp.NewMariaDBStore(repo.DB())
+		pwResetStore = pwreset.NewMariaDBStore(repo.DB())
+	} else {
+		slog.Debug("Redis 初期化", "host", cfg.Redis.Host, "port", cfg.Redis.Port)
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		cancel()
-		slog.Error("Redis 接続確認失敗", "error", err)
-		os.Exit(1)
-	}
-	cancel()
-
-	defer func() {
-		if err := redisClient.Close(); err != nil {
-			slog.Warn("Redis クローズ失敗", "error", err)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			cancel()
+			slog.Error("Redis 接続確認失敗", "error", err)
+			os.Exit(1)
 		}
-	}()
-	slog.Info("Redis 接続完了", "host", cfg.Redis.Host)
+		cancel()
 
-	// ─── セッションストア ─────────────────────────────────────
-	sessionStore := auth.NewSessionStore(redisClient, &cfg.Auth.Session)
+		defer func() {
+			if err := redisClient.Close(); err != nil {
+				slog.Warn("Redis クローズ失敗", "error", err)
+			}
+		}()
+		slog.Info("Redis 接続完了", "host", cfg.Redis.Host)
 
-	// ─── OTP ストア ───────────────────────────────────────────
-	otpStore := otp.NewStore(redisClient)
-
-	// ─── パスワードリセットストア ──────────────────────────────
-	pwResetStore := pwreset.NewStore(redisClient)
+		sessionStore = auth.NewSessionStore(redisClient, &cfg.Auth.Session)
+		otpStore = otp.NewStore(redisClient)
+		pwResetStore = pwreset.NewStore(redisClient)
+	}
 
 	// ─── スタンドアロンプロバイダー ───────────────────────────
 	var standaloneProvider *auth.StandaloneProvider

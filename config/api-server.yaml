@@ -13,6 +13,10 @@ database:
   conn_max_lifetime_minutes: 5
 
 redis:
+  # backend: セッション/OTP/パスワードリセットのバックエンド種別
+  #   redis    : Redis（デフォルト）profile: api に含まれる
+  #   mariadb  : MariaDB（Redis不要・単一ノード向け）
+  backend: redis                        # redis | mariadb
   host: redis
   port: 6379
   db: 1
@@ -20,8 +24,9 @@ redis:
 storage:
   endpoint: minio:9000           # api-server から MinIO への内部接続先
   public_endpoint: localhost:9000 # ブラウザからアクセスする際のエンドポイント（空なら endpoint をそのまま使用）
-  access_key: mailshield
-  secret_key: mailshield
+  # 本番環境では環境変数 MINIO_ACCESS_KEY / MINIO_SECRET_KEY で上書きすること
+  access_key: mailshield          # 開発用デフォルト値
+  secret_key: mailshield          # 開発用デフォルト値
   bucket_eml: mailshield-eml
   bucket_attachments: mailshield-attachments
   use_ssl: false

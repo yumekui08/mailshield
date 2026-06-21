@@ -25,22 +25,32 @@ type stateValue struct {
 	RedirectTo string `json:"redirect_to"`
 }
 
-// SessionStore はRedisを使ったセッションストアである。
-type SessionStore struct {
+// SessionStore はセッション・OIDC ステート管理の抽象インターフェースである。
+// Redis 実装（RedisSessionStore）と MariaDB 実装（MariaDBSessionStore）が存在する。
+type SessionStore interface {
+	Create(ctx context.Context, session *domain.Session) (string, error)
+	Get(ctx context.Context, sessionID string) (*domain.Session, error)
+	Delete(ctx context.Context, sessionID string) error
+	SaveState(ctx context.Context, state, nonce, redirectTo string) error
+	ConsumeState(ctx context.Context, state string) (nonce, redirectTo string, err error)
+}
+
+// RedisSessionStore は Redis を使ったセッションストアである。
+type RedisSessionStore struct {
 	client     *redis.Client
 	sessionCfg *config.SessionConfig
 }
 
-// NewSessionStore はSessionStoreを初期化して返す。
-func NewSessionStore(client *redis.Client, cfg *config.SessionConfig) *SessionStore {
-	return &SessionStore{
+// NewSessionStore は RedisSessionStore を初期化して返す。
+func NewSessionStore(client *redis.Client, cfg *config.SessionConfig) *RedisSessionStore {
+	return &RedisSessionStore{
 		client:     client,
 		sessionCfg: cfg,
 	}
 }
 
 // Create はセッションをRedisに保存してセッションIDを返す。
-func (s *SessionStore) Create(ctx context.Context, session *domain.Session) (string, error) {
+func (s *RedisSessionStore) Create(ctx context.Context, session *domain.Session) (string, error) {
 	sessionID := uuid.New().String()
 	session.ID = sessionID
 
@@ -60,7 +70,7 @@ func (s *SessionStore) Create(ctx context.Context, session *domain.Session) (str
 }
 
 // Get はセッションIDに対応するセッションをRedisから取得する。
-func (s *SessionStore) Get(ctx context.Context, sessionID string) (*domain.Session, error) {
+func (s *RedisSessionStore) Get(ctx context.Context, sessionID string) (*domain.Session, error) {
 	key := sessionKeyPrefix + sessionID
 
 	data, err := s.client.Get(ctx, key).Bytes()
@@ -80,7 +90,7 @@ func (s *SessionStore) Get(ctx context.Context, sessionID string) (*domain.Sessi
 }
 
 // Delete はセッションをRedisから削除する。
-func (s *SessionStore) Delete(ctx context.Context, sessionID string) error {
+func (s *RedisSessionStore) Delete(ctx context.Context, sessionID string) error {
 	key := sessionKeyPrefix + sessionID
 
 	if err := s.client.Del(ctx, key).Err(); err != nil {
@@ -91,7 +101,7 @@ func (s *SessionStore) Delete(ctx context.Context, sessionID string) error {
 }
 
 // SaveState はOIDC認証フローのstateをRedisに保存する（TTL: 10分）。
-func (s *SessionStore) SaveState(ctx context.Context, state, nonce, redirectTo string) error {
+func (s *RedisSessionStore) SaveState(ctx context.Context, state, nonce, redirectTo string) error {
 	sv := stateValue{
 		Nonce:      nonce,
 		RedirectTo: redirectTo,
@@ -112,7 +122,7 @@ func (s *SessionStore) SaveState(ctx context.Context, state, nonce, redirectTo s
 
 // ConsumeState はOIDC stateを取得して即座に削除する（一度だけ使用可能）。
 // 対応するnonceとリダイレクト先を返す。
-func (s *SessionStore) ConsumeState(ctx context.Context, state string) (nonce, redirectTo string, err error) {
+func (s *RedisSessionStore) ConsumeState(ctx context.Context, state string) (nonce, redirectTo string, err error) {
 	key := stateKeyPrefix + state
 
 	data, err := s.client.GetDel(ctx, key).Bytes()

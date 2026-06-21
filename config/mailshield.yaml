@@ -21,11 +21,18 @@ server:
     - 127.0.0.1
 
 storage:
-  backend: minio                        # minio | s3
+  # backend: ストレージバックエンドの種別
+  #   minio      : MinIO / S3互換（デフォルト）profile: storage が必要
+  #   s3         : AWS S3（本番環境）
+  #   filesystem : ローカルファイルシステム（単一ノード・MinIO不要）
+  backend: minio                        # minio | s3 | filesystem
   endpoint: minio:9000
   bucket_eml: mailshield-eml
   bucket_attachments: mailshield-attachments
   use_ssl: false
+  # filesystem モードの設定（backend: filesystem のときのみ使用）
+  # local_dir: /var/mailshield/eml
+  # public_base_url: http://api-server:8090   # GetPresignedURL 用（空の場合はエラー）
 
 database:
   driver: mariadb
@@ -37,7 +44,10 @@ database:
   conn_max_lifetime_minutes: 5
 
 queue:
-  backend: rabbitmq
+  # backend: キューバックエンドの種別
+  #   rabbitmq : RabbitMQ（デフォルト）profile: queue が必要
+  #   none     : イベント通知なし（単一ノード・RabbitMQ不要）
+  backend: rabbitmq                     # rabbitmq | none
   host: rabbitmq
   port: 5672
 
@@ -124,6 +134,9 @@ routes:
         - name: filesep-worker            # 添付ファイル分離
           enabled: true
           order: 4
+        - name: arc-sealer               # ARC シール（変換後に実行・最後に設定すること）
+          enabled: false                 # 有効化には config/arc/private.pem と DNS TXT レコードが必要
+          order: 5
     policy:
       rules_file: /app/config/policy-inbound.yaml
 

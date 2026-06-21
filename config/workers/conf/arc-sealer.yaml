@@ -1,0 +1,27 @@
+# arc-sealer ワーカー設定
+# ARC シール（RFC 8617）を有効にするには signing_domain・selector・private_key_path を設定すること。
+#
+# 鍵の生成:
+#   cd config/arc
+#   openssl genrsa -out private.pem 2048
+#   openssl rsa -in private.pem -pubout -out public.pem
+#
+# DNS への公開鍵登録（Exchange Online / GWS 連携に必要）:
+#   TXT レコード名: <selector>._domainkey.<signing_domain>
+#   TXT レコード値: v=DKIM1; k=rsa; p=<public_key_base64>
+#   ※ openssl rsa -in private.pem -pubout | grep -v '^-' | tr -d '\n' で base64 を取得
+
+signing_domain: arc.mailshield.example.com
+selector: mailshield
+private_key_path: /app/config/arc/private.pem
+
+# header_keys: ARC-Message-Signature で署名するヘッダーフィールド（省略時はデフォルト使用）
+# デフォルト: [from, to, subject, date, message-id, content-type, arc-authentication-results]
+# header_keys:
+#   - from
+#   - to
+#   - subject
+#   - date
+#   - message-id
+#   - content-type
+#   - arc-authentication-results
