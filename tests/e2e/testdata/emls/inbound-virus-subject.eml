@@ -1,0 +1,10 @@
+From: sender@external.test
+To: user@example.com
+Subject: virus test mail
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+This email has the word 'virus' in the subject line.
+The subject-virus-inspector should detect it (score=100).
+The subject-virus-transformer should prefix the subject with [spam-warning].

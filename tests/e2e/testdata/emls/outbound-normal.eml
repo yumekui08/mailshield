@@ -1,0 +1,30 @@
+From: user@example.com
+To: recipient@external.test
+Subject: Meeting tomorrow
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="==outbound_test_boundary=="
+
+--==outbound_test_boundary==
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+Hi,
+
+Let's meet tomorrow at 10am to discuss the project.
+
+Best regards,
+User
+
+--==outbound_test_boundary==
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+<html>
+<body>
+<p>Hi,</p>
+<p>Let's meet tomorrow at 10am to discuss the project.</p>
+<p>Best regards,<br>User</p>
+</body>
+</html>
+
+--==outbound_test_boundary==--

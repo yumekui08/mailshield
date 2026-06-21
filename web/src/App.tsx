@@ -14,6 +14,8 @@ import { MailboxesPage } from "./pages/MailboxesPage";
 import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { APIKeysPage } from "./pages/APIKeysPage";
 import { SimulatePage } from "./pages/SimulatePage";
+import { ApprovalsPage } from "./pages/ApprovalsPage";
+import { ApprovalDetailPage } from "./pages/ApprovalDetailPage";
 import { FileDownloadPage } from "./pages/FileDownloadPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
@@ -48,6 +50,8 @@ export function App() {
             <Route path="/audit-logs" element={<AuditLogsPage />} />
             <Route path="/api-keys" element={<APIKeysPage />} />
             <Route path="/simulate" element={<SimulatePage />} />
+            <Route path="/approvals" element={<ApprovalsPage />} />
+            <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

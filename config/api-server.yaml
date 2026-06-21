@@ -84,6 +84,61 @@ notification:
   reinject_host: mailpit
   reinject_port: 1025
 
+approval:
+  # 承認依頼の有効期限（時間）。期限を過ぎると status=expired に自動更新される。
+  expiry_hours: 72
+  # 承認者が個人設定されていない場合のフォールバック承認者メールアドレス。
+  # 空の場合、承認者を解決できないメールは approval アクションを無視して配送される。
+  global_approver_email: ""
+  # 承認画面 URL のベース（通知メール内リンク生成に使用）。
+  # 本番環境: https://mailshield.example.com のように Web UI の公開 URL を指定する。
+  base_url: "http://localhost:3000"
+
+  notification:
+    # 承認通知メールの送信元（空の場合は notification.from_address を使用）
+    from_address: ""
+    from_name: "MailShield 承認システム"
+
+    # 承認依頼通知（承認者向け）
+    # enabled: true にすると policy が approval を返したタイミングで承認者へメールを送る
+    request_enabled: true
+    request_subject_template: "【要承認】メール送信の承認申請: {{.Subject}}"
+    request_body_template: |
+      MailShield より承認申請のお知らせです。
+
+      以下のメールの送信について承認をお願いします。
+
+      件名      : {{.Subject}}
+      送信元    : {{.FromAddress}}
+      宛先      : {{range .ToAddresses}}{{.}} {{end}}
+      受信日時  : {{.ReceivedAt}}
+      承認期限  : {{.ExpiresAt}}
+
+      承認・却下はこちらから:
+      {{.ApprovalURL}}
+
+      ご不明な点はシステム管理者へお問い合わせください。
+
+    # 承認結果通知（送信者向け・内部ユーザーのみ）
+    result_enabled: true
+    approved_subject_template: "【承認済み】あなたのメールが承認されました: {{.Subject}}"
+    approved_body_template: |
+      あなたが送信したメールが承認され、配送されました。
+
+      件名    : {{.Subject}}
+      宛先    : {{range .ToAddresses}}{{.}} {{end}}
+      コメント: {{.Comment}}
+
+    rejected_subject_template: "【却下】あなたのメールが却下されました: {{.Subject}}"
+    rejected_body_template: |
+      あなたが送信したメールは却下されました。
+
+      件名    : {{.Subject}}
+      宛先    : {{range .ToAddresses}}{{.}} {{end}}
+      コメント: {{.Comment}}
+
+      詳細はシステム管理者へお問い合わせください。
+
 gateway:
   # smtp-gateway のヘルスポート URL（POST /simulate に使用）
   # docker-compose 環境では smtp-gateway:8080 がデフォルト

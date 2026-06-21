@@ -53,6 +53,7 @@ func NewRouter(
 	healthHandler := NewHealthHandler()
 	messagesHandler := NewMessagesHandler(repo, stor, cfg.Storage.PresignedURLExpiryH)
 	quarantineHandler := NewQuarantineHandler(repo, stor, cfg.Notification, cfg.MailboxPolicy, auditLogger)
+	approvalHandler := NewApprovalHandler(repo, stor, cfg.Notification, auditLogger)
 	statsHandler := NewStatsHandler(repo, cfg.MailboxPolicy)
 	usersHandler := NewUsersHandler(repo, auditLogger)
 	mailboxesHandler := NewMailboxesHandler(repo, auditLogger)
@@ -195,6 +196,26 @@ func NewRouter(
 				r.Post("/bulk-release", quarantineHandler.HandleBulkRelease)
 				r.Delete("/bulk", quarantineHandler.HandleBulkDelete)
 			})
+		})
+
+		// 承認フローエンドポイント
+		r.Route("/approvals", func(r chi.Router) {
+			r.Use(authMW)
+			r.Use(middleware.RequireRole(domain.RoleViewer, domain.RoleOperator, domain.RoleAdmin))
+
+			r.Get("/", approvalHandler.HandleList)
+			r.Get("/{id}", approvalHandler.HandleGet)
+			r.Post("/{id}/approve", approvalHandler.HandleApprove)
+			r.Post("/{id}/reject", approvalHandler.HandleReject)
+		})
+
+		// ユーザー承認者設定（admin のみ）
+		r.Route("/users/{id}/approver", func(r chi.Router) {
+			r.Use(authMW)
+			r.Use(middleware.RequireRole(domain.RoleAdmin))
+
+			r.Get("/", approvalHandler.HandleGetUserApprover)
+			r.Put("/", approvalHandler.HandleSetUserApprover)
 		})
 	})
 

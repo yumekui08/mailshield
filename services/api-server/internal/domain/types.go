@@ -41,6 +41,7 @@ const (
 	StatusQuarantined     MessageStatus = "quarantined"
 	StatusRejected        MessageStatus = "rejected"
 	StatusApprovalPending MessageStatus = "approval_pending"
+	StatusExpired         MessageStatus = "expired"
 )
 
 // Message はメールのメタデータを表す。
@@ -159,6 +160,37 @@ const (
 	DownloadModeOTP    DownloadMode = "otp"    // メールアドレス OTP 認証
 	DownloadModeAuth   DownloadMode = "auth"   // MailShield ログイン必須
 )
+
+// ApprovalStatus は承認依頼の状態を表す。
+type ApprovalStatus string
+
+const (
+	ApprovalStatusPending  ApprovalStatus = "pending"
+	ApprovalStatusApproved ApprovalStatus = "approved"
+	ApprovalStatusRejected ApprovalStatus = "rejected"
+	ApprovalStatusExpired  ApprovalStatus = "expired"
+)
+
+// ApprovalRequest は承認依頼レコードを表す。
+type ApprovalRequest struct {
+	ID               string         `json:"id"`
+	MessageID        string         `json:"message_id"`
+	ApproverID       string         `json:"approver_id"`
+	Status           ApprovalStatus `json:"status"`
+	Comment          *string        `json:"comment,omitempty"`
+	NotificationSent bool           `json:"-"`
+	ResultNotified   bool           `json:"-"`
+	DecidedAt        *time.Time     `json:"decided_at,omitempty"`
+	ExpiresAt        time.Time      `json:"expires_at"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+}
+
+// ApprovalRequestDetail は承認依頼と紐づくメール情報をまとめた詳細表現。
+type ApprovalRequestDetail struct {
+	ApprovalRequest
+	Message Message `json:"message"`
+}
 
 // Attachment は分離された添付ファイルのメタデータを表す。
 type Attachment struct {

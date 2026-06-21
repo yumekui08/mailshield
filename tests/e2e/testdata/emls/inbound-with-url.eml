@@ -1,0 +1,27 @@
+From: sender@external.test
+To: user@example.com
+Subject: URL rewrite test
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="==url_test_boundary=="
+
+--==url_test_boundary==
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+Please visit our website: https://www.google.com
+
+This URL should be rewritten by url-rewrite-worker to go through the safelink proxy.
+
+--==url_test_boundary==
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+<html>
+<body>
+<p>Please visit our website:</p>
+<a href="https://www.google.com">Google</a>
+<p>The href above should be rewritten to go through safelink.example.com.</p>
+</body>
+</html>
+
+--==url_test_boundary==--

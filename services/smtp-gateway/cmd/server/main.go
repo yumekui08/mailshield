@@ -302,6 +302,7 @@ func main() {
 		router:         rt,
 		routeHandlers:  routeHandlers,
 		cfg:            &cfg.Server,
+		approvalCfg:    cfg.Approval,
 		notifier:       quarantineNotifier,
 	}
 
@@ -404,6 +405,7 @@ type mailHandler struct {
 	router         *router.Router
 	routeHandlers  map[string]*routeHandler
 	cfg            *config.ServerConfig
+	approvalCfg    config.ApprovalConfig
 	notifier       *notify.QuarantineNotifier // nil の場合は通知しない
 	archiveWg      sync.WaitGroup
 }
@@ -560,6 +562,13 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		h.notifier.SendAsync(mail.MessageID, mail.Subject, mail.FromAddress, mail.ToAddresses)
 	}
 
+	// 承認フロー保留時は approval_requests レコードを作成する
+	if action == policy.ActionApproval {
+		if err := h.createApprovalRequest(ctx, mail, log); err != nil {
+			log.Warn("承認依頼レコード作成失敗（続行）", "message_id", mail.MessageID, "error", err)
+		}
+	}
+
 	log.Info("メール処理完了",
 		"route", route.Name,
 		"action", string(action),
@@ -619,22 +628,77 @@ func (h *mailHandler) archiveAsync(messageID string, eml []byte, receivedAt time
 	}
 }
 
+// createApprovalRequest は承認者を解決して approval_requests レコードを作成する。
+// 送信者 → 送信者の承認者設定 → 受信者の承認者設定 → グローバルフォールバック の順で解決する。
+func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Mail, log *slog.Logger) error {
+	approverID, err := h.repo.FindApproverForSender(ctx, mail.FromAddress)
+	if err != nil {
+		log.Warn("承認者解決エラー（送信者）", "from", mail.FromAddress, "error", err)
+	}
+
+	// 送信者に承認者が設定されていない場合は受信者の承認者を試みる
+	if approverID == "" && len(mail.ToAddresses) > 0 {
+		approverID, err = h.repo.FindApproverForSender(ctx, mail.ToAddresses[0])
+		if err != nil {
+			log.Warn("承認者解決エラー（受信者）", "to", mail.ToAddresses[0], "error", err)
+		}
+	}
+
+	// それでも解決できない場合はグローバルフォールバックを使用
+	if approverID == "" && h.approvalCfg.GlobalApproverEmail != "" {
+		approverID, err = h.repo.FindUserIDByEmail(ctx, h.approvalCfg.GlobalApproverEmail)
+		if err != nil {
+			log.Warn("承認者解決エラー（グローバル）", "email", h.approvalCfg.GlobalApproverEmail, "error", err)
+		}
+	}
+
+	if approverID == "" {
+		return fmt.Errorf("承認者を解決できません (message_id=%s, from=%s)", mail.MessageID, mail.FromAddress)
+	}
+
+	expiryHours := h.approvalCfg.ExpiryHours
+	if expiryHours <= 0 {
+		expiryHours = 72
+	}
+
+	req := &domain.ApprovalRequest{
+		ID:         uuid.New().String(),
+		MessageID:  mail.MessageID,
+		ApproverID: approverID,
+		ExpiresAt:  time.Now().Add(time.Duration(expiryHours) * time.Hour),
+	}
+	if err := h.repo.SaveApprovalRequest(ctx, req); err != nil {
+		return err
+	}
+
+	log.Info("承認依頼レコード作成",
+		"message_id", mail.MessageID,
+		"approver_id", approverID,
+		"expires_at", req.ExpiresAt,
+	)
+	return nil
+}
+
 // ────────────────────────────────────────────────────────────
 // ポリシーシミュレーション（POST /simulate）
 // ────────────────────────────────────────────────────────────
 
 // SimulateResult はシミュレーション結果の JSON 表現である。
 type SimulateResult struct {
-	RouteName          string                   `json:"route_name"`
-	Direction          string                   `json:"direction"`
-	InspectResults     []simulateInspectResult  `json:"inspect_results"`
-	OriginalSubject    string                   `json:"original_subject"`
-	TransformedSubject string                   `json:"transformed_subject"`
-	SubjectChanged     bool                     `json:"subject_changed"`
-	TransformError     string                   `json:"transform_error,omitempty"`
-	Action             string                   `json:"action"`
-	MatchedRule        string                   `json:"matched_rule"`
-	ProcessingMS       int64                    `json:"processing_ms"`
+	RouteName          string                  `json:"route_name"`
+	Direction          string                  `json:"direction"`
+	InspectResults     []simulateInspectResult `json:"inspect_results"`
+	OriginalSubject    string                  `json:"original_subject"`
+	TransformedSubject string                  `json:"transformed_subject"`
+	SubjectChanged     bool                    `json:"subject_changed"`
+	// TransformedEML は変換パイプライン適用後の完全な EML バイト列（文字列化）。
+	// sanitize・url-rewrite・disclaimer 等のボディ変換結果をテストで検証するために使う。
+	// 本番用途ではなくデバッグ・テスト専用フィールド。
+	TransformedEML string `json:"transformed_eml"`
+	TransformError string `json:"transform_error,omitempty"`
+	Action         string `json:"action"`
+	MatchedRule    string `json:"matched_rule"`
+	ProcessingMS   int64  `json:"processing_ms"`
 }
 
 type simulateInspectResult struct {
@@ -722,6 +786,7 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		OriginalSubject:    m.Subject,
 		TransformedSubject: transformed.Subject,
 		SubjectChanged:     transformed.Subject != m.Subject,
+		TransformedEML:     string(transformed.RawEML),
 		TransformError:     transformErrMsg,
 		Action:             string(action),
 		MatchedRule:        matchedRule,

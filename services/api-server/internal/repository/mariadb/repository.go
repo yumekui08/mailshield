@@ -83,19 +83,20 @@ func (r *Repository) ListMessages(ctx context.Context, q domain.ListQuery) ([]do
 	}
 
 	// データ取得
+	// sort・order は sanitizeSort/sanitizeOrder のホワイトリストで検証済みのため文字列連結で組み立てる
 	sort := sanitizeSort(q.Sort)
 	order := sanitizeOrder(q.Order)
 	offset := (q.Page - 1) * q.PerPage
 
-	dataQuery := fmt.Sprintf(`
+	dataQuery := `
 		SELECT id, eml_path, from_address, to_addresses, subject,
 		       size_bytes, has_attachment, rspamd_score,
 		       spf_result, dkim_result, dmarc_result,
 		       status, processed_eml_path, received_at, updated_at
 		FROM mail_messages
-		%s
-		ORDER BY %s %s
-		LIMIT ? OFFSET ?`, where, sort, order)
+		` + where + `
+		ORDER BY ` + sort + ` ` + order + `
+		LIMIT ? OFFSET ?`
 
 	rows, err := r.db.QueryContext(ctx, dataQuery, append(args, q.PerPage, offset)...)
 	if err != nil {
@@ -323,14 +324,8 @@ func buildWhereClause(q domain.ListQuery) (string, []any) {
 	// viewer 向けメールボックス可視性フィルター
 	if q.VisibilityFilter != nil {
 		clause, visArgs := buildVisibilityClause(q.VisibilityFilter)
-		// clause は " AND (...)" または " AND 1 = 0" の形式
-		// WHERE 句の conditions に組み込むため先頭の " AND " を除去してアンラップする
-		if strings.HasPrefix(clause, " AND (") {
-			conditions = append(conditions, clause[5:]) // " AND " を除いた "(...)" 部分
-			args = append(args, visArgs...)
-		} else {
-			conditions = append(conditions, "1 = 0")
-		}
+		conditions = append(conditions, clause)
+		args = append(args, visArgs...)
 	}
 
 	if len(conditions) == 0 {
@@ -450,7 +445,7 @@ func scanMessages(rows *sql.Rows) ([]domain.Message, error) {
 // FindUserByEmail はメールアドレスでユーザーを検索する。
 func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, approver_id, created_at, updated_at
 		FROM users
 		WHERE email = ? AND is_active = 1
 		LIMIT 1`
@@ -485,7 +480,7 @@ func (r *Repository) CountUsers(ctx context.Context) (int, error) {
 // ListUsers はユーザー一覧を返す。
 func (r *Repository) ListUsers(ctx context.Context) ([]repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, approver_id, created_at, updated_at
 		FROM users
 		WHERE is_active = 1
 		ORDER BY created_at ASC`
@@ -501,7 +496,7 @@ func (r *Repository) ListUsers(ctx context.Context) ([]repository.User, error) {
 		var isActiveInt int
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.DisplayName,
-			&u.PasswordHash, &u.Role, &isActiveInt, &u.CreatedAt, &u.UpdatedAt,
+			&u.PasswordHash, &u.Role, &isActiveInt, &u.ApproverID, &u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("ユーザースキャン失敗: %w", err)
 		}
@@ -776,7 +771,11 @@ func (r *Repository) getStatsPeriod(ctx context.Context, since time.Time, filter
 	baseArgs := []any{since.UTC()}
 	visClause, visArgs := buildVisibilityClause(filter)
 
-	q := "SELECT status, COUNT(*) FROM mail_messages WHERE received_at >= ?" + visClause + " GROUP BY status"
+	q := "SELECT status, COUNT(*) FROM mail_messages WHERE received_at >= ?"
+	if visClause != "" {
+		q += " AND " + visClause
+	}
+	q += " GROUP BY status"
 	args := append(baseArgs, visArgs...)
 
 	rows, err := r.db.QueryContext(ctx, q, args...)
@@ -805,8 +804,10 @@ func (r *Repository) getStatsPeriod(ctx context.Context, since time.Time, filter
 	return period, rows.Err()
 }
 
-// buildVisibilityClause は可視性フィルターを SQL 条件句と引数に変換する。
-// buildWhereClause と同じロジックだが単独の WHERE 追加句として返す。
+// buildVisibilityClause は可視性フィルターをプレーンな SQL 条件式と引数に変換する。
+// filter が nil の場合は ("", nil) を返す（制限なし）。
+// filter が非 nil でメールボックスが空の場合は ("1 = 0", nil) を返す（全件拒否）。
+// 先頭に "AND " は含まない——呼び出し元が文脈に応じて結合すること。
 func buildVisibilityClause(filter *domain.MailboxVisibilityFilter) (string, []any) {
 	if filter == nil {
 		return "", nil
@@ -828,9 +829,9 @@ func buildVisibilityClause(filter *domain.MailboxVisibilityFilter) (string, []an
 		}
 	}
 	if len(visConditions) > 0 {
-		return " AND (" + strings.Join(visConditions, " OR ") + ")", args
+		return "(" + strings.Join(visConditions, " OR ") + ")", args
 	}
-	return " AND 1 = 0", nil
+	return "1 = 0", nil
 }
 
 // ── 添付ファイル ─────────────────────────────────────────────
@@ -1101,7 +1102,7 @@ func scanUser(row *sql.Row) (*repository.User, error) {
 	var isActiveInt int
 	if err := row.Scan(
 		&u.ID, &u.Email, &u.DisplayName,
-		&u.PasswordHash, &u.Role, &isActiveInt, &u.CreatedAt, &u.UpdatedAt,
+		&u.PasswordHash, &u.Role, &isActiveInt, &u.ApproverID, &u.CreatedAt, &u.UpdatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("ユーザーが見つかりません")
@@ -1188,4 +1189,209 @@ func (r *Repository) UpdateAPIKeyLastUsed(ctx context.Context, id string) error 
 		time.Now(), id,
 	)
 	return err
+}
+
+// ─── 承認フロー ──────────────────────────────────────────────────────────────
+
+// ListApprovalRequests は指定承認者の pending 承認依頼一覧を返す。
+func (r *Repository) ListApprovalRequests(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error) {
+	const q = `
+		SELECT id, message_id, approver_id, status, comment,
+		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
+		FROM approval_requests
+		WHERE approver_id = ? AND status = 'pending'
+		ORDER BY created_at DESC`
+	return r.scanApprovalRequests(ctx, q, approverID)
+}
+
+// ListAllApprovalRequests は全承認依頼を返す（admin 向け）。
+func (r *Repository) ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error) {
+	const q = `
+		SELECT id, message_id, approver_id, status, comment,
+		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
+		FROM approval_requests
+		ORDER BY created_at DESC`
+	return r.scanApprovalRequests(ctx, q)
+}
+
+// GetApprovalRequest は指定 ID の承認依頼を返す。
+func (r *Repository) GetApprovalRequest(ctx context.Context, id string) (*domain.ApprovalRequest, error) {
+	const q = `
+		SELECT id, message_id, approver_id, status, comment,
+		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
+		FROM approval_requests
+		WHERE id = ?`
+	rows, err := r.db.QueryContext(ctx, q, id)
+	if err != nil {
+		return nil, fmt.Errorf("承認依頼取得失敗 (id=%s): %w", id, err)
+	}
+	defer rows.Close()
+	list, err := scanApprovalRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(list) == 0 {
+		return nil, nil
+	}
+	return &list[0], nil
+}
+
+// UpdateApprovalStatus は承認依頼の状態・決定日時・コメントを更新する。
+func (r *Repository) UpdateApprovalStatus(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE approval_requests SET status = ?, comment = ?, decided_at = ? WHERE id = ?`,
+		string(status), comment, time.Now().UTC(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("承認ステータス更新失敗 (id=%s): %w", id, err)
+	}
+	return nil
+}
+
+// MarkApprovalNotificationSent は notification_sent = 1 にする。
+func (r *Repository) MarkApprovalNotificationSent(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE approval_requests SET notification_sent = 1 WHERE id = ?`, id,
+	)
+	return err
+}
+
+// MarkApprovalResultNotified は result_notified = 1 にする。
+func (r *Repository) MarkApprovalResultNotified(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE approval_requests SET result_notified = 1 WHERE id = ?`, id,
+	)
+	return err
+}
+
+// ListPendingUnnotified は notification_sent=false かつ status=pending の依頼を返す。
+func (r *Repository) ListPendingUnnotified(ctx context.Context) ([]domain.ApprovalRequest, error) {
+	const q = `
+		SELECT id, message_id, approver_id, status, comment,
+		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
+		FROM approval_requests
+		WHERE notification_sent = 0 AND status = 'pending'`
+	return r.scanApprovalRequests(ctx, q)
+}
+
+// ListResultUnnotified は result_notified=false かつ approved/rejected の依頼を返す。
+func (r *Repository) ListResultUnnotified(ctx context.Context) ([]domain.ApprovalRequest, error) {
+	const q = `
+		SELECT id, message_id, approver_id, status, comment,
+		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
+		FROM approval_requests
+		WHERE result_notified = 0 AND status IN ('approved', 'rejected')`
+	return r.scanApprovalRequests(ctx, q)
+}
+
+// ExpireApprovals は expires_at を超えた pending 依頼を expired に更新し、
+// 対象の message_id 一覧を返す。
+func (r *Repository) ExpireApprovals(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT message_id FROM approval_requests WHERE status = 'pending' AND expires_at <= ?`,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("期限切れ承認依頼取得失敗: %w", err)
+	}
+	defer rows.Close()
+
+	var messageIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("message_id スキャン失敗: %w", err)
+		}
+		messageIDs = append(messageIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+
+	_, err = r.db.ExecContext(ctx,
+		`UPDATE approval_requests SET status = 'expired' WHERE status = 'pending' AND expires_at <= ?`,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("承認依頼期限切れ更新失敗: %w", err)
+	}
+	return messageIDs, nil
+}
+
+// ─── ユーザー承認者設定 ──────────────────────────────────────────────────────
+
+// GetUser は指定 ID のユーザーを返す。
+func (r *Repository) GetUser(ctx context.Context, id string) (*repository.User, error) {
+	const q = `
+		SELECT id, email, display_name, password_hash, role, is_active, approver_id, created_at, updated_at
+		FROM users WHERE id = ? LIMIT 1`
+	row := r.db.QueryRowContext(ctx, q, id)
+	u, err := scanUser(row)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// UpdateUserApprover はユーザーの approver_id を更新する（nil で解除）。
+func (r *Repository) UpdateUserApprover(ctx context.Context, userID string, approverID *string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE users SET approver_id = ? WHERE id = ?`,
+		approverID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("承認者設定失敗 (user_id=%s): %w", userID, err)
+	}
+	return nil
+}
+
+// FindUserByEmailInternal はメールアドレスでアクティブユーザーを検索する（通知送信先解決用）。
+func (r *Repository) FindUserByEmailInternal(ctx context.Context, email string) (*repository.User, error) {
+	const q = `
+		SELECT id, email, display_name, password_hash, role, is_active, approver_id, created_at, updated_at
+		FROM users WHERE email = ? AND is_active = 1 LIMIT 1`
+	row := r.db.QueryRowContext(ctx, q, email)
+	u, err := scanUser(row)
+	if err != nil && err.Error() == "ユーザーが見つかりません" {
+		return nil, nil
+	}
+	return u, err
+}
+
+// scanApprovalRequests は可変引数の SQL クエリを実行して承認依頼スライスを返す。
+func (r *Repository) scanApprovalRequests(ctx context.Context, q string, args ...any) ([]domain.ApprovalRequest, error) {
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("承認依頼クエリ失敗: %w", err)
+	}
+	defer rows.Close()
+	return scanApprovalRows(rows)
+}
+
+func scanApprovalRows(rows *sql.Rows) ([]domain.ApprovalRequest, error) {
+	var list []domain.ApprovalRequest
+	for rows.Next() {
+		var a domain.ApprovalRequest
+		var notifSentInt, resultNotifiedInt int
+		if err := rows.Scan(
+			&a.ID, &a.MessageID, &a.ApproverID, &a.Status, &a.Comment,
+			&notifSentInt, &resultNotifiedInt,
+			&a.DecidedAt, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("承認依頼スキャン失敗: %w", err)
+		}
+		a.NotificationSent = notifSentInt == 1
+		a.ResultNotified = resultNotifiedInt == 1
+		list = append(list, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("承認依頼イテレーション失敗: %w", err)
+	}
+	if list == nil {
+		list = []domain.ApprovalRequest{}
+	}
+	return list, nil
 }

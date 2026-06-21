@@ -98,6 +98,37 @@ type Repository interface {
 	RevokeAPIKey(ctx context.Context, id string) error
 	// UpdateAPIKeyLastUsed は last_used_at を現在時刻に更新する。
 	UpdateAPIKeyLastUsed(ctx context.Context, id string) error
+
+	// ─── 承認フロー ──────────────────────────────────────────────────────────
+
+	// ListApprovalRequests は指定承認者の承認依頼一覧を返す（status=pending のみ）。
+	ListApprovalRequests(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error)
+	// ListAllApprovalRequests は全ての承認依頼を返す（admin 向け）。
+	ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error)
+	// GetApprovalRequest は指定 ID の承認依頼を返す。
+	GetApprovalRequest(ctx context.Context, id string) (*domain.ApprovalRequest, error)
+	// UpdateApprovalStatus は承認依頼の状態と決定日時・コメントを更新する。
+	UpdateApprovalStatus(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error
+	// MarkApprovalNotificationSent は notification_sent フラグを true にする。
+	MarkApprovalNotificationSent(ctx context.Context, id string) error
+	// MarkApprovalResultNotified は result_notified フラグを true にする。
+	MarkApprovalResultNotified(ctx context.Context, id string) error
+	// ListPendingUnnotified は notification_sent=false かつ status=pending の依頼を返す。
+	ListPendingUnnotified(ctx context.Context) ([]domain.ApprovalRequest, error)
+	// ListResultUnnotified は result_notified=false かつ status が approved/rejected の依頼を返す。
+	ListResultUnnotified(ctx context.Context) ([]domain.ApprovalRequest, error)
+	// ExpireApprovals は expires_at を過ぎた pending 依頼を expired に更新し、
+	// 対象の message_id 一覧を返す（呼び出し元が MinIO 削除・ステータス更新を行う）。
+	ExpireApprovals(ctx context.Context) ([]string, error)
+
+	// ─── ユーザー承認者設定 ──────────────────────────────────────────────────
+
+	// GetUser は指定 ID のユーザーを返す。
+	GetUser(ctx context.Context, id string) (*User, error)
+	// UpdateUserApprover はユーザーの承認者を設定する（nil で解除）。
+	UpdateUserApprover(ctx context.Context, userID string, approverID *string) error
+	// FindUserByEmailInternal はメールアドレスでユーザーを検索する（承認通知送信先解決用）。
+	FindUserByEmailInternal(ctx context.Context, email string) (*User, error)
 }
 
 // Mailbox はメールボックス情報を保持する。
@@ -130,6 +161,7 @@ type User struct {
 	PasswordHash string
 	Role         domain.Role
 	IsActive     bool
+	ApproverID   *string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

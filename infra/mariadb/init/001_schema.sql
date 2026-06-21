@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS mail_messages (
     spf_result      ENUM('pass','fail','none') NOT NULL DEFAULT 'none',
     dkim_result     ENUM('pass','fail','none') NOT NULL DEFAULT 'none',
     dmarc_result    ENUM('pass','fail','none') NOT NULL DEFAULT 'none',
-    status          ENUM('received','processing','delivered','quarantined','rejected','approval_pending')
+    status          ENUM('received','processing','delivered','quarantined','rejected','approval_pending','expired')
                                    NOT NULL DEFAULT 'received',
     direction            ENUM('inbound','outbound','internal') NOT NULL DEFAULT 'inbound',
     processed_eml_path   VARCHAR(1024)  NULL DEFAULT NULL,  -- 変換後 EML の MinIO パス（archive 完了後に記録）
@@ -54,10 +54,13 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(256) NOT NULL DEFAULT '',
     role          ENUM('admin','operator','viewer') NOT NULL DEFAULT 'viewer',
     is_active     TINYINT(1)   NOT NULL DEFAULT 1,
+    approver_id   CHAR(36)     NULL DEFAULT NULL,   -- この ユーザーの承認者（users.id の自己参照）
     created_at    DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at    DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
-    UNIQUE KEY uq_users_email (email)
+    UNIQUE KEY uq_users_email (email),
+    KEY idx_users_approver (approver_id),
+    CONSTRAINT fk_users_approver FOREIGN KEY (approver_id) REFERENCES users (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- メールボックステーブル
@@ -143,6 +146,30 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     KEY idx_audit_logs_event_type  (event_type),
     KEY idx_audit_logs_actor_id    (actor_id),
     KEY idx_audit_logs_created_at  (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 承認依頼テーブル
+-- policy engine が action: approval を返したメールの承認ワークフローを管理する
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id                CHAR(36)                                              NOT NULL,
+    message_id        CHAR(36)                                              NOT NULL,
+    approver_id       CHAR(36)                                              NOT NULL,
+    status            ENUM('pending','approved','rejected','expired')        NOT NULL DEFAULT 'pending',
+    comment           TEXT                                                   NULL DEFAULT NULL,
+    notification_sent TINYINT(1)                                            NOT NULL DEFAULT 0,
+    result_notified   TINYINT(1)                                            NOT NULL DEFAULT 0,
+    decided_at        DATETIME(6)                                           NULL DEFAULT NULL,
+    expires_at        DATETIME(6)                                           NOT NULL,
+    created_at        DATETIME(6)                                           NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at        DATETIME(6)                                           NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    KEY idx_approval_requests_message        (message_id),
+    KEY idx_approval_requests_approver_status (approver_id, status),
+    KEY idx_approval_requests_pending_notify  (notification_sent, status),
+    KEY idx_approval_requests_result_notify   (result_notified, status),
+    KEY idx_approval_requests_expires         (expires_at, status),
+    CONSTRAINT fk_approval_requests_message  FOREIGN KEY (message_id)  REFERENCES mail_messages (id),
+    CONSTRAINT fk_approval_requests_approver FOREIGN KEY (approver_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- API キーテーブル

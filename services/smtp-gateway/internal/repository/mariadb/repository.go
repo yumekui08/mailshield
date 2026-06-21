@@ -174,6 +174,54 @@ func (r *Repository) UpdateProcessedEMLPath(ctx context.Context, messageID, path
 	return nil
 }
 
+// FindApproverForSender は送信者メールアドレスから承認者のユーザーIDを解決する。
+func (r *Repository) FindApproverForSender(ctx context.Context, fromAddress string) (string, error) {
+	var approverID sql.NullString
+	err := r.db.QueryRowContext(ctx,
+		`SELECT approver_id FROM users WHERE email = ? AND is_active = 1 LIMIT 1`,
+		fromAddress,
+	).Scan(&approverID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", fmt.Errorf("承認者解決失敗 (from=%s): %w", fromAddress, err)
+	}
+	if !approverID.Valid {
+		return "", nil
+	}
+	return approverID.String, nil
+}
+
+// FindUserIDByEmail はメールアドレスからユーザーIDを返す。
+func (r *Repository) FindUserIDByEmail(ctx context.Context, email string) (string, error) {
+	var userID string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM users WHERE email = ? AND is_active = 1 LIMIT 1`,
+		email,
+	).Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", fmt.Errorf("ユーザーID解決失敗 (email=%s): %w", email, err)
+	}
+	return userID, nil
+}
+
+// SaveApprovalRequest は承認依頼レコードを approval_requests テーブルに保存する。
+func (r *Repository) SaveApprovalRequest(ctx context.Context, req *domain.ApprovalRequest) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO approval_requests (id, message_id, approver_id, expires_at)
+		 VALUES (?, ?, ?, ?)`,
+		req.ID, req.MessageID, req.ApproverID, req.ExpiresAt.UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("approval_requests 保存失敗 (message_id=%s): %w", req.MessageID, err)
+	}
+	return nil
+}
+
 func boolToInt(b bool) int {
 	if b {
 		return 1

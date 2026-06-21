@@ -7,7 +7,7 @@ myhostname = postfix
 mydomain = internal.test
 myorigin = $mydomain
 mydestination = $myhostname, localhost
-relay_domains = internal.test
+relay_domains = internal.test example.com
 
 # リスナー設定
 inet_interfaces = all

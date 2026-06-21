@@ -13,6 +13,8 @@ import type {
   APIKey,
   CreateAPIKeyRequest,
   CreateAPIKeyResponse,
+  ApprovalRequest,
+  ApprovalRequestDetail,
 } from "../types";
 
 const BASE = "/api/v1";
@@ -451,4 +453,41 @@ export async function simulatePolicy(eml: string): Promise<SimulateResult> {
     throw new Error(text || `simulate failed: ${res.status}`);
   }
   return res.json();
+}
+
+// ─── 承認フロー ─────────────────────────────────────────────
+
+export async function listApprovals(): Promise<{ items: ApprovalRequest[] }> {
+  return request<{ items: ApprovalRequest[] }>("/approvals");
+}
+
+export async function getApproval(id: string): Promise<ApprovalRequestDetail> {
+  return request<ApprovalRequestDetail>(`/approvals/${id}`);
+}
+
+export async function approveRequest(id: string, comment?: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/approvals/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ comment: comment ?? "" }),
+  });
+}
+
+export async function rejectRequest(id: string, comment?: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/approvals/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ comment: comment ?? "" }),
+  });
+}
+
+// ─── ユーザー承認者設定 ─────────────────────────────────────
+
+export async function getUserApprover(userId: string): Promise<{ approver_id: string | null }> {
+  return request<{ approver_id: string | null }>(`/users/${userId}/approver`);
+}
+
+export async function setUserApprover(userId: string, approverId: string | null): Promise<void> {
+  return request<void>(`/users/${userId}/approver`, {
+    method: "PUT",
+    body: JSON.stringify({ approver_id: approverId }),
+  });
 }

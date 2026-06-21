@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FlaskConical, Play, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+import { FlaskConical, Play, CheckCircle, AlertTriangle } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { simulatePolicy } from "../lib/api";
 import type { SimulateResult } from "../lib/api";

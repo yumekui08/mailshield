@@ -42,6 +42,7 @@ const (
 	StatusQuarantined     MessageStatus = "quarantined"
 	StatusRejected        MessageStatus = "rejected"
 	StatusApprovalPending MessageStatus = "approval_pending"
+	StatusExpired         MessageStatus = "expired"
 )
 
 // AuthResults は認証結果のセットを表す。

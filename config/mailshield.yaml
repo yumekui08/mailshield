@@ -11,8 +11,8 @@ server:
   # 処理後メールの再インジェクト先 MTA
   # 本番環境: 自前の MTA ホスト名または IP に変更すること
   # 開発環境: docker-compose dev プロファイルの Postfix（postfix:10025）
-  reinject_host: ${MAILSHIELD_REINJECT_HOST:-postfix}
-  reinject_port: ${MAILSHIELD_REINJECT_PORT:-10025}
+  reinject_host: postfix      # env: MAILSHIELD_REINJECT_HOST
+  reinject_port: 10025        # env: MAILSHIELD_REINJECT_PORT
   trusted_sources:                      # smtp-gateway への SMTP 接続を許可するホスト/IP
     # 本番環境: 自前の MTA の IP またはホスト名に変更すること
     # 例: - 10.0.0.5
@@ -62,14 +62,24 @@ log:
 #           smtp-gateway に再注入する MTA とは別のポートまたは別ホストを使用する）
 # 開発環境: docker-compose dev プロファイルの Mailpit（mailpit:1025）
 notification:
-  smtp_host: ${MAILSHIELD_NOTIFICATION_SMTP_HOST:-mailpit}
-  smtp_port: ${MAILSHIELD_NOTIFICATION_SMTP_PORT:-1025}
+  smtp_host: mailpit    # env: MAILSHIELD_NOTIFICATION_SMTP_HOST
+  smtp_port: 1025       # env: MAILSHIELD_NOTIFICATION_SMTP_PORT
   from_address: noreply@mailshield.internal
 
 # 隔離即時通知: ActionQuarantine 決定時に受信者へ通知メールを送信する
 quarantine_notification:
   enabled: true
   ui_base_url: "http://localhost:3000"   # 通知メール内のログインリンクのベース URL
+
+# 承認フロー設定
+# policy アクション approval が返されたとき、smtp-gateway が approval_requests を作成する。
+# 承認者の解決順: 送信者の approver_id → 受信者の approver_id → global_approver_email
+approval:
+  # 承認依頼の有効期限（時間）。0 の場合は 72 時間が使用される。
+  expiry_hours: 72
+  # 承認者が解決できなかった場合のフォールバック承認者メールアドレス。
+  # 空の場合は承認依頼を作成せず警告ログのみ出力する。
+  global_approver_email: ""
 
 # 添付ファイルダウンロード認証方式（全ルート共通）
 attachment_download:

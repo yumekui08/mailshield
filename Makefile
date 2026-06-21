@@ -3,6 +3,7 @@
         api-up api-down \
         full-up full-down full-logs \
         build test lint \
+        test-simulate test-smtp test-api test-e2e \
         e2e-normal e2e-virus e2e-outbound-normal e2e-outbound-dlp
 
 # ─── profile の組み合わせ ─────────────────────────────────────────
@@ -94,6 +95,34 @@ lint:
 	cd services/smtp-gateway && gofmt -l . && go vet ./...
 	cd services/api-server && gofmt -l . && go vet ./...
 	cd web && npx tsc --noEmit
+
+# ─── E2E テスト（構造化・自動スキップ対応） ─────────────────────────────────
+#
+# 各テストはサービスが起動していない場合は自動スキップ。
+# 環境変数で接続先を上書き可能:
+#   MAILSHIELD_GATEWAY_URL   (default: http://localhost:8080)
+#   MAILSHIELD_API_URL       (default: http://localhost:8090)
+#   MAILSHIELD_MAILPIT_URL   (default: http://localhost:8025)
+#   MAILSHIELD_SMTP_HOST     (default: localhost)
+#   MAILSHIELD_SMTP_PORT     (default: 25)
+#   MAILSHIELD_ADMIN_EMAIL   (default: admin@internal.test)
+#   MAILSHIELD_ADMIN_PASSWORD (default: password)
+
+## シミュレーターテスト（smtp-gateway のみ必要: make core-up）
+test-simulate:
+	cd tests/e2e && go test -v -tags e2e -run TestSimulate -timeout 60s ./...
+
+## SMTP フローテスト（make dev-up 必要: Postfix + smtp-gateway + Mailpit）
+test-smtp:
+	cd tests/e2e && go test -v -tags e2e -run TestSMTP -timeout 60s ./...
+
+## API テスト（make api-up 必要: api-server + MariaDB）
+test-api:
+	cd tests/e2e && go test -v -tags e2e -run TestAPI -timeout 60s ./...
+
+## 全 E2E テスト
+test-e2e:
+	cd tests/e2e && go test -v -tags e2e -timeout 120s ./...
 
 # ─── E2Eテスト（受信） ───────────────────────────────────────────
 

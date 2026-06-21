@@ -30,6 +30,14 @@ type mockRepository struct {
 	addAssignmentFunc              func(ctx context.Context, assignment *repository.MailboxAssignment) error
 	removeAssignmentFunc           func(ctx context.Context, mailboxID, userID string, role domain.AssignmentRole) error
 	getMailboxAddressesForUserFunc func(ctx context.Context, userID string, roles []domain.AssignmentRole) ([]string, error)
+
+	// 承認フロー
+	listApprovalRequestsFunc    func(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error)
+	listAllApprovalRequestsFunc func(ctx context.Context) ([]domain.ApprovalRequest, error)
+	getApprovalRequestFunc      func(ctx context.Context, id string) (*domain.ApprovalRequest, error)
+	updateApprovalStatusFunc    func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error
+	getUserFunc                 func(ctx context.Context, id string) (*repository.User, error)
+	updateUserApproverFunc      func(ctx context.Context, userID string, approverID *string) error
 }
 
 func (m *mockRepository) ListMessages(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error) {
@@ -232,4 +240,61 @@ func (m *mockRepository) RevokeAPIKey(_ context.Context, _ string) error {
 
 func (m *mockRepository) UpdateAPIKeyLastUsed(_ context.Context, _ string) error {
 	return nil
+}
+
+// ─── 承認フロー ──────────────────────────────────────────────────────────────
+
+func (m *mockRepository) ListApprovalRequests(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error) {
+	if m.listApprovalRequestsFunc != nil {
+		return m.listApprovalRequestsFunc(ctx, approverID)
+	}
+	return nil, nil
+}
+func (m *mockRepository) ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error) {
+	if m.listAllApprovalRequestsFunc != nil {
+		return m.listAllApprovalRequestsFunc(ctx)
+	}
+	return nil, nil
+}
+func (m *mockRepository) GetApprovalRequest(ctx context.Context, id string) (*domain.ApprovalRequest, error) {
+	if m.getApprovalRequestFunc != nil {
+		return m.getApprovalRequestFunc(ctx, id)
+	}
+	return nil, nil
+}
+func (m *mockRepository) UpdateApprovalStatus(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error {
+	if m.updateApprovalStatusFunc != nil {
+		return m.updateApprovalStatusFunc(ctx, id, status, comment)
+	}
+	return nil
+}
+func (m *mockRepository) MarkApprovalNotificationSent(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockRepository) MarkApprovalResultNotified(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockRepository) ListPendingUnnotified(_ context.Context) ([]domain.ApprovalRequest, error) {
+	return nil, nil
+}
+func (m *mockRepository) ListResultUnnotified(_ context.Context) ([]domain.ApprovalRequest, error) {
+	return nil, nil
+}
+func (m *mockRepository) ExpireApprovals(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+func (m *mockRepository) GetUser(ctx context.Context, id string) (*repository.User, error) {
+	if m.getUserFunc != nil {
+		return m.getUserFunc(ctx, id)
+	}
+	return nil, nil
+}
+func (m *mockRepository) UpdateUserApprover(ctx context.Context, userID string, approverID *string) error {
+	if m.updateUserApproverFunc != nil {
+		return m.updateUserApproverFunc(ctx, userID, approverID)
+	}
+	return nil
+}
+func (m *mockRepository) FindUserByEmailInternal(_ context.Context, _ string) (*repository.User, error) {
+	return nil, nil
 }

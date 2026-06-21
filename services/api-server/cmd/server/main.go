@@ -14,6 +14,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/koizumib/mailshield/services/api-server/internal/approval"
 	"github.com/koizumib/mailshield/services/api-server/internal/auth"
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
 	"github.com/koizumib/mailshield/services/api-server/internal/handler"
@@ -151,6 +152,13 @@ func main() {
 	}
 	slog.Info("MinIO 初期化完了", "endpoint", cfg.Storage.Endpoint, "public_endpoint", cfg.Storage.PublicEndpoint)
 
+	// ─── 承認フロー バックグラウンドサービス ───────────────────
+	approvalSvc := approval.New(repo, cfg.Approval, cfg.Notification)
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	go approvalSvc.RunNotifier(bgCtx)
+	go approvalSvc.RunExpiryWorker(bgCtx)
+	slog.Info("承認フロー バックグラウンドサービス起動")
+
 	// ─── HTTPサーバー ─────────────────────────────────────────
 	router := handler.NewRouter(standaloneProvider, oidcProvider, sessionStore, repo, stor, stor, otpStore, pwResetStore, cfg)
 
@@ -183,6 +191,7 @@ func main() {
 	}
 
 	// ─── グレースフルシャットダウン ───────────────────────────
+	bgCancel() // バックグラウンドサービスを停止
 	shutdownTimeout := time.Duration(cfg.Server.ShutdownTimeoutSeconds) * time.Second
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()

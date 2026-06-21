@@ -4,7 +4,34 @@ export type MessageStatus =
   | "delivered"
   | "quarantined"
   | "rejected"
-  | "approval_pending";
+  | "approval_pending"
+  | "expired";
+
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+
+export interface ApprovalRequest {
+  id: string;
+  message_id: string;
+  approver_id: string;
+  status: ApprovalStatus;
+  comment: string | null;
+  notification_sent: boolean;
+  result_notified: boolean;
+  decided_at: string | null;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApprovalRequestDetail extends ApprovalRequest {
+  from_address: string;
+  to_addresses: string[];
+  subject: string;
+  size_bytes: number;
+  has_attachment: boolean;
+  received_at: string;
+  eml_path: string;
+}
 
 export type Role = "admin" | "operator" | "viewer";
 
@@ -64,6 +91,7 @@ export interface UserRecord {
   display_name: string;
   role: Role;
   is_active: boolean;
+  approver_id: string | null;
 }
 
 export type AssignmentRole = "member" | "owner" | "admin";

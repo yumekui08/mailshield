@@ -100,6 +100,21 @@ notification:
 | `enabled` | bool | `false` | `quarantine` アクション時に受信者へ即時通知メールを送るか |
 | `ui_base_url` | string | - | 通知メール内のログインリンクのベース URL（例: `http://localhost:3000`） |
 
+### approval
+
+policy アクションが `approval` を返したとき、smtp-gateway がデータベースに `approval_requests` レコードを作成する。承認者の解決は「送信者の approver_id → 受信者の approver_id → global_approver_email」の順で行われる。
+
+| キー | 型 | デフォルト | 説明 |
+|-----|-----|----------|------|
+| `expiry_hours` | int | `72` | 承認依頼の有効期限（時間）。0 の場合は 72 時間が使用される |
+| `global_approver_email` | string | `""` | 承認者が解決できなかった場合のフォールバック承認者メールアドレス。空の場合は警告ログのみ出力 |
+
+```yaml
+approval:
+  expiry_hours: 72
+  global_approver_email: ""
+```
+
 ### attachment_download
 
 添付ファイルダウンロードの認証フロー設定。ルートの `direction` でフローを切り替える。
@@ -414,6 +429,60 @@ notification:
   from_address: noreply@mailshield.internal
   reinject_host: mailpit
   reinject_port: 1025
+```
+
+### approval
+
+承認フローのバックグラウンドサービス設定。api-server は 30 秒ごとに未送信の通知メールを送信し、5 分ごとに期限切れの承認依頼を `expired` に更新する。
+
+| キー | 型 | デフォルト | 説明 |
+|-----|-----|----------|------|
+| `expiry_hours` | int | `72` | 承認依頼の有効期限（時間） |
+| `global_approver_email` | string | `""` | 承認者フォールバック先メールアドレス（smtp-gateway の同設定と合わせること） |
+| `base_url` | string | - | 承認画面 URL のベース（通知メール内リンク生成に使用。例: `https://mailshield.example.com`） |
+| `notification.from_address` | string | `""` | 承認通知メール専用の送信元アドレス（空の場合は `notification.from_address` を使用） |
+| `notification.from_name` | string | `"MailShield 承認システム"` | 送信者表示名 |
+| `notification.request_enabled` | bool | `false` | 承認者へのメール通知を有効にするか |
+| `notification.request_subject_template` | string | - | 承認依頼メール件名（Go `text/template` 形式） |
+| `notification.request_body_template` | string | - | 承認依頼メール本文（Go `text/template` 形式） |
+| `notification.result_enabled` | bool | `false` | 承認結果の送信者通知を有効にするか（内部ユーザーのみ） |
+| `notification.approved_subject_template` | string | - | 承認済み通知メール件名 |
+| `notification.approved_body_template` | string | - | 承認済み通知メール本文 |
+| `notification.rejected_subject_template` | string | - | 却下通知メール件名 |
+| `notification.rejected_body_template` | string | - | 却下通知メール本文 |
+
+**テンプレート変数:**
+
+| 変数 | 説明 |
+|------|------|
+| `{{.Subject}}` | メールの件名 |
+| `{{.FromAddress}}` | 送信元メールアドレス |
+| `{{.ToAddresses}}` | 宛先アドレスのスライス |
+| `{{.ReceivedAt}}` | 受信日時（`2006-01-02 15:04:05` 形式） |
+| `{{.ExpiresAt}}` | 承認期限（`2006-01-02 15:04:05` 形式） |
+| `{{.ApprovalURL}}` | 承認画面の URL（`base_url` + `/approvals/{id}`） |
+| `{{.Comment}}` | 承認者コメント（結果通知時のみ使用） |
+
+**設定例:**
+```yaml
+approval:
+  expiry_hours: 72
+  global_approver_email: "manager@example.com"
+  base_url: "https://mailshield.example.com"
+  notification:
+    from_name: "MailShield 承認システム"
+    request_enabled: true
+    request_subject_template: "【要承認】メール送信の承認申請: {{.Subject}}"
+    request_body_template: |
+      件名: {{.Subject}}
+      送信元: {{.FromAddress}}
+      承認期限: {{.ExpiresAt}}
+      承認画面: {{.ApprovalURL}}
+    result_enabled: true
+    approved_subject_template: "【承認済み】{{.Subject}}"
+    approved_body_template: "あなたのメールが承認されました。\nコメント: {{.Comment}}"
+    rejected_subject_template: "【却下】{{.Subject}}"
+    rejected_body_template: "あなたのメールは却下されました。\nコメント: {{.Comment}}"
 ```
 
 ### settings

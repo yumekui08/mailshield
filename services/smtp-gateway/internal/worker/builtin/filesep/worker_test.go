@@ -58,6 +58,15 @@ func (r *stubRepository) SaveAttachment(_ context.Context, att *domain.MailAttac
 func (r *stubRepository) UpdateProcessedEMLPath(_ context.Context, _, _ string) error {
 	return nil
 }
+func (r *stubRepository) FindApproverForSender(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (r *stubRepository) FindUserIDByEmail(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (r *stubRepository) SaveApprovalRequest(_ context.Context, _ *domain.ApprovalRequest) error {
+	return nil
+}
 
 // ─── ヘルパー ─────────────────────────────────────────────────
 

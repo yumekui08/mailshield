@@ -20,6 +20,15 @@ type Config struct {
 	AttachmentDownload      AttachmentDownloadConfig      `mapstructure:"attachment_download"`
 	Notification            NotificationConfig            `mapstructure:"notification"`
 	QuarantineNotification  QuarantineNotificationConfig  `mapstructure:"quarantine_notification"`
+	Approval                ApprovalConfig                `mapstructure:"approval"`
+}
+
+// ApprovalConfig は承認フローの設定を保持する。
+type ApprovalConfig struct {
+	// ExpiryHours は承認依頼の有効期限（デフォルト 72 時間）。
+	ExpiryHours int `mapstructure:"expiry_hours"`
+	// GlobalApproverEmail は承認者が解決できなかった場合のフォールバック承認者メールアドレス。
+	GlobalApproverEmail string `mapstructure:"global_approver_email"`
 }
 
 // NotificationConfig はシステムメール（隔離通知等）を送信する SMTP の設定を保持する。
@@ -200,18 +209,24 @@ func Load(configFile string) (*Config, error) {
 	v.AutomaticEnv()
 
 	// 環境変数のマッピング（YAML キーと env キーが異なる場合）
+	// 注意: YAML ファイル内で ${VAR:-default} のシェル構文は使わないこと。
+	// viper は展開しないため、ここで BindEnv により env → 設定キーを対応付ける。
 	bindEnvs := map[string]string{
-		"database.host":     "DB_HOST",
-		"database.port":     "DB_PORT",
-		"database.name":     "DB_NAME",
-		"database.user":     "DB_USER",
-		"database.password": "DB_PASSWORD",
-		"storage.endpoint":  "MINIO_ENDPOINT",
-		"storage.use_ssl":   "MINIO_USE_SSL",
-		"queue.host":        "RABBITMQ_HOST",
-		"queue.port":        "RABBITMQ_PORT",
-		"queue.user":        "RABBITMQ_USER",
-		"queue.password":    "RABBITMQ_PASSWORD",
+		"database.host":              "DB_HOST",
+		"database.port":              "DB_PORT",
+		"database.name":              "DB_NAME",
+		"database.user":              "DB_USER",
+		"database.password":          "DB_PASSWORD",
+		"storage.endpoint":           "MINIO_ENDPOINT",
+		"storage.use_ssl":            "MINIO_USE_SSL",
+		"queue.host":                 "RABBITMQ_HOST",
+		"queue.port":                 "RABBITMQ_PORT",
+		"queue.user":                 "RABBITMQ_USER",
+		"queue.password":             "RABBITMQ_PASSWORD",
+		"server.reinject_host":       "MAILSHIELD_REINJECT_HOST",
+		"server.reinject_port":       "MAILSHIELD_REINJECT_PORT",
+		"notification.smtp_host":     "MAILSHIELD_NOTIFICATION_SMTP_HOST",
+		"notification.smtp_port":     "MAILSHIELD_NOTIFICATION_SMTP_PORT",
 	}
 	for yamlKey, envKey := range bindEnvs {
 		if err := v.BindEnv(yamlKey, envKey); err != nil {

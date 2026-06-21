@@ -19,8 +19,39 @@ type Config struct {
 	MailboxPolicy      MailboxPolicyConfig      `mapstructure:"mailbox_policy"`
 	AttachmentDownload AttachmentDownloadConfig `mapstructure:"attachment_download"`
 	Notification       NotificationConfig       `mapstructure:"notification"`
+	Approval           ApprovalConfig           `mapstructure:"approval"`
 	Gateway            GatewayConfig            `mapstructure:"gateway"`
 	Log                LogConfig                `mapstructure:"log"`
+}
+
+// ApprovalConfig は承認フローの設定を保持する。
+type ApprovalConfig struct {
+	// ExpiryHours は承認依頼の有効期限（デフォルト 72 時間）。
+	ExpiryHours int `mapstructure:"expiry_hours"`
+	// GlobalApproverEmail は承認者が解決できなかった場合のフォールバック承認者メールアドレス。
+	GlobalApproverEmail string `mapstructure:"global_approver_email"`
+	// BaseURL は承認画面 URL の生成に使用するベース URL。
+	BaseURL string `mapstructure:"base_url"`
+
+	Notification ApprovalNotificationConfig `mapstructure:"notification"`
+}
+
+// ApprovalNotificationConfig は承認依頼・結果通知メールの設定を保持する。
+type ApprovalNotificationConfig struct {
+	FromAddress string `mapstructure:"from_address"`
+	FromName    string `mapstructure:"from_name"`
+
+	// 承認依頼通知（承認者向け）
+	RequestEnabled         bool   `mapstructure:"request_enabled"`
+	RequestSubjectTemplate string `mapstructure:"request_subject_template"`
+	RequestBodyTemplate    string `mapstructure:"request_body_template"`
+
+	// 承認結果通知（送信者向け・内部ユーザーのみ）
+	ResultEnabled            bool   `mapstructure:"result_enabled"`
+	ApprovedSubjectTemplate  string `mapstructure:"approved_subject_template"`
+	ApprovedBodyTemplate     string `mapstructure:"approved_body_template"`
+	RejectedSubjectTemplate  string `mapstructure:"rejected_subject_template"`
+	RejectedBodyTemplate     string `mapstructure:"rejected_body_template"`
 }
 
 // GatewayConfig は smtp-gateway への内部接続設定を保持する。

@@ -11,6 +11,7 @@ const statusConfig: Record<
   processing: { label: "処理中", variant: "yellow" },
   received: { label: "受信済み", variant: "blue" },
   approval_pending: { label: "承認待ち", variant: "yellow" },
+  expired: { label: "期限切れ", variant: "default" },
 };
 
 interface StatusBadgeProps {
