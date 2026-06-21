@@ -45,3 +45,6 @@ coverage/
 
 # ARC 秘密鍵（コミットしない）
 config/arc/private.pem
+
+# ─── インストールテスト用クローン ────────────────────────────────
+tests/install-test/

@@ -36,6 +36,9 @@ services:
       rabbitmq:
         condition: service_healthy
         required: false   # profile: queue が有効なときのみ
+      rabbitmq-init:
+        condition: service_completed_successfully
+        required: false   # rabbitmq-init が完了してから起動する（Exchange 作成待ち）
       minio:
         condition: service_healthy
         required: false   # profile: storage が有効なときのみ
