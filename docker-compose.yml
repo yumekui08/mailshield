@@ -85,7 +85,6 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-      - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
     ports:
       - "15672:15672"   # 管理UI（開発時のみ）
     healthcheck:
@@ -93,6 +92,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  rabbitmq-init:
+    profiles: [queue]
+    image: rabbitmq:3.13-management
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_USER:     ${RABBITMQ_USER:-mailshield}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-mailshield}
+    volumes:
+      - ./infra/rabbitmq/definitions.json:/definitions.json:ro
+      - ./infra/rabbitmq/init.sh:/init.sh:ro
+    entrypoint: ["/bin/sh", "/init.sh"]
+    restart: "no"
 
   # ─────────────────────────────────────────────────────────────
   # MinIO（profile: storage）
