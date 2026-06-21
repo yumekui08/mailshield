@@ -6,6 +6,7 @@ package smtp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -48,6 +49,9 @@ type Server struct {
 
 // New は SMTP サーバーを初期化する。
 func New(opts Options, handler Handler) *Server {
+	if opts.MaxMessageSizeMB == 0 {
+		opts.MaxMessageSizeMB = 50
+	}
 	maxSize := int64(opts.MaxMessageSizeMB) * 1024 * 1024
 
 	if opts.Hostname == "" {
@@ -67,7 +71,7 @@ func New(opts Options, handler Handler) *Server {
 	}
 
 	backend := &smtpBackend{
-		trustedSources: opts.TrustedSources,
+		trustedIPs:     resolveTrustedIPs(opts.TrustedSources),
 		maxMsgSize:     maxSize,
 		handler:        handler,
 		handlerTimeout: time.Duration(opts.HandlerTimeoutSeconds) * time.Second,
@@ -115,7 +119,7 @@ func (s *Server) GracefulClose(ctx context.Context) error {
 // ────────────────────────────────────────────────────────────
 
 type smtpBackend struct {
-	trustedSources []string
+	trustedIPs     map[string]bool // 起動時に解決済み（接続ごとの DNS 解決を避ける）
 	maxMsgSize     int64
 	handler        Handler
 	handlerTimeout time.Duration
@@ -150,23 +154,31 @@ func (b *smtpBackend) NewSession(c *gosmtp.Conn) (gosmtp.Session, error) {
 }
 
 // isTrusted は接続元IPがホワイトリストに含まれるか確認する。
-// ホスト名が指定されている場合はDNS解決して比較する。
+// IP リストは起動時に解決済みのため、接続ごとの DNS 解決は行わない。
 func (b *smtpBackend) isTrusted(remoteIP string) bool {
-	for _, trusted := range b.trustedSources {
-		if trusted == remoteIP {
-			return true
+	return b.trustedIPs[remoteIP]
+}
+
+// resolveTrustedIPs は trusted_sources のホスト名を DNS 解決して IP → bool マップを返す。
+// 起動時に一度だけ呼ぶことで、接続ごとの DNS 解決コスト・DNS キャッシュポイズニングリスクを排除する。
+func resolveTrustedIPs(sources []string) map[string]bool {
+	ips := make(map[string]bool, len(sources))
+	for _, src := range sources {
+		if net.ParseIP(src) != nil {
+			ips[src] = true
+			continue
 		}
-		addrs, err := net.LookupHost(trusted)
+		addrs, err := net.LookupHost(src)
 		if err != nil {
+			slog.Warn("trusted_sources のDNS解決失敗（エントリをスキップ）", "host", src, "error", err)
 			continue
 		}
 		for _, addr := range addrs {
-			if addr == remoteIP {
-				return true
-			}
+			ips[addr] = true
 		}
+		slog.Info("trusted_sources DNS解決完了", "host", src, "resolved_ips", addrs)
 	}
-	return false
+	return ips
 }
 
 // ────────────────────────────────────────────────────────────
@@ -224,7 +236,23 @@ func (s *smtpSession) Data(r io.Reader) error {
 			"message_id", mail.MessageID,
 			"from", mail.FromAddress,
 			"error", err)
-		// MinIO 保存失敗などの場合は 451 を返してPostfixにリトライさせる
+		// ポリシーによる恒久的な拒否 → 550 でバウンスさせる
+		if errors.Is(err, domain.ErrMailRejected) {
+			return &gosmtp.SMTPError{
+				Code:         550,
+				EnhancedCode: gosmtp.EnhancedCode{5, 7, 1},
+				Message:      "Message rejected by policy",
+			}
+		}
+		// ポリシーにマッチするルールがない → 設定エラーとして 550 を返す
+		if errors.Is(err, domain.ErrNoRuleMatched) {
+			return &gosmtp.SMTPError{
+				Code:         550,
+				EnhancedCode: gosmtp.EnhancedCode{5, 7, 0},
+				Message:      "No policy rule matched",
+			}
+		}
+		// MinIO 保存失敗などの一時的なエラーは 451 でリトライさせる
 		return &gosmtp.SMTPError{
 			Code:         451,
 			EnhancedCode: gosmtp.EnhancedCode{4, 3, 0},

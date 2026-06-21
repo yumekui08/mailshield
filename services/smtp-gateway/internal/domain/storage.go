@@ -31,4 +31,6 @@ type AttachmentStorage interface {
 	SaveAttachment(ctx context.Context, messageID, filename string, data []byte) (path string, err error)
 	// GetPresignedURL は指定パスへのダウンロード用署名付き URL を返す。
 	GetPresignedURL(ctx context.Context, path string, expiryHours int) (url string, err error)
+	// DeleteAttachment は保存済み添付ファイルを削除する。saveAndRecord の失敗ロールバックに使う。
+	DeleteAttachment(ctx context.Context, path string) error
 }

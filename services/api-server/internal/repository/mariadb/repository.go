@@ -939,66 +939,12 @@ func (r *Repository) GetAttachmentByToken(ctx context.Context, downloadToken, fi
 
 // ListAttachmentsByTokenPublic は download_token のみで添付ファイル一覧を返す（認証不要）。
 func (r *Repository) ListAttachmentsByTokenPublic(ctx context.Context, downloadToken string) ([]domain.Attachment, error) {
-	const q = `
-		SELECT id, message_id, download_token, filename, content_type,
-		       size_bytes, storage_backend, storage_path, is_disabled, download_mode, created_at
-		FROM mail_attachments
-		WHERE download_token = ? AND deleted_at IS NULL
-		ORDER BY filename`
-
-	rows, err := r.db.QueryContext(ctx, q, downloadToken)
-	if err != nil {
-		return nil, fmt.Errorf("添付ファイル一覧取得失敗: %w", err)
-	}
-	defer rows.Close()
-
-	var result []domain.Attachment
-	for rows.Next() {
-		var att domain.Attachment
-		var isDisabledInt int
-		if err := rows.Scan(
-			&att.ID, &att.MessageID, &att.DownloadToken,
-			&att.Filename, &att.ContentType, &att.SizeBytes,
-			&att.StorageBackend, &att.StoragePath, &isDisabledInt, &att.DownloadMode, &att.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("添付ファイルスキャン失敗: %w", err)
-		}
-		att.IsDisabled = isDisabledInt == 1
-		result = append(result, att)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("添付ファイルイテレーション失敗: %w", err)
-	}
-	if result == nil {
-		result = []domain.Attachment{}
-	}
-	return result, nil
+	return r.ListAttachmentsByToken(ctx, downloadToken)
 }
 
 // GetAttachmentByTokenPublic は download_token とファイル名で添付ファイルを取得する（認証不要）。
 func (r *Repository) GetAttachmentByTokenPublic(ctx context.Context, downloadToken, filename string) (*domain.Attachment, error) {
-	const q = `
-		SELECT id, message_id, download_token, filename, content_type,
-		       size_bytes, storage_backend, storage_path, is_disabled, download_mode, created_at
-		FROM mail_attachments
-		WHERE download_token = ? AND filename = ? AND deleted_at IS NULL
-		LIMIT 1`
-
-	row := r.db.QueryRowContext(ctx, q, downloadToken, filename)
-	var att domain.Attachment
-	var isDisabledInt int
-	if err := row.Scan(
-		&att.ID, &att.MessageID, &att.DownloadToken,
-		&att.Filename, &att.ContentType, &att.SizeBytes,
-		&att.StorageBackend, &att.StoragePath, &isDisabledInt, &att.DownloadMode, &att.CreatedAt,
-	); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("添付ファイル取得失敗: %w", err)
-	}
-	att.IsDisabled = isDisabledInt == 1
-	return &att, nil
+	return r.GetAttachmentByToken(ctx, downloadToken, filename)
 }
 
 // GetAttachmentToAddressesByToken は download_token に紐づく元メッセージの to_addresses を返す。

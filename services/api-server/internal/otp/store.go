@@ -56,8 +56,9 @@ func (s *RedisStore) GenerateCode(ctx context.Context, token, email string) (str
 	if err := s.client.Set(ctx, codeKey(token, email), code, CodeTTL).Err(); err != nil {
 		return "", fmt.Errorf("OTP コード保存失敗: %w", err)
 	}
-	// 再送信時は試行カウンタもリセット
-	s.client.Del(ctx, attKey(token, email))
+	// 試行カウンタはリセットしない。
+	// 再送信のたびにリセットするとブルートフォースでカウンタ回避が可能になる。
+	// カウンタは maxAttempts 到達後 CodeTTL 経過で自然消滅する。
 
 	return code, nil
 }

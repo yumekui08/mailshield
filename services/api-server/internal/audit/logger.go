@@ -33,7 +33,11 @@ func New(writer Writer) *Logger {
 // Log は監査ログを1件記録する。
 // 書き込みはゴルーチンで非同期実行し、呼び出し元のレスポンスをブロックしない。
 // 書き込み失敗は WARN ログに記録するだけで呼び出し元に伝播しない。
+// writer が nil の場合（テスト等）は何もしない。
 func (l *Logger) Log(entry domain.AuditLog) {
+	if l == nil || l.writer == nil {
+		return
+	}
 	if entry.ID == "" {
 		entry.ID = uuid.New().String()
 	}

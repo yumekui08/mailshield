@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/logging"
@@ -149,11 +151,11 @@ func main() {
 	// ─── 組み込みワーカー初期化（ルート間で共有）────────────
 	// ワーカーインスタンスはステートレスなので全ルートで共有する。
 	// どのルートで有効化するかは各ルートの WorkersConfig で制御する。
-	configDir := cfg.Routes[0].Workers.WorkerConfigDir // worker config dir はルート間共通
 	if len(cfg.Routes) == 0 {
 		slog.Error("routes が設定されていません")
 		os.Exit(1)
 	}
+	configDir := cfg.Routes[0].Workers.WorkerConfigDir // worker config dir はルート間共通
 
 	avWorker, err := clamav.New(configDir)
 	if err != nil {
@@ -434,30 +436,43 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	)
 
 	// 2. MinIO に原本 EML を保存（失敗したら 451 を返し Postfix にリトライさせる）
+	// 独立コンテキストを使い、ストレージ遅延がパイプライン（ステップ5-7）のタイムアウト予算を消費しないようにする
 	log.Debug("[2/7] MinIO へ原本 EML を保存中")
-	path, err := h.storage.Save(ctx, mail.MessageID, mail.RawEML, mail.ReceivedAt)
-	if err != nil {
-		log.Error("[2/7] EML 保存失敗（451 を返す）", "error", err)
-		return fmt.Errorf("EML 保存失敗: %w", err)
+	{
+		saveCtx, saveCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		path, err := h.storage.Save(saveCtx, mail.MessageID, mail.RawEML, mail.ReceivedAt)
+		saveCancel()
+		if err != nil {
+			log.Error("[2/7] EML 保存失敗（451 を返す）", "error", err)
+			return fmt.Errorf("EML 保存失敗: %w", err)
+		}
+		mail.EMLPath = path
 	}
-	mail.EMLPath = path
 	log.Info("[2/7] EML 保存完了", "eml_path", mail.EMLPath)
 
 	// 3. MariaDB にメタデータを記録（失敗してもログだけで続行）
 	log.Debug("[3/7] MariaDB へメタデータ記録中")
-	if err := h.repo.SaveMessage(ctx, mail); err != nil {
-		log.Warn("[3/7] DB メタデータ保存失敗（続行）", "error", err)
-	} else {
-		log.Debug("[3/7] DB メタデータ記録完了")
+	{
+		dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := h.repo.SaveMessage(dbCtx, mail); err != nil {
+			log.Warn("[3/7] DB メタデータ保存失敗（続行）", "error", err)
+		} else {
+			log.Debug("[3/7] DB メタデータ記録完了")
+		}
+		dbCancel()
 	}
 
 	// 4. RabbitMQ に mail.received を発行（失敗してもログだけで続行）
 	log.Debug("[4/7] RabbitMQ へ mail.received を発行中")
-	event := toMailEvent(mail)
-	if err := h.publisher.PublishMailReceived(ctx, event); err != nil {
-		log.Warn("[4/7] mail.received 発行失敗（続行）", "error", err)
-	} else {
-		log.Debug("[4/7] mail.received 発行完了")
+	{
+		mqCtx, mqCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		event := toMailEvent(mail)
+		if err := h.publisher.PublishMailReceived(mqCtx, event); err != nil {
+			log.Warn("[4/7] mail.received 発行失敗（続行）", "error", err)
+		} else {
+			log.Debug("[4/7] mail.received 発行完了")
+		}
+		mqCancel()
 	}
 
 	// 5. 検査パイプライン（並列）
@@ -482,8 +497,19 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	log.Info("[6/7] 変換パイプライン開始", "route", route.Name)
 	transformed, err := rh.transform.Run(ctx, mail)
 	if err != nil {
-		log.Warn("[6/7] 変換パイプラインエラー（元のメールで続行）", "error", err)
-		transformed = mail
+		// 変換失敗時は未処理メールを配送せず隔離する。
+		// sanitize / urlrewrite 等の効果が得られないまま配送するとセキュリティリスクになる。
+		log.Error("[6/7] 変換パイプライン失敗: 未処理メールの配送を防ぐため隔離します",
+			"route", route.Name, "error", err)
+		if uerr := h.repo.UpdateMessageStatus(ctx, mail.MessageID, domain.StatusQuarantined); uerr != nil {
+			log.Warn("ステータス更新失敗（続行）", "error", uerr)
+		}
+		h.archiveWg.Add(1)
+		go h.archiveAsync(mail.MessageID, mail.RawEML, mail.ReceivedAt)
+		if h.notifier != nil {
+			h.notifier.SendAsync(mail.MessageID, mail.Subject, mail.FromAddress, mail.ToAddresses)
+		}
+		return nil // Postfix には 250 OK を返す（メールは隔離済み）
 	}
 	if transformed.Subject != mail.Subject {
 		log.Info("[6/7] 件名変換完了",
@@ -500,6 +526,13 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	if err != nil {
 		log.Error("[7/7] ポリシーエンジンエラー", "error", err)
 		return fmt.Errorf("ポリシー実行失敗: %w", err)
+	}
+
+	// B-3: マッチするルールがない場合はメールを消失させず 550 を返す
+	if action == "" {
+		log.Error("[7/7] マッチするポリシールールがありません。policy.yaml にデフォルトルールを追加してください",
+			"route", route.Name, "message_id", mail.MessageID)
+		return domain.ErrNoRuleMatched
 	}
 
 	// アクション種別に対応する DB ステータスへ更新
@@ -532,6 +565,11 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		"action", string(action),
 		"elapsed_ms", time.Since(start).Milliseconds(),
 	)
+
+	// B-2: reject アクションは SMTP 層へエラーを伝播して 550 を返させる
+	if action == policy.ActionReject {
+		return domain.ErrMailRejected
+	}
 	return nil
 }
 
@@ -593,6 +631,7 @@ type SimulateResult struct {
 	OriginalSubject    string                   `json:"original_subject"`
 	TransformedSubject string                   `json:"transformed_subject"`
 	SubjectChanged     bool                     `json:"subject_changed"`
+	TransformError     string                   `json:"transform_error,omitempty"`
 	Action             string                   `json:"action"`
 	MatchedRule        string                   `json:"matched_rule"`
 	ProcessingMS       int64                    `json:"processing_ms"`
@@ -633,7 +672,7 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	subject := msg.Header.Get("Subject")
 
 	m := &domain.Mail{
-		MessageID:   "simulate-" + time.Now().Format("20060102150405"),
+		MessageID:   "simulate-" + uuid.New().String(),
 		RawEML:      rawEML,
 		ReceivedAt:  time.Now().UTC(),
 		FromAddress: fromAddr,
@@ -654,12 +693,18 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	// ドライランフラグを付与: 副作用を持つワーカー（filesep 等）は保存を省略する
+	ctx = context.WithValue(ctx, domain.CtxDryRun, true)
 
 	// 検査パイプライン（ドライラン: DB 保存なし）
 	inspectResults, _ := rh.inspect.Run(ctx, m)
 
 	// 変換パイプライン（ドライラン: storage 保存なし）
-	transformed, _ := rh.transform.Run(ctx, m)
+	transformed, transformErr := rh.transform.Run(ctx, m)
+	if transformErr != nil {
+		slog.Warn("simulate: 変換パイプラインエラー（元のメールで続行）",
+			"message_id", m.MessageID, "error", transformErr)
+	}
 	if transformed == nil {
 		transformed = m
 	}
@@ -667,12 +712,17 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	// ポリシー評価（アクション実行なし）
 	action, matchedRule := rh.policy.Evaluate(inspectResults)
 
+	var transformErrMsg string
+	if transformErr != nil {
+		transformErrMsg = transformErr.Error()
+	}
 	out := SimulateResult{
 		RouteName:          route.Name,
 		Direction:          route.Direction,
 		OriginalSubject:    m.Subject,
 		TransformedSubject: transformed.Subject,
 		SubjectChanged:     transformed.Subject != m.Subject,
+		TransformError:     transformErrMsg,
 		Action:             string(action),
 		MatchedRule:        matchedRule,
 		ProcessingMS:       time.Since(start).Milliseconds(),

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -164,7 +165,8 @@ func (h *AuthHandler) HandleLoginOIDC(w http.ResponseWriter, r *http.Request) {
 	state := uuid.New().String()
 	nonce := uuid.New().String()
 	redirectTo := r.URL.Query().Get("redirect_to")
-	if redirectTo == "" {
+	// 相対パス（"/"始まり）のみ許可。それ以外はオープンリダイレクトの可能性があるためデフォルトに戻す
+	if len(redirectTo) == 0 || redirectTo[0] != '/' {
 		redirectTo = "/"
 	}
 
@@ -381,7 +383,7 @@ func (h *AuthHandler) HandleForgotPassword(w http.ResponseWriter, r *http.Reques
 	}
 
 	resetURL := fmt.Sprintf("%s/reset-password?token=%s", h.frontendURL, token)
-	if err := h.sendPasswordResetEmail(email, resetURL); err != nil {
+	if err := h.sendPasswordResetEmail(r.Context(), email, resetURL); err != nil {
 		slog.Error("パスワードリセットメール送信失敗", "email", email, "error", err)
 		writeErrorResponse(w, http.StatusInternalServerError, "MAIL_SEND_FAILED", "メールの送信に失敗しました")
 		return
@@ -458,7 +460,7 @@ func (h *AuthHandler) HandleResetPassword(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]string{"message": "パスワードを更新しました"})
 }
 
-func (h *AuthHandler) sendPasswordResetEmail(to, resetURL string) error {
+func (h *AuthHandler) sendPasswordResetEmail(ctx context.Context, to, resetURL string) error {
 	subject := "[MailShield] パスワードリセット"
 	bodyLines := []string{
 		"パスワードリセットのリクエストを受け付けました。",
@@ -492,9 +494,13 @@ func (h *AuthHandler) sendPasswordResetEmail(to, resetURL string) error {
 	}
 
 	addr := fmt.Sprintf("%s:%d", h.notifCfg.SMTPHost, h.notifCfg.SMTPPort)
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("SMTP 接続失敗: %w", err)
+	}
+	// ctx の deadline を TCP コネクション全体に伝播させる（SMTP I/O の無制限ブロックを防ぐ）。
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
 	}
 	c, err := smtp.NewClient(conn, h.notifCfg.SMTPHost)
 	if err != nil {

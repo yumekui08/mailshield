@@ -3,7 +3,9 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
@@ -34,6 +36,15 @@ func (p *InspectPipeline) Run(ctx context.Context, mail *domain.Mail) ([]*domain
 		wg.Add(1)
 		go func(idx int, worker domain.InspectWorker) {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("検査ワーカーパニック（スキップ）",
+						"worker", worker.Name(),
+						"message_id", mail.MessageID,
+						"panic", fmt.Sprintf("%v", r),
+						"stack", string(debug.Stack()))
+				}
+			}()
 			result, err := worker.Inspect(ctx, mail)
 			if err != nil {
 				slog.Warn("検査ワーカーエラー（スキップ）",

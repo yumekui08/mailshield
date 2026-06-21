@@ -109,6 +109,18 @@ func (s *Storage) SaveAttachment(ctx context.Context, messageID, filename string
 	return key, nil
 }
 
+// DeleteAttachment は添付ファイルバケットから指定パスのオブジェクトを削除する。
+func (s *Storage) DeleteAttachment(ctx context.Context, path string) error {
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucketAttachments),
+		Key:    aws.String(path),
+	})
+	if err != nil {
+		return fmt.Errorf("添付ファイル削除失敗 (key=%s): %w", path, err)
+	}
+	return nil
+}
+
 // GetPresignedURL は添付ファイルバケットの指定パスへのダウンロード用署名付き URL を生成して返す。
 func (s *Storage) GetPresignedURL(ctx context.Context, path string, expiryHours int) (string, error) {
 	req, err := s.presignClient.PresignGetObject(ctx, &s3.GetObjectInput{

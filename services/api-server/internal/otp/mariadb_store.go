@@ -30,11 +30,12 @@ func (s *MariaDBStore) GenerateCode(ctx context.Context, token, email string) (s
 	expiresAt := time.Now().Add(CodeTTL).UTC()
 	id := uuid.New().String()
 
-	// 再送信時は既存行を上書きする（token+email が UNIQUE KEY）
+	// 再送信時は既存行のコードと有効期限のみ更新する（attempts はリセットしない）。
+	// attempts をリセットすると再送信でブルートフォース対策を回避できるため。
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO otp_codes (id, token, email, code, attempts, expires_at)
 		 VALUES (?, ?, ?, ?, 0, ?)
-		 ON DUPLICATE KEY UPDATE id=VALUES(id), code=VALUES(code), attempts=0, expires_at=VALUES(expires_at)`,
+		 ON DUPLICATE KEY UPDATE id=VALUES(id), code=VALUES(code), expires_at=VALUES(expires_at)`,
 		id, token, email, code, expiresAt,
 	)
 	if err != nil {

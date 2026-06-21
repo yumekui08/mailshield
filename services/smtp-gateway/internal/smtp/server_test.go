@@ -139,7 +139,7 @@ func TestExtractAuthResults(t *testing.T) {
 
 func TestIsTrusted(t *testing.T) {
 	b := &smtpBackend{
-		trustedSources: []string{"127.0.0.1", "192.168.1.100"},
+		trustedIPs: map[string]bool{"127.0.0.1": true, "192.168.1.100": true},
 	}
 
 	tests := []struct {

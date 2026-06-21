@@ -69,6 +69,15 @@ func (s *FilesystemStorage) SaveAttachment(_ context.Context, messageID, filenam
 	return s.write(rel, data)
 }
 
+// DeleteAttachment は保存済み添付ファイルを削除する。ファイルが存在しない場合は成功とする。
+func (s *FilesystemStorage) DeleteAttachment(_ context.Context, path string) error {
+	full := filepath.Join(s.baseDir, path)
+	if err := os.Remove(full); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("添付ファイル削除失敗 (%s): %w", path, err)
+	}
+	return nil
+}
+
 // GetPresignedURL は添付ファイルのダウンロード URL を返す。
 // filesystem モードでは storage.public_base_url の設定が必要。
 // 未設定の場合はエラーを返す。

@@ -33,6 +33,11 @@ func (s *stubStorage) GetPresignedURL(_ context.Context, path string, _ int) (st
 	return "https://minio.example.com/" + path + "?signed=true", nil
 }
 
+func (s *stubStorage) DeleteAttachment(_ context.Context, path string) error {
+	delete(s.saved, path)
+	return nil
+}
+
 // ─── スタブ MailRepository ────────────────────────────────────
 
 type stubRepository struct {

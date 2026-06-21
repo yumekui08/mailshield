@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 // SimulateHandler はポリシーシミュレーションのプロキシハンドラーである。
@@ -13,12 +14,19 @@ import (
 // 結果をそのまま返す。
 type SimulateHandler struct {
 	gatewayURL string
+	client     *http.Client
 }
 
 // NewSimulateHandler は SimulateHandler を初期化する。
 // gatewayURL は smtp-gateway のヘルスポートベース URL（例: http://smtp-gateway:8080）。
 func NewSimulateHandler(gatewayURL string) *SimulateHandler {
-	return &SimulateHandler{gatewayURL: gatewayURL}
+	return &SimulateHandler{
+		gatewayURL: gatewayURL,
+		// smtp-gateway の simulate は 30s タイムアウト。
+		// http.DefaultClient はタイムアウトがなく smtp-gateway 無応答時に goroutine が永久ブロックするため
+		// 専用クライアントを使う。リクエストコンテキストのキャンセルは NewRequestWithContext で伝播済み。
+		client: &http.Client{Timeout: 35 * time.Second},
+	}
 }
 
 // HandleSimulate は EML を受け取り smtp-gateway にシミュレーションを依頼する。
@@ -48,7 +56,7 @@ func (h *SimulateHandler) HandleSimulate(w http.ResponseWriter, r *http.Request)
 	}
 	req.Header.Set("Content-Type", "message/rfc822")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := h.client.Do(req)
 	if err != nil {
 		slog.Warn("simulate: smtp-gateway への接続失敗", "url", gwURL, "error", err)
 		http.Error(w, "smtp-gateway に接続できません: "+err.Error(), http.StatusBadGateway)

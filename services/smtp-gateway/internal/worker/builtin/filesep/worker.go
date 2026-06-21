@@ -56,7 +56,12 @@ func (w *Worker) Name() string { return workerName }
 
 // Transform は EML を解析し、条件に一致する添付ファイルを分離する。
 // 分離した添付ファイルは MinIO に保存し、署名付き URL をメール本文に挿入する。
+// ctx に domain.CtxDryRun が付与されている場合は保存・DB書き込みを省略する。
 func (w *Worker) Transform(ctx context.Context, mail *domain.Mail) (*domain.Mail, error) {
+	if ctx.Value(domain.CtxDryRun) != nil {
+		return mail, nil
+	}
+
 	env, err := enmime.ReadEnvelope(bytes.NewReader(mail.RawEML))
 	if err != nil {
 		return nil, fmt.Errorf("EML パース失敗: %w", err)
@@ -130,8 +135,11 @@ func (w *Worker) Transform(ctx context.Context, mail *domain.Mail) (*domain.Mail
 
 // saveAndRecord は各添付ファイルを MinIO に保存して DB に記録し、AttachmentInfo のリストを返す。
 // downloadToken・downloadMode はメッセージ単位で呼び出し元が決定した値を受け取る。
+// MinIO 保存後に DB 記録が失敗した場合、それまでに保存した全オブジェクトを削除して孤立を防ぐ。
 func (w *Worker) saveAndRecord(ctx context.Context, mail *domain.Mail, parts []*enmime.Part, downloadToken string, downloadMode domain.DownloadMode) ([]AttachmentInfo, error) {
 	infos := make([]AttachmentInfo, 0, len(parts))
+	var savedPaths []string // 保存済みオブジェクトのパス（失敗時のロールバック用）
+
 	for _, part := range parts {
 		filename := part.FileName
 		if filename == "" {
@@ -144,8 +152,10 @@ func (w *Worker) saveAndRecord(ctx context.Context, mail *domain.Mail, parts []*
 
 		path, err := w.storage.SaveAttachment(ctx, mail.MessageID, filename, part.Content)
 		if err != nil {
+			w.cleanupAttachments(ctx, savedPaths)
 			return nil, fmt.Errorf("添付ファイル保存失敗 (%s): %w", filename, err)
 		}
+		savedPaths = append(savedPaths, path)
 
 		att := &domain.MailAttachment{
 			ID:             uuid.New().String(),
@@ -159,6 +169,7 @@ func (w *Worker) saveAndRecord(ctx context.Context, mail *domain.Mail, parts []*
 			DownloadMode:   downloadMode,
 		}
 		if err := w.repo.SaveAttachment(ctx, att); err != nil {
+			w.cleanupAttachments(ctx, savedPaths)
 			return nil, fmt.Errorf("添付ファイルDB記録失敗 (%s): %w", filename, err)
 		}
 
@@ -168,6 +179,20 @@ func (w *Worker) saveAndRecord(ctx context.Context, mail *domain.Mail, parts []*
 		})
 	}
 	return infos, nil
+}
+
+// cleanupAttachments は MinIO 保存済みオブジェクトを削除する。
+// DB 記録失敗時のロールバックに使う。削除失敗はログに記録するのみ（ベストエフォート）。
+func (w *Worker) cleanupAttachments(ctx context.Context, paths []string) {
+	for _, path := range paths {
+		if err := w.storage.DeleteAttachment(ctx, path); err != nil {
+			slog.Warn("添付ファイルロールバック削除失敗（孤立オブジェクト）",
+				"worker", workerName,
+				"path", path,
+				"error", err,
+			)
+		}
+	}
 }
 
 // rebuildEML は分離対象を除いた新しい EML バイト列を構築する。
@@ -220,10 +245,25 @@ func (w *Worker) rebuildEML(env *enmime.Envelope, separated map[*enmime.Part]boo
 		return nil, fmt.Errorf("EML再構築失敗: %w", err)
 	}
 
-	// 元のヘッダーを引き継ぐ（スレッド継続性・配送関連情報の保持）
-	for _, h := range []string{"Message-ID", "CC", "Reply-To", "In-Reply-To", "References"} {
-		if v := env.GetHeader(h); v != "" {
-			root.Header.Set(h, v)
+	// 元のヘッダーを引き継ぐ。
+	// Builder が管理する封筒ヘッダーと MIME 構造ヘッダーは除き、それ以外を全コピーする。
+	// これにより Received トレース・X-* ヘッダー・認証結果などが保持される。
+	if env.Root != nil {
+		skipHeaders := map[string]bool{
+			"From": true, "To": true, "Subject": true, "Date": true,
+			"Mime-Version":              true,
+			"Content-Type":              true,
+			"Content-Transfer-Encoding": true,
+			"Content-Disposition":       true,
+		}
+		for key, values := range env.Root.Header {
+			if skipHeaders[key] {
+				continue
+			}
+			root.Header.Del(key)
+			for _, v := range values {
+				root.Header.Add(key, v)
+			}
 		}
 	}
 
