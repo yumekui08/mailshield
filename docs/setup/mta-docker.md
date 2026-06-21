@@ -20,9 +20,19 @@ flowchart TD
 
     Postfix -->|"after-queue content_filter\nSMTP :10024"| GW["smtp-gateway\n検査・変換・ポリシー評価"]
 
-    GW -->|"再インジェクト\nSMTP :10025"| Postfix2["Postfix（再配送）"]
-    Postfix2 --> Mailpit(["Mailpit :8025"])
+    GW -->|"policy の destination\nSMTP :1025（直接配送）"| Mailpit(["Mailpit :8025"])
 ```
+
+> **開発環境の簡略化について**
+>
+> 開発環境では smtp-gateway のポリシー（`config/policy-inbound.yaml`）が
+> Mailpit（`:1025`）に**直接 SMTP 配送**します。
+> Postfix への再インジェクト（port 10025）は使いません。
+>
+> 本番環境では `destination` を `postfix:10025`（再インジェクトポート）に設定し、
+> Postfix の `relayhost` または `transport_maps` で内部メールシステムへ転送します。
+> **MX を引くとゲートウェイ自身に戻るループになるため、必ず直指定が必要です。**
+> 詳細は [自前 MTA との連携 → 再インジェクト後の最終配送設定](./mta-self-managed.md) を参照。
 
 設定ファイルは `examples/mta/` にあります。
 

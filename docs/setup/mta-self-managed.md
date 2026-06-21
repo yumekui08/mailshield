@@ -111,6 +111,57 @@ message_size_limit = 52428800
   -o smtpd_sender_restrictions=
 ```
 
+### main.cf（再インジェクト後の最終配送設定）
+
+**重要**: 再インジェクトポート（10025）でメールを受け取った後、Postfix は
+最終配送先を決める必要があります。このとき MX を引くと **ゲートウェイ自身の
+IP が返ってきてループが発生します**。`relayhost` または `transport_maps` で
+内部 MTA を直指定してください。
+
+#### パターン A: 全メールを1台の内部 MTA に転送する
+
+Exchange・Zimbra・社内 Postfix など、すべてのメールを1台に送る場合。
+
+```
+# main.cf に追加
+# [ ] で囲むと MX を引かず A レコードで直接接続する
+relayhost = [exchange.internal]:25
+```
+
+#### パターン B: ドメインごとに配送先を切り替える
+
+複数の内部メールシステムに振り分ける場合。
+
+```
+# main.cf に追加
+transport_maps = hash:/etc/postfix/transport
+```
+
+```
+# /etc/postfix/transport
+example.com    smtp:[exchange.internal]:25
+sub.example.com smtp:[groupware.internal]:25
+# 編集後は必ず postmap /etc/postfix/transport を実行すること
+```
+
+#### パターン C: Postfix が最終配送（Dovecot + LMTP）
+
+Postfix 自身が最終 MTA でメールボックスを持つ場合。
+
+```
+# main.cf に追加
+virtual_transport = lmtp:unix:/var/run/dovecot/lmtp
+virtual_mailbox_domains = example.com
+virtual_mailbox_maps = hash:/etc/postfix/virtual-mailboxes
+```
+
+> **なぜ MX ではなく直指定が必要か**
+>
+> 外部 DNS の MX レコードはこのゲートウェイ（Postfix）を指しています。
+> Postfix が MX を引いて配送しようとすると自分自身に接続してしまい
+> ループになります。`relayhost` や `transport_maps` は MX を引かずに
+> 指定したホストへ直接 SMTP 接続するため、ループが起きません。
+
 ---
 
 ## Rspamd での設定例
