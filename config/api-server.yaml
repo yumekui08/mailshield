@@ -24,9 +24,8 @@ redis:
 storage:
   endpoint: minio:9000           # api-server から MinIO への内部接続先
   public_endpoint: localhost:9000 # ブラウザからアクセスする際のエンドポイント（空なら endpoint をそのまま使用）
-  # 本番環境では環境変数 MINIO_ACCESS_KEY / MINIO_SECRET_KEY で上書きすること
-  access_key: mailshield          # 開発用デフォルト値
-  secret_key: mailshield          # 開発用デフォルト値
+  # access_key / secret_key は環境変数 MINIO_ACCESS_KEY / MINIO_SECRET_KEY で設定すること
+  # YAML に値を書かないことで、env 未設定時に明示的に接続エラーになる（サイレントな弱認証を防ぐ）
   bucket_eml: mailshield-eml
   bucket_attachments: mailshield-attachments
   use_ssl: false
