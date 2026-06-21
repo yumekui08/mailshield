@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smtp-gateway:
+    name: smtp-gateway (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.24"]
+    defaults:
+      run:
+        working-directory: services/smtp-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: services/smtp-gateway/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build ./cmd/server/
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  api-server:
+    name: api-server (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.24"]
+    defaults:
+      run:
+        working-directory: services/api-server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: services/api-server/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build ./cmd/server/
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  format-check:
+    name: Format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Check gofmt (smtp-gateway)
+        run: |
+          unformatted=$(gofmt -l services/smtp-gateway/)
+          if [ -n "$unformatted" ]; then
+            echo "以下のファイルが gofmt されていません:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Check gofmt (api-server)
+        run: |
+          unformatted=$(gofmt -l services/api-server/)
+          if [ -n "$unformatted" ]; then
+            echo "以下のファイルが gofmt されていません:"
+            echo "$unformatted"
+            exit 1
+          fi

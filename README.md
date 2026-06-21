@@ -7,7 +7,7 @@
 - **プラグイン型ワーカー**: 検査ワーカー（並列）と変換ワーカー（直列）を設定ファイルで有効化・無効化できる
 - **マルチルート**: `mailshield.yaml` の `routes:` で受信・送信を1ファイルに定義。正規表現でルートを振り分ける
 - **MTA非依存**: Postfix・Sendmail・外部MTAを問わず、SMTP after-queue content filter として動作する
-- **インフラ切替可能**: MinIO（S3互換）・MariaDBは環境変数で外部サービスへ切り替えられる
+- **MariaDB のみ必須**: RabbitMQ・MinIO・Redis はすべてオプション。`queue.backend: none` / `storage.backend: filesystem` / `redis.backend: mariadb` で外部サービスなしの単一ノード構成にできる
 - **管理 Web UI**: メール一覧・隔離管理・添付ファイル分離・ユーザー管理・監査ログ・API キー管理を Web ブラウザで操作できる
 - **API キー認証**: `Authorization: Bearer <key>` ヘッダで機械間認証。CI/CD・SIEM 連携に使用できる
 
@@ -115,15 +115,16 @@ flowchart LR
     Sender([外部送信者]) -->|SMTP| MTA["既存 MTA"]
     MTA -->|"SMTP :10024"| GW["smtp-gateway"]
 
-    GW --> MinIO[("MinIO\nEML 保存")]
-    GW --> DB[("MariaDB\nメタデータ")]
-    GW --> MQ[("RabbitMQ\nイベント")]
+    GW -->|必須| DB[("MariaDB\nメタデータ")]
+    GW -.->|"optional\nstorage.backend: minio"| MinIO[("MinIO\nEML 保存")]
+    GW -.->|"optional\nqueue.backend: rabbitmq"| MQ[("RabbitMQ\nイベント")]
     GW -->|"検査・変換・ポリシー評価"| Dest(["配送先 MTA"])
 
     Admin([管理者ブラウザ]) -->|HTTPS| WebUI["Web UI"]
     WebUI -->|REST API| API["api-server"]
     API --> DB
-    API --> MinIO
+    API -.->|optional| MinIO
+    API -.->|"optional\nredis.backend: redis"| Redis[("Redis\nセッション")]
 ```
 
 詳細は [アーキテクチャ概要](docs/architecture.md) を参照。

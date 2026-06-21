@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: セキュリティ脆弱性の報告
+    url: https://github.com/koizumib/mailshield/security/advisories/new
+    about: セキュリティ上の問題は公開 Issue ではなくこちらから報告してください
+  - name: 質問・使い方の相談
+    url: https://github.com/koizumib/mailshield/discussions
+    about: バグ報告・機能提案以外の質問は Discussions をご利用ください

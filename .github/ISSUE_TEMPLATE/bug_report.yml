@@ -1,0 +1,75 @@
+name: バグ報告
+description: 動作上の問題を報告する
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        バグ報告ありがとうございます。できる限り詳しく記入してください。
+        セキュリティ上の脆弱性は **このフォームを使わず** [SECURITY.md](../SECURITY.md) の手順で報告してください。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 問題の説明
+      description: 何が起きているか具体的に説明してください
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 再現手順
+      description: 問題を再現するための最小手順を記述してください
+      placeholder: |
+        1. `make dev-up` で起動
+        2. `swaks --to test@example.com ...` を実行
+        3. ログに `ERROR ...` が出る
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する動作
+      description: 正しくはどう動くべきでしたか？
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログ出力
+      description: 関連するログを貼り付けてください（`docker compose logs smtp-gateway` など）
+      render: text
+
+  - type: input
+    id: mailshield-version
+    attributes:
+      label: MailShield バージョン / コミット
+      description: "`git rev-parse --short HEAD` の出力"
+    validations:
+      required: true
+
+  - type: input
+    id: docker-version
+    attributes:
+      label: Docker Compose バージョン
+      description: "`docker compose version` の出力"
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: "例: Ubuntu 22.04, macOS 14, Windows 11 + WSL2"
+    validations:
+      required: false
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 関連する設定（任意）
+      description: 問題に関係する `mailshield.yaml` の設定があれば貼り付けてください（シークレットは除く）
+      render: yaml
