@@ -13,29 +13,47 @@
 
 ## クイックスタート
 
-詳細は [セットアップガイド](docs/setup/quick-start.md) を参照してください。
+詳細な手順は [クイックスタートガイド](docs/setup/quick-start.md) を参照してください。
+**2パターンあります。用途に合わせて選んでください。**
+
+### パターン A: 開発・動作確認（組み込み MTA を使う）
+
+Postfix + Mailpit を含めてまとめて起動します。
 
 ```bash
-# 1. 依存ツール: Docker Compose, make
+# 1. クローン
+git clone https://github.com/koizumib/mailshield.git
+cd mailshield
 
-# 2. 環境変数を設定
+# 2. .env を作成し、CHANGE_ME_ の4箇所のパスワードを変更
 cp .env.example .env
-# .env を編集（最低限 MAILSHIELD_DELIVER_DESTINATION を設定）
 
-# 3. MailShield コア + 開発用 MTA + Mailpit を起動
+# 3. 起動
 make dev-up
 
-# 4. 動作確認（開発用 MTA 経由）
+# 4. テストメール送信
 swaks --to test@internal.test --from sender@external.test \
       --server localhost --port 25 \
-      --header "Subject: Hello World" --body "Normal mail"
+      --header "Subject: Hello MailShield"
 
-# Mailpit で受信確認
+# Mailpit でメールを確認
 open http://localhost:8025
 ```
 
-> **本番環境**: MailShield は既存の MTA（Postfix・Exchange 等）の after-queue content filter
-> として動作します。MTA の設定方法は [docs/setup/mta-self-managed.md](docs/setup/mta-self-managed.md) を参照。
+### パターン B: 自前 MTA と組み合わせる（全機能テスト・本番に近い構成）
+
+```bash
+# 1. クローン・.env 作成（パスワード + MAILSHIELD_REINJECT_HOST を変更）
+cp .env.example .env
+
+# 2. config/mailshield.yaml の trusted_sources とルートドメインを変更
+# 3. config/api-server.yaml の frontend_url と storage.public_endpoint を変更
+# 4. 起動（ClamAV・Tika・Web UI 含む全機能）
+COMPOSE_PROFILES=storage,queue,scanners,api docker compose up -d
+
+# 5. Web UI にアクセス
+open http://localhost:3000
+```
 
 デフォルトの管理者アカウント（`infra/mariadb/init/002_seed.sql` で設定）:
 - メールアドレス: `admin@example.com`

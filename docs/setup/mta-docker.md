@@ -81,7 +81,7 @@ smtp-gateway はこの値を `mail.auth_results.spf/dkim/dmarc/arc` として
 
 ```bash
 make dev-up
-# = COMPOSE_PROFILES=infra,dev docker compose up -d
+# = COMPOSE_PROFILES=storage,queue,dev docker compose up -d
 ```
 
 起動後の確認:
