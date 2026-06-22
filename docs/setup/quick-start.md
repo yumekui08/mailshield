@@ -45,6 +45,11 @@ RABBITMQ_PASSWORD=（任意のパスワード）
 
 STEP 2・3 はデフォルトのままで構いません。
 
+> **重要**: **必ず `.env` を設定してから** `make dev-up` を実行してください。
+> `make dev-up` を先に実行すると MariaDB がデフォルトパスワードで初期化されます。
+> その後 `.env` を変更してもパスワード不一致で smtp-gateway が起動しません。
+> 間違えた場合は `make clean` でボリュームを削除してからやり直してください。
+
 **3. 受信ドメインを設定（本番環境のみ）**
 
 デフォルトの `config/mailshield.yaml` は開発用ドメイン `internal.test` が設定済みです。

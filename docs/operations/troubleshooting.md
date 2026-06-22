@@ -2,6 +2,32 @@
 
 ---
 
+## smtp-gateway が起動しない（MariaDB Access denied）
+
+```
+Error 1045 (28000): Access denied for user 'mailshield'@'...' (using password: YES)
+```
+
+**原因**: `.env` を作成・変更する前に `make dev-up` を実行した場合、
+MariaDB ボリュームが古いパスワードで初期化されています。
+その後 `.env` でパスワードを変えると、保存済みの認証情報と不一致になります。
+
+**解決手順**:
+
+```bash
+# 1. ボリュームごと停止・削除
+make clean
+
+# 2. .env のパスワードを正しく設定してから再起動
+make dev-up
+```
+
+> **注意**: `make clean` はすべての Docker ボリュームを削除します。
+> MariaDB・MinIO・RabbitMQ のデータがすべて消えます。
+> 本番環境では実行前に必ずバックアップを取ってください。
+
+---
+
 ## メールが届かない
 
 ### 確認ステップ
@@ -181,6 +207,7 @@ log:
 
 | メッセージ | 原因 | 対処 |
 |-----------|------|------|
+| `Access denied for user 'mailshield'` | MariaDB ボリュームのパスワード不一致 | `make clean` でボリューム削除後に再起動 |
 | `接続元が信頼リストに含まれていません` | trusted_sources 未設定 | mailshield.yaml に追加 |
 | `マッチするルールがありません` | policy.yaml のフォールバックなし | `condition: "true"` を追加 |
 | `MinIO 保存失敗` | MinIO 接続エラー | MinIO の起動・認証情報を確認 |

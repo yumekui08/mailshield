@@ -2,6 +2,7 @@
         outbound-up outbound-down scanners-up scanners-down \
         api-up api-down \
         full-up full-down full-logs \
+        clean \
         build test lint \
         test-simulate test-smtp test-api test-e2e \
         e2e-normal e2e-virus e2e-outbound-normal e2e-outbound-dlp
@@ -75,6 +76,11 @@ full-down:
 
 full-logs:
 	$(DC)=$(PROFILES_FULL) docker compose logs -f
+
+## ボリュームごと削除（パスワード変更後・初期化やり直し時に使う）
+clean:
+	$(DC)=$(PROFILES_FULL) docker compose down -v
+	@echo "全ボリュームを削除しました。make dev-up で再起動してください。"
 
 # ─── ビルド・テスト ──────────────────────────────────────────────
 
