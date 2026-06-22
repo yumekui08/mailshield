@@ -85,6 +85,8 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-mailshield}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-mailshield}
+      # root で Docker を実行する環境で .erlang.cookie のパーミッション問題を回避する
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-mailshield-erlang-cookie}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
@@ -104,8 +106,9 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      RABBITMQ_USER:     ${RABBITMQ_USER:-mailshield}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-mailshield}
+      RABBITMQ_USER:          ${RABBITMQ_USER:-mailshield}
+      RABBITMQ_PASSWORD:      ${RABBITMQ_PASSWORD:-mailshield}
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-mailshield-erlang-cookie}
     volumes:
       - ./infra/rabbitmq/definitions.json:/definitions.json:ro
       - ./infra/rabbitmq/init.sh:/init.sh:ro
