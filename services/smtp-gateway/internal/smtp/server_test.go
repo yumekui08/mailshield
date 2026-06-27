@@ -1,6 +1,7 @@
 package smtp
 
 import (
+	"net"
 	"testing"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
@@ -138,8 +139,12 @@ func TestExtractAuthResults(t *testing.T) {
 }
 
 func TestIsTrusted(t *testing.T) {
+	_, net172, _ := net.ParseCIDR("172.17.0.0/16")
+	_, net10, _ := net.ParseCIDR("10.0.0.0/8")
+
 	b := &smtpBackend{
-		trustedIPs: map[string]bool{"127.0.0.1": true, "192.168.1.100": true},
+		trustedIPs:  map[string]bool{"127.0.0.1": true, "192.168.1.100": true},
+		trustedNets: []*net.IPNet{net172, net10},
 	}
 
 	tests := []struct {
@@ -148,18 +153,38 @@ func TestIsTrusted(t *testing.T) {
 		want     bool
 	}{
 		{
-			name:     "ホワイトリストのIPは信頼する",
+			name:     "単体IPはIPマップで信頼する",
 			remoteIP: "127.0.0.1",
 			want:     true,
 		},
 		{
-			name:     "2番目のIPも信頼する",
+			name:     "2番目の単体IPも信頼する",
 			remoteIP: "192.168.1.100",
 			want:     true,
 		},
 		{
+			name:     "CIDRサブネット内のIPは信頼する",
+			remoteIP: "172.17.0.1",
+			want:     true,
+		},
+		{
+			name:     "CIDRサブネット内の別IPも信頼する",
+			remoteIP: "172.17.42.10",
+			want:     true,
+		},
+		{
+			name:     "2番目のCIDRサブネット内のIPも信頼する",
+			remoteIP: "10.100.200.1",
+			want:     true,
+		},
+		{
+			name:     "サブネット外のIPは拒否する",
+			remoteIP: "172.18.0.1",
+			want:     false,
+		},
+		{
 			name:     "ホワイトリストにないIPは拒否する",
-			remoteIP: "10.0.0.1",
+			remoteIP: "192.168.1.200",
 			want:     false,
 		},
 		{
@@ -176,5 +201,22 @@ func TestIsTrusted(t *testing.T) {
 				t.Errorf("isTrusted(%q) = %v, want %v", tt.remoteIP, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveTrustedSources(t *testing.T) {
+	sources := []string{
+		"127.0.0.1",
+		"172.17.0.0/16",
+		"10.0.0.0/8",
+		"256.256.256.256/99", // 不正なCIDR
+	}
+	ips, nets := resolveTrustedSources(sources)
+
+	if !ips["127.0.0.1"] {
+		t.Error("単体IPが登録されていない")
+	}
+	if len(nets) != 2 {
+		t.Errorf("CIDRネットワーク数 = %d, want 2", len(nets))
 	}
 }

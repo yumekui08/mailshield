@@ -71,9 +71,11 @@ func New(opts Options, handler Handler) *Server {
 		opts.HandlerTimeoutSeconds = 30
 	}
 
+	trustedIPs, trustedNets := resolveTrustedSources(opts.TrustedSources)
 	backend := &smtpBackend{
 		trustedSources: opts.TrustedSources,
-		trustedIPs:     resolveTrustedIPs(opts.TrustedSources),
+		trustedIPs:     trustedIPs,
+		trustedNets:    trustedNets,
 		maxMsgSize:     maxSize,
 		handler:        handler,
 		handlerTimeout: time.Duration(opts.HandlerTimeoutSeconds) * time.Second,
@@ -128,6 +130,7 @@ type smtpBackend struct {
 	trustedSources []string
 	mu             sync.RWMutex
 	trustedIPs     map[string]bool
+	trustedNets    []*net.IPNet
 	maxMsgSize     int64
 	handler        Handler
 	handlerTimeout time.Duration
@@ -162,17 +165,31 @@ func (b *smtpBackend) NewSession(c *gosmtp.Conn) (gosmtp.Session, error) {
 }
 
 // isTrusted は接続元IPがホワイトリストに含まれるか確認する。
+// 単体IP・ホスト名（DNS解決済み）・CIDRサブネットのいずれかにマッチすれば true を返す。
 func (b *smtpBackend) isTrusted(remoteIP string) bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return b.trustedIPs[remoteIP]
+	if b.trustedIPs[remoteIP] {
+		return true
+	}
+	ip := net.ParseIP(remoteIP)
+	if ip == nil {
+		return false
+	}
+	for _, n := range b.trustedNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
-// refreshTrustedIPs は trusted_sources を再解決して trustedIPs を更新する。
+// refreshTrustedIPs は trusted_sources を再解決して trustedIPs・trustedNets を更新する。
 func (b *smtpBackend) refreshTrustedIPs() {
-	newIPs := resolveTrustedIPs(b.trustedSources)
+	newIPs, newNets := resolveTrustedSources(b.trustedSources)
 	b.mu.Lock()
 	b.trustedIPs = newIPs
+	b.trustedNets = newNets
 	b.mu.Unlock()
 }
 
@@ -191,10 +208,22 @@ func runTrustedIPRefresher(b *smtpBackend, stop <-chan struct{}, interval time.D
 	}
 }
 
-// resolveTrustedIPs は trusted_sources のホスト名を DNS 解決して IP → bool マップを返す。
-func resolveTrustedIPs(sources []string) map[string]bool {
+// resolveTrustedSources は trusted_sources を解析して IP マップと CIDR ネットワークスライスを返す。
+// エントリの形式: CIDR（例: 172.17.0.0/16）、単体IP（例: 192.168.1.1）、ホスト名（DNS解決）
+func resolveTrustedSources(sources []string) (map[string]bool, []*net.IPNet) {
 	ips := make(map[string]bool, len(sources))
+	var nets []*net.IPNet
 	for _, src := range sources {
+		if strings.Contains(src, "/") {
+			_, ipNet, err := net.ParseCIDR(src)
+			if err != nil {
+				slog.Warn("trusted_sources のCIDR解析失敗（エントリをスキップ）", "cidr", src, "error", err)
+				continue
+			}
+			nets = append(nets, ipNet)
+			slog.Info("trusted_sources CIDR登録", "cidr", ipNet.String())
+			continue
+		}
 		if net.ParseIP(src) != nil {
 			ips[src] = true
 			continue
@@ -209,7 +238,7 @@ func resolveTrustedIPs(sources []string) map[string]bool {
 		}
 		slog.Info("trusted_sources DNS解決完了", "host", src, "resolved_ips", addrs)
 	}
-	return ips
+	return ips, nets
 }
 
 // ────────────────────────────────────────────────────────────
