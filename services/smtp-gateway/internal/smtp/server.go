@@ -68,7 +68,7 @@ func New(opts Options, handler Handler) *Server {
 		opts.HandlerTimeoutSeconds = 30
 	}
 
-	trustedIPs, trustedNets := resolveTrustedSources(opts.TrustedSources)
+	trustedIPs, trustedNets := parseTrustedSources(opts.TrustedSources)
 	backend := &smtpBackend{
 		trustedSources: opts.TrustedSources,
 		trustedIPs:     trustedIPs,
@@ -201,9 +201,10 @@ func runTrustedIPRefresher(b *smtpBackend, stop <-chan struct{}, interval time.D
 	}
 }
 
-// resolveTrustedSources は trusted_sources を解析して IP マップと CIDR ネットワークスライスを返す。
-// エントリの形式: CIDR（例: 172.17.0.0/16）、単体IP（例: 192.168.1.1）、ホスト名（DNS解決）
-func resolveTrustedSources(sources []string) (map[string]bool, []*net.IPNet) {
+// parseTrustedSources は CIDR と単体 IP のみを解析する。
+// ホスト名エントリは DNS 解決をせずスキップする（起動時の高速化・タイムアウト回避）。
+// ホスト名の解決は定期 refresher（resolveTrustedSources）が行う。
+func parseTrustedSources(sources []string) (map[string]bool, []*net.IPNet) {
 	ips := make(map[string]bool, len(sources))
 	var nets []*net.IPNet
 	for _, src := range sources {
@@ -220,6 +221,19 @@ func resolveTrustedSources(sources []string) (map[string]bool, []*net.IPNet) {
 		if net.ParseIP(src) != nil {
 			ips[src] = true
 			continue
+		}
+		// ホスト名は起動時にはスキップ。定期 refresher が解決する。
+	}
+	return ips, nets
+}
+
+// resolveTrustedSources は CIDR・単体 IP に加えホスト名の DNS 解決も行う。
+// 定期 refresher（runTrustedIPRefresher）から呼ばれる。
+func resolveTrustedSources(sources []string) (map[string]bool, []*net.IPNet) {
+	ips, nets := parseTrustedSources(sources)
+	for _, src := range sources {
+		if strings.Contains(src, "/") || net.ParseIP(src) != nil {
+			continue // parseTrustedSources で処理済み
 		}
 		addrs, err := net.LookupHost(src)
 		if err != nil {
