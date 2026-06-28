@@ -143,8 +143,8 @@ func TestIsTrusted(t *testing.T) {
 	_, net10, _ := net.ParseCIDR("10.0.0.0/8")
 
 	b := &smtpBackend{
-		trustedIPs:  map[string]bool{"127.0.0.1": true, "192.168.1.100": true},
-		trustedNets: []*net.IPNet{net172, net10},
+		staticIPs:  map[string]bool{"127.0.0.1": true, "192.168.1.100": true},
+		staticNets: []*net.IPNet{net172, net10},
 	}
 
 	tests := []struct {
@@ -204,19 +204,23 @@ func TestIsTrusted(t *testing.T) {
 	}
 }
 
-func TestResolveTrustedSources(t *testing.T) {
+func TestParseTrustedSources(t *testing.T) {
 	sources := []string{
 		"127.0.0.1",
 		"172.17.0.0/16",
 		"10.0.0.0/8",
-		"256.256.256.256/99", // 不正なCIDR
+		"256.256.256.256/99", // 不正なCIDR → スキップされる
+		"postfix",            // ホスト名 → hostnames に入る
 	}
-	ips, nets := resolveTrustedSources(sources)
+	ips, nets, hostnames := parseTrustedSources(sources)
 
 	if !ips["127.0.0.1"] {
 		t.Error("単体IPが登録されていない")
 	}
 	if len(nets) != 2 {
 		t.Errorf("CIDRネットワーク数 = %d, want 2", len(nets))
+	}
+	if len(hostnames) != 1 || hostnames[0] != "postfix" {
+		t.Errorf("hostnames = %v, want [postfix]", hostnames)
 	}
 }

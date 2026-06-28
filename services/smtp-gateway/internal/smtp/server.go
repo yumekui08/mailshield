@@ -40,9 +40,8 @@ type Options struct {
 
 // Server は SMTP サーバーのラッパーである。
 type Server struct {
-	server      *gosmtp.Server
-	backend     *smtpBackend
-	stopRefresh chan struct{}
+	server  *gosmtp.Server
+	backend *smtpBackend
 }
 
 // New は SMTP サーバーを初期化する。
@@ -68,11 +67,11 @@ func New(opts Options, handler Handler) *Server {
 		opts.HandlerTimeoutSeconds = 30
 	}
 
-	trustedIPs, trustedNets := parseTrustedSources(opts.TrustedSources)
+	staticIPs, staticNets, hostnames := parseTrustedSources(opts.TrustedSources)
 	backend := &smtpBackend{
-		trustedSources: opts.TrustedSources,
-		trustedIPs:     trustedIPs,
-		trustedNets:    trustedNets,
+		staticIPs:      staticIPs,
+		staticNets:     staticNets,
+		hostnames:      hostnames,
 		maxMsgSize:     maxSize,
 		handler:        handler,
 		handlerTimeout: time.Duration(opts.HandlerTimeoutSeconds) * time.Second,
@@ -83,15 +82,12 @@ func New(opts Options, handler Handler) *Server {
 	s.Domain = opts.Hostname
 	s.MaxMessageBytes = maxSize
 	s.MaxRecipients = opts.MaxRecipients
-	s.AllowInsecureAuth = true   // 内部ネットワーク専用・TLS不要
-	s.EnableSMTPUTF8 = true      // SMTPUTF8 を広告しないと UTF8 アドレスを含むバウンスが届かない
+	s.AllowInsecureAuth = true // 内部ネットワーク専用・TLS不要
+	s.EnableSMTPUTF8 = true   // SMTPUTF8 を広告しないと UTF8 アドレスを含むバウンスが届かない
 	s.ReadTimeout = time.Duration(opts.ReadTimeoutSeconds) * time.Second
 	s.WriteTimeout = time.Duration(opts.WriteTimeoutSeconds) * time.Second
 
-	stopRefresh := make(chan struct{})
-	go runTrustedIPRefresher(backend, stopRefresh, 30*time.Second)
-
-	return &Server{server: s, backend: backend, stopRefresh: stopRefresh}
+	return &Server{server: s, backend: backend}
 }
 
 // ListenAndServe は SMTP サーバーを起動する（ブロッキング）。
@@ -103,7 +99,6 @@ func (s *Server) ListenAndServe() error {
 // GracefulClose は新規接続の受付を停止し、進行中のセッションが完了するまで待機する。
 // ctx がタイムアウトした場合はその時点で返り、残セッションは強制終了される。
 func (s *Server) GracefulClose(ctx context.Context) error {
-	close(s.stopRefresh)
 	s.server.Close()
 
 	done := make(chan struct{})
@@ -121,10 +116,11 @@ func (s *Server) GracefulClose(ctx context.Context) error {
 }
 
 type smtpBackend struct {
-	trustedSources []string
-	mu             sync.RWMutex
-	trustedIPs     map[string]bool
-	trustedNets    []*net.IPNet
+	// 起動時に解析済みの静的エントリ（読み取り専用・ロック不要）
+	staticIPs  map[string]bool // 正規化済み単体IP
+	staticNets []*net.IPNet    // CIDRサブネット
+	hostnames  []string        // DNS解決が必要なホスト名
+
 	maxMsgSize     int64
 	handler        Handler
 	handlerTimeout time.Duration
@@ -159,55 +155,49 @@ func (b *smtpBackend) NewSession(c *gosmtp.Conn) (gosmtp.Session, error) {
 }
 
 // isTrusted は接続元IPがホワイトリストに含まれるか確認する。
-// 単体IP・ホスト名（DNS解決済み）・CIDRサブネットのいずれかにマッチすれば true を返す。
+// 単体IP・CIDRサブネットを先にチェックし、ホスト名は接続ごとにオンデマンドDNS解決する。
+// net.ParseIP で正規化することで "::ffff:127.0.0.1" と "127.0.0.1" を同一視する（C-4）。
 func (b *smtpBackend) isTrusted(remoteIP string) bool {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if b.trustedIPs[remoteIP] {
-		return true
-	}
 	ip := net.ParseIP(remoteIP)
 	if ip == nil {
 		return false
 	}
-	for _, n := range b.trustedNets {
+
+	// 正規化済みIPで静的マップを引く（IPv4-mapped IPv6 を正規化して比較）
+	if b.staticIPs[ip.String()] {
+		return true
+	}
+	for _, n := range b.staticNets {
 		if n.Contains(ip) {
 			return true
+		}
+	}
+
+	// ホスト名をオンデマンドで DNS 解決する（タイムアウト 3 秒・C-3）
+	if len(b.hostnames) == 0 {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	for _, host := range b.hostnames {
+		addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+		if err != nil {
+			slog.Debug("trusted_sources DNS解決失敗（スキップ）", "host", host, "error", err)
+			continue
+		}
+		for _, addr := range addrs {
+			if net.ParseIP(addr).Equal(ip) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// refreshTrustedIPs は trusted_sources を再解決して trustedIPs・trustedNets を更新する。
-func (b *smtpBackend) refreshTrustedIPs() {
-	newIPs, newNets := resolveTrustedSources(b.trustedSources)
-	b.mu.Lock()
-	b.trustedIPs = newIPs
-	b.trustedNets = newNets
-	b.mu.Unlock()
-}
-
-// runTrustedIPRefresher は trusted_sources の DNS 解決を定期的に実行する。
-// Docker Compose 環境でコンテナが後から起動した場合でも信頼リストに追加される。
-func runTrustedIPRefresher(b *smtpBackend, stop <-chan struct{}, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			b.refreshTrustedIPs()
-		}
-	}
-}
-
-// parseTrustedSources は CIDR と単体 IP のみを解析する。
-// ホスト名エントリは DNS 解決をせずスキップする（起動時の高速化・タイムアウト回避）。
-// ホスト名の解決は定期 refresher（resolveTrustedSources）が行う。
-func parseTrustedSources(sources []string) (map[string]bool, []*net.IPNet) {
-	ips := make(map[string]bool, len(sources))
-	var nets []*net.IPNet
+// parseTrustedSources は trusted_sources エントリを種別ごとに分類する。
+// 単体IP → staticIPs（正規化済み）、CIDR → staticNets、ホスト名 → hostnames。
+func parseTrustedSources(sources []string) (staticIPs map[string]bool, staticNets []*net.IPNet, hostnames []string) {
+	staticIPs = make(map[string]bool, len(sources))
 	for _, src := range sources {
 		if strings.Contains(src, "/") {
 			_, ipNet, err := net.ParseCIDR(src)
@@ -215,38 +205,20 @@ func parseTrustedSources(sources []string) (map[string]bool, []*net.IPNet) {
 				slog.Warn("trusted_sources のCIDR解析失敗（エントリをスキップ）", "cidr", src, "error", err)
 				continue
 			}
-			nets = append(nets, ipNet)
+			staticNets = append(staticNets, ipNet)
 			slog.Info("trusted_sources CIDR登録", "cidr", ipNet.String())
 			continue
 		}
-		if net.ParseIP(src) != nil {
-			ips[src] = true
+		if ip := net.ParseIP(src); ip != nil {
+			// IPv4-mapped IPv6 も含め正規化して格納する
+			staticIPs[ip.String()] = true
 			continue
 		}
-		// ホスト名は起動時にはスキップ。定期 refresher が解決する。
+		// 単体IPでも CIDR でもない → ホスト名として扱う
+		hostnames = append(hostnames, src)
+		slog.Info("trusted_sources ホスト名登録（接続ごとにDNS解決）", "host", src)
 	}
-	return ips, nets
-}
-
-// resolveTrustedSources は CIDR・単体 IP に加えホスト名の DNS 解決も行う。
-// 定期 refresher（runTrustedIPRefresher）から呼ばれる。
-func resolveTrustedSources(sources []string) (map[string]bool, []*net.IPNet) {
-	ips, nets := parseTrustedSources(sources)
-	for _, src := range sources {
-		if strings.Contains(src, "/") || net.ParseIP(src) != nil {
-			continue // parseTrustedSources で処理済み
-		}
-		addrs, err := net.LookupHost(src)
-		if err != nil {
-			slog.Warn("trusted_sources のDNS解決失敗（エントリをスキップ）", "host", src, "error", err)
-			continue
-		}
-		for _, addr := range addrs {
-			ips[addr] = true
-		}
-		slog.Info("trusted_sources DNS解決完了", "host", src, "resolved_ips", addrs)
-	}
-	return ips, nets
+	return staticIPs, staticNets, hostnames
 }
 
 type smtpSession struct {
