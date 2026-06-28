@@ -14,8 +14,11 @@
 # storage  : MinIO（EML をオブジェクトストレージに保存する場合）
 # outbound : smtp-outbound（送信フィルタ）
 # scanners : ClamAV・Tika・Tesseract（スキャナー）
-# dev      : Mailpit + 開発用 MTA（Postfix + Rspamd）
+# dev      : Mailpit（処理後メール確認用）
 # api      : api-server・Web UI・Redis（api-server 用）
+#
+# ※ MTA（Postfix + Rspamd）は自前で用意すること。
+#    設定例: examples/mta/
 #
 
 DC = COMPOSE_PROFILES
@@ -29,7 +32,7 @@ PROFILES_FULL     = storage,queue,dev,scanners,api
 
 # ─── 起動・停止 ──────────────────────────────────────────────────
 
-## smtp-gateway + インフラ + Postfix + Mailpit（開発標準）
+## smtp-gateway + インフラ + Mailpit（開発標準）
 dev-up:
 	$(DC)=$(PROFILES_DEV) docker compose up -d
 
@@ -46,7 +49,7 @@ core-up:
 core-down:
 	$(DC)=$(PROFILES_CORE) docker compose down
 
-## 受信GW + 送信GW + Postfix + Mailpit
+## 受信GW + 送信GW + Mailpit
 outbound-up:
 	$(DC)=$(PROFILES_OUTBOUND) docker compose up -d
 
@@ -114,7 +117,7 @@ lint:
 test-simulate:
 	cd tests/e2e && go test -v -tags e2e -run TestSimulate -timeout 60s ./...
 
-## SMTP フローテスト（make dev-up 必要: Postfix + smtp-gateway + Mailpit）
+## SMTP フローテスト（自前 MTA + smtp-gateway + Mailpit が必要）
 test-smtp:
 	cd tests/e2e && go test -v -tags e2e -run TestSMTP -timeout 60s ./...
 
@@ -126,7 +129,8 @@ test-api:
 test-e2e:
 	cd tests/e2e && go test -v -tags e2e -timeout 120s ./...
 
-# ─── E2Eテスト（受信） ───────────────────────────────────────────
+# ─── E2Eテスト（受信）───────────────────────────────────────────
+# 前提: 自前の MTA (port 25) が smtp-gateway に content_filter で転送する構成であること
 
 e2e-normal:
 	python3 -c "\
@@ -144,7 +148,8 @@ msg['Subject'] = 'virus test mail'; msg['From'] = 'sender@external.test'; msg['T
 s = smtplib.SMTP('localhost', 25); s.sendmail('sender@external.test', ['test@internal.test'], msg.as_string()); s.quit(); \
 print('Sent: virus test mail')"
 
-# ─── E2Eテスト（送信） ───────────────────────────────────────────
+# ─── E2Eテスト（送信）───────────────────────────────────────────
+# 前提: 自前の MTA (port 587) が smtp-gateway に content_filter で転送する構成であること
 
 e2e-outbound-normal:
 	python3 -c "\

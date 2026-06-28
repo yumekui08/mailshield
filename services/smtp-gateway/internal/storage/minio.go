@@ -1,5 +1,3 @@
-// Package storage は EMLStorage / AttachmentStorage / ArchiveStorage インターフェースの
-// MinIO 実装を提供する。
 package storage
 
 import (
@@ -45,11 +43,6 @@ func New(endpoint, accessKey, secretKey, bucketEML, bucketAttachments string, us
 	}, nil
 }
 
-// ── EMLStorage ────────────────────────────────────────────────
-
-// Save は EML を mailshield-eml バケットに保存し、オブジェクトキーを返す。
-// キー形式: raw/{YYYY}/{MM}/{DD}/{message_id}.eml
-// receivedAt にはメール受信時刻を渡す。
 func (s *Storage) Save(ctx context.Context, messageID string, eml []byte, receivedAt time.Time) (string, error) {
 	key := buildKey("raw", messageID, receivedAt)
 	if err := s.putEML(ctx, s.bucketEML, key, eml); err != nil {
@@ -76,11 +69,7 @@ func (s *Storage) Get(ctx context.Context, path string) ([]byte, error) {
 	return data, nil
 }
 
-// ── ArchiveStorage ────────────────────────────────────────────
-
-// ArchiveProcessed は変換後の EML を mailshield-eml バケットに保存し、オブジェクトキーを返す。
-// キー形式: processed/{YYYY}/{MM}/{DD}/{message_id}.eml
-// receivedAt にはメール受信時刻を渡す（goroutine 遅延によるパス日付ずれを防ぐ）。
+// receivedAt を使うことで goroutine の遅延によるパス日付ずれを防ぐ
 func (s *Storage) ArchiveProcessed(ctx context.Context, messageID string, eml []byte, receivedAt time.Time) (string, error) {
 	key := buildKey("processed", messageID, receivedAt)
 	if err := s.putEML(ctx, s.bucketEML, key, eml); err != nil {
@@ -89,10 +78,6 @@ func (s *Storage) ArchiveProcessed(ctx context.Context, messageID string, eml []
 	return key, nil
 }
 
-// ── AttachmentStorage ─────────────────────────────────────────
-
-// SaveAttachment は添付ファイルを mailshield-attachments バケットに保存しオブジェクトキーを返す。
-// キー形式: {message_id}/{filename}
 func (s *Storage) SaveAttachment(ctx context.Context, messageID, filename string, data []byte) (string, error) {
 	key := fmt.Sprintf("%s/%s", messageID, filename)
 
@@ -109,7 +94,6 @@ func (s *Storage) SaveAttachment(ctx context.Context, messageID, filename string
 	return key, nil
 }
 
-// DeleteAttachment は添付ファイルバケットから指定パスのオブジェクトを削除する。
 func (s *Storage) DeleteAttachment(ctx context.Context, path string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.bucketAttachments),
@@ -121,7 +105,6 @@ func (s *Storage) DeleteAttachment(ctx context.Context, path string) error {
 	return nil
 }
 
-// GetPresignedURL は添付ファイルバケットの指定パスへのダウンロード用署名付き URL を生成して返す。
 func (s *Storage) GetPresignedURL(ctx context.Context, path string, expiryHours int) (string, error) {
 	req, err := s.presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucketAttachments),
@@ -132,8 +115,6 @@ func (s *Storage) GetPresignedURL(ctx context.Context, path string, expiryHours 
 	}
 	return req.URL, nil
 }
-
-// ── 共通ヘルパー ──────────────────────────────────────────────
 
 func (s *Storage) putEML(ctx context.Context, bucket, key string, data []byte) error {
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{

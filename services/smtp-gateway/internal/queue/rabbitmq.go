@@ -1,4 +1,3 @@
-// Package queue は EventPublisher インターフェースの RabbitMQ 実装を提供する。
 package queue
 
 import (

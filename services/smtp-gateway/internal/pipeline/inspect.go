@@ -1,4 +1,3 @@
-// Package pipeline は検査パイプライン（並列）と変換パイプライン（直列）を実装する。
 package pipeline
 
 import (
@@ -11,44 +10,50 @@ import (
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
 )
 
-// InspectPipeline は全検査ワーカーを並列実行して結果を返す。
 type InspectPipeline struct {
-	workers []domain.InspectWorker
+	entries []domain.InspectEntry
 }
 
-// NewInspectPipeline は InspectPipeline を構築する。
-func NewInspectPipeline(workers []domain.InspectWorker) *InspectPipeline {
-	return &InspectPipeline{workers: workers}
+// Timeout > 0 のエントリはそのワーカー専用の context.WithTimeout が作られる
+func NewInspectPipeline(entries []domain.InspectEntry) *InspectPipeline {
+	return &InspectPipeline{entries: entries}
 }
 
-// Run は全検査ワーカーを並列実行し、成功したワーカーの結果を返す。
-// 個別ワーカーのエラーはログに記録してスキップする（他のワーカーの結果は継続）。
+// 個別ワーカーのエラーはログに記録してスキップする（他ワーカーの結果に影響しない）
 func (p *InspectPipeline) Run(ctx context.Context, mail *domain.Mail) ([]*domain.InspectResult, error) {
-	if len(p.workers) == 0 {
+	if len(p.entries) == 0 {
 		return nil, nil
 	}
 
-	results := make([]*domain.InspectResult, len(p.workers))
+	results := make([]*domain.InspectResult, len(p.entries))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for i, w := range p.workers {
+	for i, e := range p.entries {
 		wg.Add(1)
-		go func(idx int, worker domain.InspectWorker) {
+		go func(idx int, entry domain.InspectEntry) {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("検査ワーカーパニック（スキップ）",
-						"worker", worker.Name(),
+						"worker", entry.Worker.Name(),
 						"message_id", mail.MessageID,
 						"panic", fmt.Sprintf("%v", r),
 						"stack", string(debug.Stack()))
 				}
 			}()
-			result, err := worker.Inspect(ctx, mail)
+
+			wCtx := ctx
+			if entry.Timeout > 0 {
+				var cancel context.CancelFunc
+				wCtx, cancel = context.WithTimeout(ctx, entry.Timeout)
+				defer cancel()
+			}
+
+			result, err := entry.Worker.Inspect(wCtx, mail)
 			if err != nil {
 				slog.Warn("検査ワーカーエラー（スキップ）",
-					"worker", worker.Name(),
+					"worker", entry.Worker.Name(),
 					"message_id", mail.MessageID,
 					"error", err)
 				return
@@ -56,7 +61,7 @@ func (p *InspectPipeline) Run(ctx context.Context, mail *domain.Mail) ([]*domain
 			mu.Lock()
 			results[idx] = result
 			mu.Unlock()
-		}(i, w)
+		}(i, e)
 	}
 	wg.Wait()
 

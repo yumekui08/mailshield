@@ -174,69 +174,6 @@ services:
       retries: 5
 
   # ═══════════════════════════════════════════════════════════════
-  # 開発用 MTA（profile: dev）
-  # 動作確認用の Postfix + Rspamd。本番環境では自前の MTA を使うこと。
-  # 参考設定: examples/mta/
-  # ═══════════════════════════════════════════════════════════════
-
-  rspamd:
-    profiles: [dev]
-    image: rspamd/rspamd:latest
-    restart: unless-stopped
-    volumes:
-      - ./examples/mta/rspamd/local.d:/etc/rspamd/local.d:ro
-      - rspamd_data:/var/lib/rspamd
-    healthcheck:
-      test: ["CMD", "rspamadm", "control", "stat"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  postfix:
-    profiles: [dev]
-    build:
-      context: ./examples/mta/postfix
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "25:25"     # SMTP 受信
-    environment:
-      # 受信するドメイン（カンマ区切りで複数指定可）
-      # 例: MAILSHIELD_RELAY_DOMAINS=example.com,example.org
-      MAILSHIELD_RELAY_DOMAINS: ${MAILSHIELD_RELAY_DOMAINS:-internal.test}
-      # このMTAのホスト名
-      MAILSHIELD_MTA_HOSTNAME:  ${MAILSHIELD_MTA_HOSTNAME:-mail.internal.test}
-    depends_on:
-      smtp-gateway:
-        condition: service_healthy
-      rspamd:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "postfix", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  postfix-submission:
-    profiles: [dev]
-    build:
-      context: ./examples/mta/postfix-submission
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "587:587"     # SMTP submission（内部ユーザー向け）
-    environment:
-      MAILSHIELD_SUBMISSION_HOSTNAME: ${MAILSHIELD_MTA_HOSTNAME:-mail.internal.test}
-    depends_on:
-      smtp-gateway:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "postfix", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ═══════════════════════════════════════════════════════════════
   # スキャナー（profile: scanners）
   # ═══════════════════════════════════════════════════════════════
 
@@ -277,6 +214,7 @@ services:
 
   # ═══════════════════════════════════════════════════════════════
   # 開発ツール（profile: dev）
+  # 処理後メールのキャッチ確認用。本番環境では不要。
   # ═══════════════════════════════════════════════════════════════
 
   mailpit:
@@ -358,5 +296,4 @@ volumes:
   rabbitmq_data:
   minio_data:
   redis_data:
-  rspamd_data:
   clamav_db:

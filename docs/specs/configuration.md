@@ -23,9 +23,7 @@
 | `handler_timeout_seconds` | int | `60` | メール1通の処理タイムアウト（検査・変換・ポリシー込み）（秒） |
 | `health_port` | int | `8080` | ヘルスチェック HTTP エンドポイントのポート |
 | `shutdown_timeout_seconds` | int | `30` | グレースフルシャットダウンの最大待機時間（秒） |
-| `reinject_host` | string | `postfix` | 添付分離通知メールの送信先ホスト |
-| `reinject_port` | int | `10025` | 添付分離通知メールの送信先ポート |
-| `trusted_sources` | []string | - | SMTP 接続を許可するIPまたはホスト名のリスト |
+| `trusted_sources` | []string | - | SMTP 接続を許可するIPまたはホスト名のリスト。CIDR 表記（例: `172.17.0.0/16`）も使用可 |
 
 ### storage
 
@@ -72,9 +70,26 @@
 | `output` | string | `stdout` | 出力先: `stdout` / `syslog` |
 | `syslog_tag` | string | `smtp-gateway` | syslog 出力時のタグ名 |
 
+### workers（グローバル設定）
+
+Lua ワーカースクリプトとワーカー固有設定ファイルのディレクトリ。全ルートで共有する。
+ルートごとの有効・無効・実行順序は `routes[].workers.inspect` / `transform` で設定する。
+
+| キー | 型 | 説明 |
+|-----|-----|------|
+| `workers_dir` | string | Lua ワーカースクリプトのルートディレクトリ。配下の `<worker名>/init.lua` を自動ロードする |
+| `worker_config_dir` | string | ワーカー固有設定ファイル（YAML）のディレクトリ。`<worker名>.yaml` が各ワーカーに渡される |
+
+```yaml
+workers:
+  workers_dir: /app/workers
+  worker_config_dir: /app/config/workers/conf
+```
+
 ### notification
 
-システムが送信するメール（隔離通知）の SMTP 設定。
+システムが送信するメール（隔離通知・添付ファイル分離通知等）の SMTP 設定。
+`filesep-worker` の separate モードも `notification.smtp_host` / `smtp_port` を使用する。
 
 | キー | 型 | 説明 |
 |-----|-----|------|
@@ -149,8 +164,6 @@ routes:
       to: "@internal\\.test$"   # RCPT TO の正規表現
       to_match: any             # any: いずれか1つがマッチ / all: 全てマッチ
     workers:
-      workers_dir: /app/workers
-      worker_config_dir: /app/config/workers/conf
       inspect:
         - name: av-worker
           enabled: true
@@ -190,11 +203,12 @@ routes:
 
 ### workers（ルート内の設定）
 
+`routes[].workers` はルートごとの有効・無効・タイムアウト・実行順序を定義する。
+ワーカー実装（スクリプトや接続先）のパスはグローバルの `workers:` セクションで設定する。
+
 | キー | 型 | 説明 |
 |-----|-----|------|
-| `workers_dir` | string | Lua ワーカースクリプトのルートディレクトリ |
-| `worker_config_dir` | string | ワーカー固有設定ファイル（YAML）のディレクトリ |
-| `inspect` | []WorkerEntry | 検査ワーカーのリスト |
+| `inspect` | []WorkerEntry | 検査ワーカーのリスト。全ワーカーが並列に実行される |
 | `transform` | []WorkerEntry | 変換ワーカーのリスト（`order` 昇順で実行） |
 
 **WorkerEntry:**

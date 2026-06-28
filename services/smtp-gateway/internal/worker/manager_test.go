@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
@@ -26,20 +27,21 @@ func (s *stubTransform) Transform(_ context.Context, mail *domain.Mail) (*domain
 }
 
 // emptyCfg は Lua ワーカーを持たないテスト用設定を返す。
-// WorkersDir に存在しないパスを渡すと loader は空マップを返す。
+// worker.New に渡す workersDir には存在しないパスを使うと loader は空マップを返す。
 func emptyCfg(inspect []config.InspectWorkerConfig, transform []config.TransformWorkerConfig) *config.WorkersConfig {
 	return &config.WorkersConfig{
-		WorkersDir:      "/nonexistent/workers",
-		WorkerConfigDir: "/nonexistent/conf",
-		Inspect:         inspect,
-		Transform:       transform,
+		Inspect:   inspect,
+		Transform: transform,
 	}
 }
+
+const testWorkersDir = "/nonexistent/workers"
+const testConfigDir = "/nonexistent/conf"
 
 // ─── テスト ─────────────────────────────────────────────────────
 
 func TestManager_NoWorkers(t *testing.T) {
-	m, err := worker.New(emptyCfg(nil, nil), nil, nil)
+	m, err := worker.New(testWorkersDir, testConfigDir, emptyCfg(nil, nil), nil, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -64,7 +66,7 @@ func TestManager_OnlyEnabledInspectWorkers(t *testing.T) {
 		&stubInspect{name: "dlp-worker"},
 	}
 
-	m, err := worker.New(cfg, builtins, nil)
+	m, err := worker.New(testWorkersDir, testConfigDir, cfg, builtins, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -74,6 +76,29 @@ func TestManager_OnlyEnabledInspectWorkers(t *testing.T) {
 	}
 	if got[0].Name() != "av-worker" {
 		t.Errorf("InspectWorkers()[0].Name() = %q, want av-worker", got[0].Name())
+	}
+}
+
+func TestManager_InspectEntries_TimeoutSet(t *testing.T) {
+	cfg := emptyCfg(
+		[]config.InspectWorkerConfig{
+			{Name: "av-worker", Enabled: true, TimeoutSeconds: 30},
+		},
+		nil,
+	)
+	builtins := []domain.InspectWorker{&stubInspect{name: "av-worker"}}
+
+	m, err := worker.New(testWorkersDir, testConfigDir, cfg, builtins, nil)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	entries := m.InspectEntries()
+	if len(entries) != 1 {
+		t.Fatalf("InspectEntries() len = %d, want 1", len(entries))
+	}
+	want := 30 * time.Second
+	if entries[0].Timeout != want {
+		t.Errorf("entries[0].Timeout = %v, want %v", entries[0].Timeout, want)
 	}
 }
 
@@ -92,7 +117,7 @@ func TestManager_TransformWorkersSortedByOrder(t *testing.T) {
 		&stubTransform{name: "urlrewrite"},
 	}
 
-	m, err := worker.New(cfg, nil, builtins)
+	m, err := worker.New(testWorkersDir, testConfigDir, cfg, nil, builtins)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -120,7 +145,7 @@ func TestManager_UnknownWorkerSkipped(t *testing.T) {
 		&stubInspect{name: "av-worker"},
 	}
 
-	m, err := worker.New(cfg, builtins, nil)
+	m, err := worker.New(testWorkersDir, testConfigDir, cfg, builtins, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -143,7 +168,7 @@ func TestManager_BuiltinOverridesLua(t *testing.T) {
 		nil,
 	)
 	builtinAV := &stubInspect{name: "av-worker"}
-	m, err := worker.New(cfg, []domain.InspectWorker{builtinAV}, nil)
+	m, err := worker.New(testWorkersDir, testConfigDir, cfg, []domain.InspectWorker{builtinAV}, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -170,7 +195,7 @@ func TestManager_DisabledTransformExcluded(t *testing.T) {
 		&stubTransform{name: "filesep"},
 	}
 
-	m, err := worker.New(cfg, nil, builtins)
+	m, err := worker.New(testWorkersDir, testConfigDir, cfg, nil, builtins)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

@@ -1,20 +1,24 @@
 // Package config は mailshield.yaml と環境変数から設定を読み込む。
-// 環境変数は YAML の値を上書きする（viper の AutomaticEnv を使用）。
+// 環境変数は YAML の値を上書きする。
 package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/viper"
 )
 
-// Config はサービス全体の設定を保持する。
 type Config struct {
 	Server                  ServerConfig
 	Storage                 StorageConfig
 	Database                DatabaseConfig
 	Queue                   QueueConfig
+	// Workers は全ルートで共有するワーカーのグローバル設定（Lua ディレクトリ等）。
+	// ルートごとの有効・無効・順序は routes[].workers.inspect / transform で制御する。
+	Workers                 WorkersGlobal
 	Routes                  []RouteConfig
 	Log                     LogConfig
 	AttachmentDownload      AttachmentDownloadConfig      `mapstructure:"attachment_download"`
@@ -23,7 +27,13 @@ type Config struct {
 	Approval                ApprovalConfig                `mapstructure:"approval"`
 }
 
-// ApprovalConfig は承認フローの設定を保持する。
+type WorkersGlobal struct {
+	// WorkersDir は Lua ワーカースクリプトのルートディレクトリ。
+	WorkersDir string `mapstructure:"workers_dir"`
+	// WorkerConfigDir はワーカー固有設定ファイル（YAML）を置くディレクトリ。
+	WorkerConfigDir string `mapstructure:"worker_config_dir"`
+}
+
 type ApprovalConfig struct {
 	// ExpiryHours は承認依頼の有効期限（デフォルト 72 時間）。
 	ExpiryHours int `mapstructure:"expiry_hours"`
@@ -31,14 +41,12 @@ type ApprovalConfig struct {
 	GlobalApproverEmail string `mapstructure:"global_approver_email"`
 }
 
-// NotificationConfig はシステムメール（隔離通知等）を送信する SMTP の設定を保持する。
 type NotificationConfig struct {
 	SMTPHost    string `mapstructure:"smtp_host"`
 	SMTPPort    int    `mapstructure:"smtp_port"`
 	FromAddress string `mapstructure:"from_address"`
 }
 
-// QuarantineNotificationConfig は隔離即時通知の設定を保持する。
 type QuarantineNotificationConfig struct {
 	// Enabled を false にすると通知メールを送信しない。
 	Enabled   bool   `mapstructure:"enabled"`
@@ -46,14 +54,12 @@ type QuarantineNotificationConfig struct {
 	UIBaseURL string `mapstructure:"ui_base_url"`
 }
 
-// AttachmentDownloadConfig は添付ファイルダウンロードの認証方式設定を保持する。
 type AttachmentDownloadConfig struct {
 	// Flows はメール方向とダウンロードモードのマッピング。
 	// 最初にマッチしたルールが適用される。
 	Flows []AttachmentDownloadFlow `mapstructure:"flows"`
 }
 
-// AttachmentDownloadFlow は1つの方向→モードのマッピングを表す。
 type AttachmentDownloadFlow struct {
 	// Match はメールの方向（inbound / outbound / internal）。
 	Match string `mapstructure:"match"`
@@ -76,7 +82,6 @@ func (c *AttachmentDownloadConfig) DownloadModeFor(direction string) (mode strin
 	return "simple", nil
 }
 
-// LogConfig はロギングの設定を保持する。
 type LogConfig struct {
 	// Level はログレベル（debug / info / warn / error）。
 	Level string `mapstructure:"level"`
@@ -100,9 +105,6 @@ type ServerConfig struct {
 	// ヘルスチェック・シャットダウン
 	HealthPort             int `mapstructure:"health_port"`
 	ShutdownTimeoutSeconds int `mapstructure:"shutdown_timeout_seconds"`
-	// filesep separate モードの通知メール送信先（グローバル設定）
-	ReinjectHost   string   `mapstructure:"reinject_host"`
-	ReinjectPort   int      `mapstructure:"reinject_port"`
 	TrustedSources []string `mapstructure:"trusted_sources"`
 }
 
@@ -169,14 +171,10 @@ type RouteMatchConfig struct {
 }
 
 type WorkersConfig struct {
-	// WorkersDir はワーカープログラムファイルのルートディレクトリ。
-	// 配下の <worker名>/ サブディレクトリを自動スキャンし、init.lua をロードする。
-	WorkersDir string `mapstructure:"workers_dir"`
-	// WorkerConfigDir はワーカー固有設定ファイル（YAML）を置くディレクトリ。
-	// <WorkerConfigDir>/<worker名>.yaml が各ワーカーに渡される。
-	WorkerConfigDir string                 `mapstructure:"worker_config_dir"`
-	Inspect         []InspectWorkerConfig  `mapstructure:"inspect"`
-	Transform       []TransformWorkerConfig `mapstructure:"transform"`
+	// Inspect は検査ワーカーの有効・無効とタイムアウトの設定。
+	// ワーカーの実装（Lua スクリプトや接続先）は workers.worker_config_dir 配下の YAML で設定する。
+	Inspect   []InspectWorkerConfig  `mapstructure:"inspect"`
+	Transform []TransformWorkerConfig `mapstructure:"transform"`
 }
 
 type InspectWorkerConfig struct {
@@ -197,44 +195,37 @@ type PolicyConfig struct {
 }
 
 // Load は設定ファイルと環境変数から Config を読み込む。
-// 環境変数のキーはアンダースコア区切りの大文字（例: DB_HOST）。
+//
+// configFile（例: config/mailshield.yaml）と同じディレクトリに
+// configFile.default.yaml（例: config/mailshield.default.yaml）が存在する場合、
+// 先にデフォルト設定を読み込み、その後 configFile の値で上書きする。
+// 環境変数は YAML より優先される。
 func Load(configFile string) (*Config, error) {
 	v := viper.New()
-
-	v.SetConfigFile(configFile)
 	v.SetConfigType("yaml")
-
-	// 環境変数との対応付け
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	v.AutomaticEnv()
 
-	// 環境変数のマッピング（YAML キーと env キーが異なる場合）
-	// 注意: YAML ファイル内で ${VAR:-default} のシェル構文は使わないこと。
-	// viper は展開しないため、ここで BindEnv により env → 設定キーを対応付ける。
 	bindEnvs := map[string]string{
-		"database.host":              "DB_HOST",
-		"database.port":              "DB_PORT",
-		"database.name":              "DB_NAME",
-		"database.user":              "DB_USER",
-		"database.password":          "DB_PASSWORD",
-		"storage.endpoint":           "MINIO_ENDPOINT",
-		"storage.use_ssl":            "MINIO_USE_SSL",
-		"queue.host":                 "RABBITMQ_HOST",
-		"queue.port":                 "RABBITMQ_PORT",
-		"queue.user":                 "RABBITMQ_USER",
-		"queue.password":             "RABBITMQ_PASSWORD",
-		"server.reinject_host":       "MAILSHIELD_REINJECT_HOST",
-		"server.reinject_port":       "MAILSHIELD_REINJECT_PORT",
-		"notification.smtp_host":     "MAILSHIELD_NOTIFICATION_SMTP_HOST",
-		"notification.smtp_port":     "MAILSHIELD_NOTIFICATION_SMTP_PORT",
+		"database.host":          "DB_HOST",
+		"database.port":          "DB_PORT",
+		"database.name":          "DB_NAME",
+		"database.user":          "DB_USER",
+		"database.password":      "DB_PASSWORD",
+		"storage.endpoint":       "MINIO_ENDPOINT",
+		"storage.use_ssl":        "MINIO_USE_SSL",
+		"queue.host":             "RABBITMQ_HOST",
+		"queue.port":             "RABBITMQ_PORT",
+		"queue.user":             "RABBITMQ_USER",
+		"queue.password":         "RABBITMQ_PASSWORD",
+		"notification.smtp_host": "MAILSHIELD_NOTIFICATION_SMTP_HOST",
+		"notification.smtp_port": "MAILSHIELD_NOTIFICATION_SMTP_PORT",
 	}
 	for yamlKey, envKey := range bindEnvs {
 		if err := v.BindEnv(yamlKey, envKey); err != nil {
 			return nil, fmt.Errorf("env バインド失敗 %s: %w", envKey, err)
 		}
 	}
-
-	// MinIO の認証情報は別の env キーを使う
 	if err := v.BindEnv("storage.access_key", "MINIO_ACCESS_KEY"); err != nil {
 		return nil, fmt.Errorf("env バインド失敗 MINIO_ACCESS_KEY: %w", err)
 	}
@@ -242,8 +233,25 @@ func Load(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("env バインド失敗 MINIO_SECRET_KEY: %w", err)
 	}
 
-	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("設定ファイル読み込み失敗: %w", err)
+	// <base>.default.yaml が存在すれば先にロードし、configFile で上書きする
+	ext := filepath.Ext(configFile)
+	defaultFile := strings.TrimSuffix(configFile, ext) + ".default" + ext
+	if _, err := os.Stat(defaultFile); err == nil {
+		v.SetConfigFile(defaultFile)
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("デフォルト設定ファイル読み込み失敗 (%s): %w", defaultFile, err)
+		}
+		if _, err := os.Stat(configFile); err == nil {
+			v.SetConfigFile(configFile)
+			if err := v.MergeInConfig(); err != nil {
+				return nil, fmt.Errorf("設定ファイルのマージ失敗 (%s): %w", configFile, err)
+			}
+		}
+	} else {
+		v.SetConfigFile(configFile)
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("設定ファイル読み込み失敗: %w", err)
+		}
 	}
 
 	var cfg Config

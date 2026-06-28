@@ -1,7 +1,7 @@
-# クイックスタート（Docker）
+# クイックスタート
 
-MailShield を Docker Compose で起動する手順です。
-**用途に合わせて2パターンから選んでください。**
+MailShield を Docker Compose で起動する最短手順です。
+詳細な設定は [MailShield 設定ガイド](./mailshield-config.md) を参照してください。
 
 ---
 
@@ -10,30 +10,27 @@ MailShield を Docker Compose で起動する手順です。
 - Docker Engine 24.0 以上
 - Docker Compose v2.20 以上
 - `make` コマンド
+- 受信 MTA（Postfix + Rspamd 等）がすでにセットアップ済みであること  
+  → まだの場合は [MTA セットアップガイド](./mta-self-managed.md) を先に参照
 
 ---
 
-## パターン A: 開発・動作確認（組み込み MTA を使う）
+## 手順
 
-Postfix + Rspamd + Mailpit をまとめて起動します。
-メールサーバーを自前で用意しなくてもすぐ動作確認できます。
-
-### 手順
-
-**1. リポジトリをクローン**
+### 1. リポジトリをクローン
 
 ```bash
 git clone https://github.com/koizumib/mailshield.git
 cd mailshield
 ```
 
-**2. `.env` を作成してパスワードを設定**
+### 2. `.env` を作成してパスワードを設定
 
 ```bash
 cp .env.example .env
 ```
 
-`.env` を開いて STEP 1 の4箇所を変更します（`CHANGE_ME_` の部分）。
+`.env` を開いて `CHANGE_ME_` の箇所を実際の値に変更します。
 
 ```dotenv
 MARIADB_ROOT_PASSWORD=（任意のパスワード）
@@ -41,104 +38,27 @@ DB_PASSWORD=（任意のパスワード）
 MINIO_ACCESS_KEY=（8文字以上の任意の文字列）
 MINIO_SECRET_KEY=（8文字以上の任意の文字列）
 RABBITMQ_PASSWORD=（任意のパスワード）
+
+# 自前 MTA の接続先
+MAILSHIELD_REINJECT_HOST=（MTA のホスト名 or IP）
+MAILSHIELD_REINJECT_PORT=10025
+
+# 通知メールの送信に使う SMTP リレー
+MAILSHIELD_NOTIFICATION_SMTP_HOST=（SMTP リレーのホスト名）
+MAILSHIELD_NOTIFICATION_SMTP_PORT=25
 ```
 
-STEP 2・3 はデフォルトのままで構いません。
+> **先に `.env` を設定してから起動してください。**
+> 起動後に変更してもパスワードが反映されません（`make clean` でやり直し）。
 
-> **重要**: **必ず `.env` を設定してから** `make dev-up` を実行してください。
-> `make dev-up` を先に実行すると MariaDB がデフォルトパスワードで初期化されます。
-> その後 `.env` を変更してもパスワード不一致で smtp-gateway が起動しません。
-> 間違えた場合は `make clean` でボリュームを削除してからやり直してください。
+### 3. `config/mailshield.yaml` を編集
 
-**3. 受信ドメインを設定（本番環境のみ）**
-
-デフォルトの `config/mailshield.yaml` は開発用ドメイン `internal.test` が設定済みです。
-**開発・動作確認ならこの手順はスキップできます。**
-
-本番環境で自分のドメインを使う場合は `config/mailshield.yaml` を編集します。
-
-```yaml
-routes:
-  - name: inbound
-    match:
-      to: "@internal\\.test$"   # ← 自分のドメインに変更（例: "@example\\.com$"）
-```
-
-`config/policy-inbound.yaml` の `destination` も変更してください。
-
-```yaml
-  - name: default_deliver
-    action: deliver
-    destination: "mailpit:1025"   # ← 本番の配送先 MTA に変更（例: "smtp-relay.example.com:25"）
-```
-
-**4. 起動**
-
-```bash
-make dev-up
-# smtp-gateway + MariaDB + MinIO + RabbitMQ + Postfix + Rspamd + Mailpit が起動する
-```
-
-**5. 動作確認**
-
-```bash
-# ヘルスチェック
-curl http://localhost:8080/healthz
-
-# テストメール送信
-swaks --to test@internal.test --from sender@external.test \
-      --server localhost --port 25 \
-      --header "Subject: Hello MailShield"
-
-# Mailpit でメールを確認
-open http://localhost:8025
-```
-
----
-
-## パターン B: 自前 MTA と組み合わせる（本番に近い構成）
-
-自前の Postfix + Rspamd をすでに持っている場合の手順です。
-スキャナー（ClamAV・Tika）と Web UI も含めた全機能構成で起動します。
-
-### 手順
-
-**1. リポジトリをクローン**
-
-```bash
-git clone https://github.com/koizumib/mailshield.git
-cd mailshield
-```
-
-**2. `.env` を作成してパスワードと MTA 接続先を設定**
-
-```bash
-cp .env.example .env
-```
-
-`.env` を開いて以下を変更します。
-
-```dotenv
-# STEP 1: パスワード（必須）
-MARIADB_ROOT_PASSWORD=（任意のパスワード）
-DB_PASSWORD=（任意のパスワード）
-MINIO_ACCESS_KEY=（8文字以上の任意の文字列）
-MINIO_SECRET_KEY=（8文字以上の任意の文字列）
-RABBITMQ_PASSWORD=（任意のパスワード）
-
-# STEP 2: 自前 MTA の接続先
-MAILSHIELD_REINJECT_HOST=（自前の Postfix ホスト名または IP）
-MAILSHIELD_REINJECT_PORT=10025   # content_filter なしのポート
-MAILSHIELD_NOTIFICATION_SMTP_HOST=（通知メール用の SMTP リレー）
-MAILSHIELD_NOTIFICATION_SMTP_PORT=（ポート番号）
-```
-
-**3. `config/mailshield.yaml` を編集**
+最低限変更が必要な箇所は2つです。
 
 ```yaml
 server:
   trusted_sources:
-    - （自前 Postfix の IP またはホスト名）  # ← 追加
+    - （MTA のホスト名 or IP）  # 受信 MTA からの接続を許可
 
 routes:
   - name: inbound
@@ -147,73 +67,52 @@ routes:
 
   - name: outbound
     match:
-      from: "@example\\.com$"   # ← 自分のドメインに変更
+      from: "@example\\.com$"  # ← 自分のドメインに変更
 ```
 
-**4. `config/api-server.yaml` を編集**
+### 4. `config/policy-inbound.yaml` の配送先を設定
 
 ```yaml
-server:
-  frontend_url: "http://（このサーバのIPまたはホスト名）:3000"  # ← Web UI の URL
-
-storage:
-  public_endpoint: "（このサーバのIPまたはホスト名）:9000"  # ← ブラウザから MinIO にアクセスできる URL
-
-notification:
-  reinject_host: （自前の Postfix ホスト名または IP）  # ← 隔離解放後の再インジェクト先
-  reinject_port: 10025
-
-approval:
-  base_url: "http://（このサーバのIPまたはホスト名）:3000"  # ← 承認通知リンクのベース URL
+  - name: default_deliver
+    condition: "true"
+    action: deliver
+    destination: "（MTA のホスト名）:10025"   # ← 再インジェクト先に変更
 ```
 
-**5. 自前 Postfix の設定**
-
-Postfix の `main.cf` に content_filter を追加します。
-
-```
-content_filter = smtp:[（MailShield のホスト名または IP）]:10024
-```
-
-再インジェクト用のポート 10025 も `master.cf` で開けてください（詳細: [自前 MTA との連携](./mta-self-managed.md)）。
-
-**6. 起動**
+### 5. 起動
 
 ```bash
-COMPOSE_PROFILES=storage,queue,scanners,api docker compose up -d
+# 標準構成（MinIO + RabbitMQ + Mailpit）
+make dev-up
+
+# 最小構成（MariaDB のみ・filesystem モード）
+# ※ config/mailshield.yaml で storage.backend=filesystem, queue.backend=none を設定すること
+docker compose up -d
 ```
 
-**7. 動作確認**
+### 6. 動作確認
 
 ```bash
-# MailShield ヘルスチェック
-curl http://localhost:8080/healthz   # smtp-gateway
-curl http://localhost:8090/healthz   # api-server
+# ヘルスチェック
+curl http://localhost:8080/healthz   # → "ok"
 
-# Web UI にログイン
-open http://localhost:3000
-# デフォルト管理者: admin@example.com / password
+# テストメール送信（MTA 経由）
+swaks --to test@example.com \
+      --from sender@external.example \
+      --server （MTA のホスト名） --port 25 \
+      --header "Subject: MailShield テスト"
 
-# 自前 MTA 経由でテストメール送信（メールは Web UI の「メール一覧」に現れる）
-swaks --to user@example.com --from sender@external.example \
-      --server （自前 Postfix のホスト） --port 25 \
-      --header "Subject: MailShield test"
-```
-
----
-
-## 停止
-
-```bash
-make dev-down    # パターン A
-docker compose down   # パターン B
+# smtp-gateway のログ確認
+docker compose logs -f smtp-gateway
 ```
 
 ---
 
 ## 次のステップ
 
-- [Docker プロファイルの詳細](./profiles.md) — 起動するコンポーネントを細かく選択する
-- [ワーカー設定](../guide/workers.md) — av-worker・dlp-worker 等を有効化する
+設定の詳細・全パラメータの説明は以下を参照してください。
+
+- [MailShield 設定ガイド](./mailshield-config.md) — 全設定項目のステップバイステップ解説
+- [Docker プロファイル](./profiles.md) — 起動するコンポーネントの選択方法
+- [ワーカー設定](../guide/workers.md) — av-worker / dlp-worker 等を有効化する
 - [ポリシー設定](../guide/policy.md) — 配送・隔離・拒否のルールを定義する
-- [自前 MTA との連携](./mta-self-managed.md) — Postfix の詳細設定

@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // InspectWorker は検査ワーカーのインターフェースである。
 // 原本EMLを読むだけでメールを変更しない。全ワーカーが並列実行される。
@@ -14,6 +17,13 @@ type InspectWorker interface {
 type TransformWorker interface {
 	Name() string
 	Transform(ctx context.Context, mail *Mail) (*Mail, error)
+}
+
+// InspectEntry はパイプラインに渡す検査ワーカーとタイムアウトのペアを表す。
+// Timeout が 0 の場合は親 context のタイムアウトのみ適用される。
+type InspectEntry struct {
+	Worker  InspectWorker
+	Timeout time.Duration
 }
 
 // InspectResult は検査ワーカーの結果を表す。

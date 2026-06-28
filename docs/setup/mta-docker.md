@@ -1,110 +1,85 @@
-# 開発用 MTA の設定（Postfix + Rspamd）
+# MTA 設定例（examples/mta/）
 
-`dev` プロファイルで起動する Postfix + Rspamd の設定方法を説明します。
-これは**開発・動作確認専用**のコンポーネントです。
+`examples/mta/` には Postfix + Rspamd を MailShield と連携させる設定ファイルのサンプルが入っています。
+自前の MTA を設定する際の参考としてお使いください。
 
-> **本番環境**: 同梱の Postfix は使用しないでください。
-> 自前の MTA から smtp-gateway（port 10024）に転送するよう設定してください。
-> 詳細は [自前 MTA との連携](./mta-self-managed.md) を参照。
+> MTA に求める要件と Postfix / Rspamd の詳細設定は
+> [MTA との連携](./mta-self-managed.md) を参照してください。
 
 ---
 
-## 構成の概要
+## ファイル構成
 
-```mermaid
-flowchart TD
-    Client([インターネット / テストクライアント]) -->|"SMTP :25"| Postfix["Postfix\n開発用受信 MTA"]
-
-    Postfix -->|"milter :11332"| Rspamd["Rspamd\nSPF / DKIM / DMARC / ARC を検証\nAuthentication-Results ヘッダを付与"]
-    Rspamd -.->|ヘッダを付与して返す| Postfix
-
-    Postfix -->|"after-queue content_filter\nSMTP :10024"| GW["smtp-gateway\n検査・変換・ポリシー評価"]
-
-    GW -->|"policy の destination\nSMTP :1025（直接配送）"| Mailpit(["Mailpit :8025"])
 ```
-
-> **開発環境の簡略化について**
->
-> 開発環境では smtp-gateway のポリシー（`config/policy-inbound.yaml`）が
-> Mailpit（`:1025`）に**直接 SMTP 配送**します。
-> Postfix への再インジェクト（port 10025）は使いません。
->
-> 本番環境では `destination` を `postfix:10025`（再インジェクトポート）に設定し、
-> Postfix の `relayhost` または `transport_maps` で内部メールシステムへ転送します。
-> **MX を引くとゲートウェイ自身に戻るループになるため、必ず直指定が必要です。**
-> 詳細は [自前 MTA との連携 → 再インジェクト後の最終配送設定](./mta-self-managed.md) を参照。
-
-設定ファイルは `examples/mta/` にあります。
-
----
-
-## 環境変数
-
-開発環境では `.env` に設定しなくてもデフォルト値で動作します。
-
-```dotenv
-# 受信するドメイン（デフォルト: internal.test）
-MAILSHIELD_RELAY_DOMAINS=internal.test
-
-# このMTAのホスト名（デフォルト: mail.internal.test）
-MAILSHIELD_MTA_HOSTNAME=mail.internal.test
+examples/mta/
+├── postfix/                    # 受信 MTA（SMTP :25 → content_filter → MailShield）
+│   ├── Dockerfile
+│   ├── main.cf.template        # 受信設定・content_filter 設定
+│   ├── master.cf               # 再インジェクトポート（:10025）定義
+│   └── docker-entrypoint.sh
+│
+├── postfix-submission/         # 送信 MTA（SMTP submission :587）
+│   ├── Dockerfile
+│   ├── main.cf.template
+│   ├── master.cf
+│   └── docker-entrypoint.sh
+│
+└── rspamd/
+    └── local.d/                # Rspamd 設定（認証チェック専用・スパム判定無効）
+        ├── spf.conf
+        ├── dkim.conf
+        ├── dmarc.conf
+        ├── arc.conf
+        ├── milter_headers.conf # Authentication-Results ヘッダの付与設定
+        ├── rbl.conf            # 無効化（MailShield が担当）
+        ├── antivirus.conf      # 無効化（av-worker が担当）
+        └── ...
 ```
 
 ---
 
-## Rspamd の役割と設定方針
+## postfix/main.cf.template の概要
 
-同梱の Rspamd は **認証チェック専用** として設定されています。
-スパム判定は smtp-gateway のワーカー層が担うため、Rspamd では行いません。
+```
+# MailShield への転送（content_filter）
+content_filter = smtp:[${MAILSHIELD_HOST}]:10024
 
-### 有効なモジュール
+# milter（Rspamd）
+smtpd_milters     = inet:${RSPAMD_HOST}:11332
+non_smtpd_milters = inet:${RSPAMD_HOST}:11332
+milter_default_action = accept
+milter_protocol = 6
+```
 
-| モジュール | 役割 | Authentication-Results の値 |
-|-----------|------|---------------------------|
-| `spf` | SPF 検証 | `spf=pass/fail/softfail/none` |
-| `dkim` | DKIM 署名検証 | `dkim=pass/fail/none` |
-| `dmarc` | DMARC ポリシー検証 | `dmarc=pass/fail/none` |
-| `arc` | ARC チェーン検証 | `arc=pass/fail/none` |
-
-スコアリング系モジュール（rbl / neural / fuzzy_check / phishing 等）はすべて無効化されています。
+`${MAILSHIELD_HOST}` / `${RSPAMD_HOST}` は `docker-entrypoint.sh` で環境変数から展開されます。
 
 ---
 
-## smtp-gateway が読む Authentication-Results ヘッダ
-
-Rspamd が付与する `Authentication-Results` ヘッダは smtp-gateway が解析します。
+## postfix/master.cf の再インジェクトポート
 
 ```
-Authentication-Results: mail.internal.test;
-    spf=pass smtp.mailfrom=sender@external.test;
-    dkim=none;
-    dmarc=none;
-    arc=none
+# smtp-gateway からの再インジェクトを受け付けるポート
+# content_filter と milter を空にしてループを防ぐ
+10025  inet  n  -  n  -  -  smtpd
+  -o content_filter=
+  -o smtpd_milters=
+  -o non_smtpd_milters=
+  -o mynetworks=${MAILSHIELD_HOST}/32
+  -o smtpd_recipient_restrictions=permit_mynetworks,reject
 ```
-
-smtp-gateway はこの値を `mail.auth_results.spf/dkim/dmarc/arc` として
-ポリシーエンジンおよび Lua ワーカーに渡します。
 
 ---
 
-## 起動
+## rspamd/local.d/ の方針
 
-```bash
-make dev-up
-# = COMPOSE_PROFILES=storage,queue,dev docker compose up -d
-```
+同梱の設定では Rspamd を **認証チェック専用** として構成しています。
 
-起動後の確認:
+| モジュール | 状態 | 理由 |
+|-----------|------|------|
+| `spf` / `dkim` / `dmarc` / `arc` | 有効 | Authentication-Results ヘッダを付与するため |
+| `milter_headers` | 有効 | ヘッダ付与の出力設定 |
+| `rbl` / `neural` / `fuzzy_check` | 無効 | スパム判定は MailShield のワーカー層が担当 |
+| `antivirus` | 無効 | ウイルス検査は av-worker（ClamAV）が担当 |
+| `dkim_signing` | 無効 | 受信 MTA での署名は不要 |
 
-```bash
-# Rspamd ヘルスチェック
-docker compose exec rspamd rspamadm control stat
-
-# Postfix キュー確認
-docker compose exec postfix mailq
-
-# テストメール送信
-swaks --to test@internal.test --from sender@external.test \
-      --server localhost --port 25 \
-      --header "Subject: Hello MailShield"
-```
+この設定により Rspamd はメールを拒否せず、認証結果のヘッダ付与のみを行います。

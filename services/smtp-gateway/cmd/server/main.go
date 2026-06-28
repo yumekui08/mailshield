@@ -1,5 +1,3 @@
-// Package main は smtp-gateway サービスのエントリーポイントである。
-// DIのみを行い、ビジネスロジックは書かない。
 package main
 
 import (
@@ -45,7 +43,7 @@ import (
 )
 
 func main() {
-	// ─── 設定読み込み（ログ初期化前なので stderr に出力）─────
+	// ログ初期化前なので設定読み込みエラーは stderr に出力
 	configFile := os.Getenv("CONFIG_FILE")
 	if configFile == "" {
 		configFile = "config/mailshield.yaml"
@@ -57,7 +55,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ─── ログ初期化 ───────────────────────────────────────────
 	if err := logging.Setup(&cfg.Log); err != nil {
 		fmt.Fprintf(os.Stderr, "ログ初期化失敗: %v\n", err)
 		os.Exit(1)
@@ -70,7 +67,6 @@ func main() {
 		"log_output", cfg.Log.Output,
 	)
 
-	// ─── ストレージ（MinIO / ローカルFS）───────────────────────
 	var (
 		emlStorage     domain.EMLStorage
 		archiveStorage domain.ArchiveStorage
@@ -104,7 +100,6 @@ func main() {
 		emlStorage, archiveStorage, attachStorage = ms, ms, ms
 	}
 
-	// ─── MariaDB ─────────────────────────────────────────────
 	slog.Debug("MariaDB 初期化", "host", cfg.Database.Host, "port", cfg.Database.Port)
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&charset=utf8mb4&loc=UTC",
 		cfg.Database.User,
@@ -125,7 +120,6 @@ func main() {
 	defer repo.Close()
 	slog.Info("MariaDB 接続完了", "host", cfg.Database.Host)
 
-	// ─── キュー（RabbitMQ / noop）────────────────────────────
 	var publisher domain.EventPublisher
 	if cfg.Queue.Backend == "none" {
 		slog.Info("キュー: noop モード（mail.received イベントは発行しない）")
@@ -148,14 +142,14 @@ func main() {
 		publisher = pub
 	}
 
-	// ─── 組み込みワーカー初期化（ルート間で共有）────────────
-	// ワーカーインスタンスはステートレスなので全ルートで共有する。
-	// どのルートで有効化するかは各ルートの WorkersConfig で制御する。
 	if len(cfg.Routes) == 0 {
 		slog.Error("routes が設定されていません")
 		os.Exit(1)
 	}
-	configDir := cfg.Routes[0].Workers.WorkerConfigDir // worker config dir はルート間共通
+
+	// ワーカーインスタンスはステートレスなので全ルートで共有する。
+	// どのルートで有効化するかは各ルートの WorkersConfig で制御する。
+	configDir := cfg.Workers.WorkerConfigDir
 
 	avWorker, err := clamav.New(configDir)
 	if err != nil {
@@ -191,7 +185,7 @@ func main() {
 		mode, _ := cfg.AttachmentDownload.DownloadModeFor(string(dir))
 		return domain.DownloadMode(mode)
 	}
-	filesepWorker, err := filesep.New(configDir, attachStorage, repo, cfg.Server.ReinjectHost, cfg.Server.ReinjectPort, downloadModeFn)
+	filesepWorker, err := filesep.New(configDir, attachStorage, repo, cfg.Notification.SMTPHost, cfg.Notification.SMTPPort, downloadModeFn)
 	if err != nil {
 		slog.Error("filesep-worker 初期化失敗", "error", err)
 		os.Exit(1)
@@ -208,7 +202,7 @@ func main() {
 	}
 	arcSealerWorker, err := arcsealer.New(configDir)
 	if err != nil {
-		// ARC シーラーは設定ファイルがない場合は警告のみ（オプション機能）
+		// 設定ファイルがない場合は警告のみ（オプション機能）
 		slog.Warn("arc-sealer 初期化スキップ（設定ファイルなし・ARC シールは無効）", "error", err)
 		arcSealerWorker = nil
 	}
@@ -230,14 +224,12 @@ func main() {
 		builtinTransform = append(builtinTransform, arcSealerWorker)
 	}
 
-	// ─── ルーター初期化 ───────────────────────────────────────
 	rt, err := router.New(cfg.Routes)
 	if err != nil {
 		slog.Error("ルーター初期化失敗", "error", err)
 		os.Exit(1)
 	}
 
-	// ─── ルートごとのワーカーマネージャー・ポリシーエンジン ──
 	routeHandlers := make(map[string]*routeHandler, len(cfg.Routes))
 	for i := range cfg.Routes {
 		routeCfg := &cfg.Routes[i]
@@ -245,10 +237,10 @@ func main() {
 		slog.Debug("ルート初期化中",
 			"route", routeCfg.Name,
 			"direction", routeCfg.Direction,
-			"workers_dir", routeCfg.Workers.WorkersDir,
+			"workers_dir", cfg.Workers.WorkersDir,
 		)
 
-		mgr, err := worker.New(&routeCfg.Workers, builtinInspect, builtinTransform)
+		mgr, err := worker.New(cfg.Workers.WorkersDir, cfg.Workers.WorkerConfigDir, &routeCfg.Workers, builtinInspect, builtinTransform)
 		if err != nil {
 			slog.Error("ワーカーロード失敗", "route", routeCfg.Name, "error", err)
 			os.Exit(1)
@@ -262,7 +254,7 @@ func main() {
 
 		routeHandlers[routeCfg.Name] = &routeHandler{
 			cfg:       routeCfg,
-			inspect:   pipeline.NewInspectPipeline(mgr.InspectWorkers()),
+			inspect:   pipeline.NewInspectPipeline(mgr.InspectEntries()),
 			transform: pipeline.NewTransformPipeline(mgr.TransformWorkers()),
 			policy:    pe,
 		}
@@ -276,7 +268,6 @@ func main() {
 		)
 	}
 
-	// ─── 隔離即時通知 ─────────────────────────────────────────
 	var quarantineNotifier *notify.QuarantineNotifier
 	if cfg.QuarantineNotification.Enabled {
 		quarantineNotifier = notify.New(
@@ -293,7 +284,6 @@ func main() {
 		slog.Info("隔離即時通知: 無効")
 	}
 
-	// ─── メール処理ハンドラー ─────────────────────────────────
 	handler := &mailHandler{
 		storage:        emlStorage,
 		archiveStorage: archiveStorage,
@@ -306,7 +296,6 @@ func main() {
 		notifier:       quarantineNotifier,
 	}
 
-	// ─── SMTP サーバー ────────────────────────────────────────
 	smtpServer := smtp.New(smtp.Options{
 		Port:                  cfg.Server.SMTPPort,
 		Hostname:              cfg.Server.SMTPHostname,
@@ -318,7 +307,6 @@ func main() {
 		HandlerTimeoutSeconds: cfg.Server.HandlerTimeoutSeconds,
 	}, handler)
 
-	// ─── ヘルスチェック + シミュレーションエンドポイント ──────
 	healthAddr := fmt.Sprintf(":%d", cfg.Server.HealthPort)
 	httpServer := &http.Server{Addr: healthAddr}
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -332,7 +320,6 @@ func main() {
 		}
 	}()
 
-	// ─── SMTP サーバー起動 ────────────────────────────────────
 	serverErr := make(chan error, 1)
 	go func() {
 		if err := smtpServer.ListenAndServe(); err != nil {
@@ -346,7 +333,6 @@ func main() {
 		"routes", len(cfg.Routes),
 	)
 
-	// ─── シグナル待機 ─────────────────────────────────────────
 	// SIGTERM: コンテナ停止・systemd stop
 	// SIGINT:  Ctrl+C（開発時）
 	// SIGHUP:  将来の設定リロード用（現時点では再起動と同等に扱う）
@@ -360,7 +346,6 @@ func main() {
 		slog.Error("SMTPサーバー異常終了", "error", err)
 	}
 
-	// ─── グレースフルシャットダウン ───────────────────────────
 	shutdownTimeout := time.Duration(cfg.Server.ShutdownTimeoutSeconds) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -382,20 +367,12 @@ func main() {
 	slog.Info("シャットダウン完了")
 }
 
-// ────────────────────────────────────────────────────────────
-// routeHandler: ルートごとのパイプライン・ポリシーエンジン
-// ────────────────────────────────────────────────────────────
-
 type routeHandler struct {
 	cfg       *config.RouteConfig
 	inspect   *pipeline.InspectPipeline
 	transform *pipeline.TransformPipeline
 	policy    *policy.Engine
 }
-
-// ────────────────────────────────────────────────────────────
-// mailHandler: SMTP セッションから呼ばれるメール処理の本体
-// ────────────────────────────────────────────────────────────
 
 type mailHandler struct {
 	storage        domain.EMLStorage
@@ -537,7 +514,6 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		return domain.ErrNoRuleMatched
 	}
 
-	// アクション種別に対応する DB ステータスへ更新
 	actionStatusMap := map[policy.ActionType]domain.MessageStatus{
 		policy.ActionDeliver:    domain.StatusDelivered,
 		policy.ActionReject:     domain.StatusRejected,
@@ -582,7 +558,6 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	return nil
 }
 
-// archiveAsync は変換後の EML を非同期で MinIO に保存し、保存パスを DB に記録する。
 func (h *mailHandler) archiveAsync(messageID string, eml []byte, receivedAt time.Time) {
 	defer h.archiveWg.Done()
 	timeout := time.Duration(h.cfg.ShutdownTimeoutSeconds) * time.Second
@@ -628,15 +603,13 @@ func (h *mailHandler) archiveAsync(messageID string, eml []byte, receivedAt time
 	}
 }
 
-// createApprovalRequest は承認者を解決して approval_requests レコードを作成する。
-// 送信者 → 送信者の承認者設定 → 受信者の承認者設定 → グローバルフォールバック の順で解決する。
+// 承認者解決順: 送信者 → 受信者 → グローバルフォールバック
 func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Mail, log *slog.Logger) error {
 	approverID, err := h.repo.FindApproverForSender(ctx, mail.FromAddress)
 	if err != nil {
 		log.Warn("承認者解決エラー（送信者）", "from", mail.FromAddress, "error", err)
 	}
 
-	// 送信者に承認者が設定されていない場合は受信者の承認者を試みる
 	if approverID == "" && len(mail.ToAddresses) > 0 {
 		approverID, err = h.repo.FindApproverForSender(ctx, mail.ToAddresses[0])
 		if err != nil {
@@ -644,7 +617,6 @@ func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Ma
 		}
 	}
 
-	// それでも解決できない場合はグローバルフォールバックを使用
 	if approverID == "" && h.approvalCfg.GlobalApproverEmail != "" {
 		approverID, err = h.repo.FindUserIDByEmail(ctx, h.approvalCfg.GlobalApproverEmail)
 		if err != nil {
@@ -679,11 +651,8 @@ func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Ma
 	return nil
 }
 
-// ────────────────────────────────────────────────────────────
-// ポリシーシミュレーション（POST /simulate）
-// ────────────────────────────────────────────────────────────
-
-// SimulateResult はシミュレーション結果の JSON 表現である。
+// SimulateResult は /simulate エンドポイントのレスポンス型。
+// TransformedEML はデバッグ・テスト専用で本番用途ではない。
 type SimulateResult struct {
 	RouteName          string                  `json:"route_name"`
 	Direction          string                  `json:"direction"`
@@ -691,14 +660,11 @@ type SimulateResult struct {
 	OriginalSubject    string                  `json:"original_subject"`
 	TransformedSubject string                  `json:"transformed_subject"`
 	SubjectChanged     bool                    `json:"subject_changed"`
-	// TransformedEML は変換パイプライン適用後の完全な EML バイト列（文字列化）。
-	// sanitize・url-rewrite・disclaimer 等のボディ変換結果をテストで検証するために使う。
-	// 本番用途ではなくデバッグ・テスト専用フィールド。
-	TransformedEML string `json:"transformed_eml"`
-	TransformError string `json:"transform_error,omitempty"`
-	Action         string `json:"action"`
-	MatchedRule    string `json:"matched_rule"`
-	ProcessingMS   int64  `json:"processing_ms"`
+	TransformedEML     string                  `json:"transformed_eml"`
+	TransformError     string                  `json:"transform_error,omitempty"`
+	Action             string                  `json:"action"`
+	MatchedRule        string                  `json:"matched_rule"`
+	ProcessingMS       int64                   `json:"processing_ms"`
 }
 
 type simulateInspectResult struct {
@@ -708,9 +674,8 @@ type simulateInspectResult struct {
 	Details  map[string]any `json:"details"`
 }
 
-// handleSimulate は EML を受け取ってパイプラインをドライランで実行する。
-// リクエスト: POST /simulate。ボディに生の EML バイト列を渡す（最大 10MB）。
-// レスポンス: SimulateResult の JSON。
+// handleSimulate は POST /simulate を処理する。
+// リクエストボディに生の EML バイト列を渡す（最大 10MB）。
 func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -725,7 +690,6 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 
-	// EML ヘッダーから From / To / Subject を抽出
 	msg, err := mail.ReadMessage(bytes.NewReader(rawEML))
 	if err != nil {
 		http.Error(w, "invalid EML: "+err.Error(), http.StatusBadRequest)
@@ -746,7 +710,6 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		AuthResults: domain.DefaultAuthResults(),
 	}
 
-	// ルート解決
 	route, ok := h.router.Resolve(m.FromAddress, m.ToAddresses)
 	if !ok {
 		http.Error(w, "no matching route", http.StatusUnprocessableEntity)
@@ -773,7 +736,6 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		transformed = m
 	}
 
-	// ポリシー評価（アクション実行なし）
 	action, matchedRule := rh.policy.Evaluate(inspectResults)
 
 	var transformErrMsg string
@@ -811,7 +773,6 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// parseFirstAddress は "Name <addr>" 形式から addr のみを取り出す。
 func parseFirstAddress(raw string) string {
 	if raw == "" {
 		return ""
@@ -823,7 +784,6 @@ func parseFirstAddress(raw string) string {
 	return addrs[0].Address
 }
 
-// parseAddressList は To/CC ヘッダーからアドレスの一覧を取り出す。
 func parseAddressList(raw string) []string {
 	if raw == "" {
 		return nil

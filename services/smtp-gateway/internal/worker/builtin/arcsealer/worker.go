@@ -1,10 +1,5 @@
-// Package arcsealer は変換後の EML に ARC（Authenticated Received Chain）シールを付与する
-// 変換ワーカーを実装する（RFC 8617）。
-//
-// MailShield はメール本文を変換（HTML 無害化・URL 書き換え等）するため、元の DKIM 署名が
-// 壊れることがある。ARC はその事実を記録し、宛先 MTA が認証チェーンを信頼できるようにする。
-//
-// 本ワーカーは変換パイプラインの最後（最大 order）に設定すること。
+// Package arcsealer は変換後の EML に ARC シール（RFC 8617）を付与する変換ワーカー。
+// 本ワーカーは DKIM 署名を壊す変換の後に行うため、変換パイプラインの最後に配置すること。
 package arcsealer
 
 import (
@@ -100,10 +95,7 @@ func (w *Worker) Transform(_ context.Context, m *domain.Mail) (*domain.Mail, err
 	return &out, nil
 }
 
-// ─── ARC sealing ───────────────────────────────────────────────────────────
-
-// sealARC は RFC 8617 に従って生の EML に ARC ヘッダーセットを追加する。
-// 追加するヘッダーは ARC-Authentication-Results (AAR)・ARC-Message-Signature (AMS)・ARC-Seal (AS)。
+// 追加するヘッダーは AAR・AMS・AS の順（RFC 8617 §5.1）
 func (w *Worker) sealARC(rawEML []byte) ([]byte, error) {
 	// ヘッダー / ボディを分割
 	sep := bytes.Index(rawEML, []byte("\r\n\r\n"))
@@ -279,9 +271,6 @@ func (w *Worker) createAS(originalHeaders []string, aarFieldValue, amsFieldValue
 	return "ARC-Seal: " + fieldValue + crlf, nil
 }
 
-// ─── ヘッダー解析・正規化 ──────────────────────────────────────────────────
-
-// parseHeaders は生のヘッダーブロックを個々のヘッダーフィールドに分割する。
 // 連続行（折り畳み）は 1 つの文字列に結合する。各要素は末尾 CRLF を含む。
 func parseHeaders(data []byte) []string {
 	var fields []string
@@ -373,12 +362,8 @@ func bodyHash(body []byte) string {
 	return base64.StdEncoding.EncodeToString(h[:])
 }
 
-// ─── ヘルパー ──────────────────────────────────────────────────────────────
-
-// arcInstanceRE は ARC ヘッダーの i= タグを抽出する正規表現。
 var arcInstanceRE = regexp.MustCompile(`(?i)\bi\s*=\s*(\d+)`)
 
-// extractInstance は ARC ヘッダーフィールドから i= の値を返す。
 func extractInstance(field string) int {
 	_, val, _ := strings.Cut(field, ":")
 	m := arcInstanceRE.FindStringSubmatch(val)
@@ -403,7 +388,7 @@ func countARCSets(headers []string) int {
 	return max
 }
 
-// headerPicker は DKIM 仕様に従い後ろから順に同名ヘッダーを選択する。
+// DKIM 仕様に従い後ろから順に同名ヘッダーを選択するイテレーター
 type headerPicker struct {
 	fields []string
 	picked map[string]int
@@ -413,8 +398,6 @@ func newHeaderPicker(fields []string) *headerPicker {
 	return &headerPicker{fields: fields, picked: make(map[string]int)}
 }
 
-// pick は指定したヘッダー名のフィールドを後ろから n 番目（0 起点）に返す。
-// 同名ヘッダーが複数ある場合、pick を呼ぶたびに次のものを返す。
 func (p *headerPicker) pick(key string) string {
 	key = strings.ToLower(key)
 	at := p.picked[key]
@@ -430,8 +413,6 @@ func (p *headerPicker) pick(key string) string {
 	}
 	return ""
 }
-
-// ─── 設定読み込み・秘密鍵パース ───────────────────────────────────────────
 
 func loadConfig(dir string) (*Config, error) {
 	path := filepath.Join(dir, workerName+".yaml")
@@ -458,8 +439,7 @@ func loadConfig(dir string) (*Config, error) {
 	return &cfg, nil
 }
 
-// parsePrivateKey は PEM 形式の秘密鍵バイト列を crypto.Signer として返す。
-// PKCS8 形式（RSA / Ed25519）と PKCS1 形式（RSA のみ）に対応する。
+// PKCS8（RSA / Ed25519）と PKCS1（RSA のみ）に対応
 func parsePrivateKey(data []byte) (crypto.Signer, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"time"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
@@ -14,24 +15,27 @@ import (
 
 // Manager は有効なワーカーの一覧を管理する。
 type Manager struct {
-	inspectWorkers   []domain.InspectWorker
+	inspectEntries   []domain.InspectEntry
 	transformWorkers []domain.TransformWorker
 }
 
 // New は組み込みワーカーと Lua ワーカーを統合して Manager を構築する。
 //
+// workersDir / workerConfigDir はグローバル設定（config.WorkersGlobal）から渡す。
 // builtinInspect / builtinTransform は Go で実装された組み込みワーカー（ClamAV・Tika 等）。
 // workers_dir の Lua ワーカーと名前が衝突した場合は組み込みワーカーが優先される。
 //
 // 設定で enabled=true のワーカーだけが有効になる。
 // transform ワーカーは order 順にソートされる。
 func New(
+	workersDir string,
+	workerConfigDir string,
 	cfg *config.WorkersConfig,
 	builtinInspect []domain.InspectWorker,
 	builtinTransform []domain.TransformWorker,
 ) (*Manager, error) {
 	// Lua ワーカーをロード
-	luaInspect, luaTransform, err := luaworker.LoadFromDir(cfg.WorkersDir, cfg.WorkerConfigDir)
+	luaInspect, luaTransform, err := luaworker.LoadFromDir(workersDir, workerConfigDir)
 	if err != nil {
 		return nil, fmt.Errorf("Luaワーカーロード失敗: %w", err)
 	}
@@ -70,10 +74,13 @@ func New(
 		if !ok {
 			slog.Warn("設定された検査ワーカーが見つかりません",
 				"name", wCfg.Name,
-				"workers_dir", cfg.WorkersDir)
+				"workers_dir", workersDir)
 			continue
 		}
-		m.inspectWorkers = append(m.inspectWorkers, w)
+		m.inspectEntries = append(m.inspectEntries, domain.InspectEntry{
+			Worker:  w,
+			Timeout: time.Duration(wCfg.TimeoutSeconds) * time.Second,
+		})
 	}
 
 	// 変換ワーカー（有効なもののみ・order 順）
@@ -90,7 +97,7 @@ func New(
 		if !ok {
 			slog.Warn("設定された変換ワーカーが見つかりません",
 				"name", wCfg.Name,
-				"workers_dir", cfg.WorkersDir)
+				"workers_dir", workersDir)
 			continue
 		}
 		ordered = append(ordered, orderedTransform{order: wCfg.Order, worker: w})
@@ -105,9 +112,18 @@ func New(
 	return m, nil
 }
 
-// InspectWorkers は有効な検査ワーカーの一覧を返す。
+// InspectEntries は有効な検査ワーカーとそのタイムアウト設定の一覧を返す。
+func (m *Manager) InspectEntries() []domain.InspectEntry {
+	return m.inspectEntries
+}
+
+// InspectWorkers は有効な検査ワーカーの一覧を返す（テスト・後方互換用）。
 func (m *Manager) InspectWorkers() []domain.InspectWorker {
-	return m.inspectWorkers
+	workers := make([]domain.InspectWorker, len(m.inspectEntries))
+	for i, e := range m.inspectEntries {
+		workers[i] = e.Worker
+	}
+	return workers
 }
 
 // TransformWorkers は有効な変換ワーカーの一覧を order 順で返す。

@@ -70,8 +70,6 @@ func TestLoad(t *testing.T) {
 	yaml := `
 server:
   smtp_port: 10024
-  reinject_host: postfix
-  reinject_port: 10025
   trusted_sources:
     - 127.0.0.1
 database:
@@ -108,6 +106,55 @@ routes:
 	}
 	if len(cfg.Server.TrustedSources) != 1 || cfg.Server.TrustedSources[0] != "127.0.0.1" {
 		t.Errorf("TrustedSources = %v, want [127.0.0.1]", cfg.Server.TrustedSources)
+	}
+}
+
+func TestLoad_DefaultAndOverride(t *testing.T) {
+	dir := t.TempDir()
+
+	defaultYAML := `
+server:
+  smtp_port: 10024
+  health_port: 8080
+database:
+  host: default-db
+  port: 3306
+`
+	userYAML := `
+database:
+  host: override-db
+  password: secret
+`
+	defaultFile := filepath.Join(dir, "mailshield.default.yaml")
+	userFile := filepath.Join(dir, "mailshield.yaml")
+	if err := os.WriteFile(defaultFile, []byte(defaultYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userFile, []byte(userYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(userFile)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	// デフォルト値が引き継がれる
+	if cfg.Server.SMTPPort != 10024 {
+		t.Errorf("SMTPPort = %d, want 10024 (from default)", cfg.Server.SMTPPort)
+	}
+	if cfg.Server.HealthPort != 8080 {
+		t.Errorf("HealthPort = %d, want 8080 (from default)", cfg.Server.HealthPort)
+	}
+	// ユーザー設定で上書きされる
+	if cfg.Database.Host != "override-db" {
+		t.Errorf("Database.Host = %q, want override-db", cfg.Database.Host)
+	}
+	if cfg.Database.Password != "secret" {
+		t.Errorf("Database.Password = %q, want secret", cfg.Database.Password)
+	}
+	// デフォルトの他フィールドも引き継がれる
+	if cfg.Database.Port != 3306 {
+		t.Errorf("Database.Port = %d, want 3306 (from default)", cfg.Database.Port)
 	}
 }
 

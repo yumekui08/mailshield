@@ -149,27 +149,29 @@ notification:
 
 ---
 
-## 開発環境での対応
+## 開発環境での構成
 
-`make dev-up`（Docker Compose `dev` プロファイル）は以下のコンポーネントを起動し、
-上記の「必要な外部コンポーネント」をすべて代替します。
+MailShield 自体は `make dev-up` で起動できます。
+ただし MTA（受信・再インジェクト）は自前で用意する必要があります。
 
-| 必要なコンポーネント | 開発環境での代替 |
-|-------------------|---------------|
-| 受信 MTA | Postfix（`examples/mta/postfix/` の設定） |
-| 再インジェクト MTA | 同じ Postfix の port 10025（ループ回避済み） |
-| 通知用 SMTP リレー | Mailpit（port 1025）|
+| 必要なコンポーネント | 対応方法 |
+|-------------------|---------|
+| 受信 MTA | **自前で用意する**（設定例: `examples/mta/`） |
+| 再インジェクト MTA | 同じ MTA の content_filter なしポート（通常 10025） |
+| 通知用 SMTP リレー | Mailpit（`dev` プロファイル・port 1025）で代替可 |
 
 ```bash
 make dev-up
+# smtp-gateway + MariaDB + MinIO + RabbitMQ + Mailpit が起動する
+# MTA は別途セットアップし、port 10024 に転送するよう設定すること
 
-# テストメール送信（開発用 Postfix 経由）
-swaks --to test@internal.test --from sender@external.test \
-      --server localhost --port 25 \
+# テストメール送信（自前 MTA 経由）
+swaks --to test@example.com --from sender@external.example \
+      --server （MTA のホスト名） --port 25 \
       --header "Subject: Hello MailShield"
 
-# メール確認
-open http://localhost:8025   # Mailpit
+# 処理後メール確認（Mailpit に配送した場合）
+open http://localhost:8025
 ```
 
 ---

@@ -1,6 +1,3 @@
-// Package smtp は go-smtp を使った SMTP サーバーを実装する。
-// 信頼済みMTA（Postfix等）から port 10024 でメールを受け取り、
-// パイプライン処理を起動する。
 package smtp
 
 import (
@@ -122,10 +119,6 @@ func (s *Server) GracefulClose(ctx context.Context) error {
 	}
 }
 
-// ────────────────────────────────────────────────────────────
-// go-smtp バックエンド実装
-// ────────────────────────────────────────────────────────────
-
 type smtpBackend struct {
 	trustedSources []string
 	mu             sync.RWMutex
@@ -240,10 +233,6 @@ func resolveTrustedSources(sources []string) (map[string]bool, []*net.IPNet) {
 	}
 	return ips, nets
 }
-
-// ────────────────────────────────────────────────────────────
-// セッション実装
-// ────────────────────────────────────────────────────────────
 
 type smtpSession struct {
 	backend     *smtpBackend

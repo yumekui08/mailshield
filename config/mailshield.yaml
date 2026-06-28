@@ -1,174 +1,104 @@
+# MailShield smtp-gateway 環境設定
+#
+# ここに書いた値が mailshield.default.yaml を上書きします。
+# 全パラメータの説明は mailshield.default.yaml を参照してください。
+
+# ─── 接続先 ─────────────────────────────────────────────────────────────────
+
+database:
+  host: mariadb
+  user: mailshield
+  password: mailshield      # 本番環境では ENV: DB_PASSWORD で設定すること
+
+storage:
+  endpoint: minio:9000
+  access_key: minioadmin    # 本番環境では ENV: MINIO_ACCESS_KEY で設定すること
+  secret_key: minioadmin    # 本番環境では ENV: MINIO_SECRET_KEY で設定すること
+
+queue:
+  host: rabbitmq
+  user: mailshield
+  password: mailshield      # 本番環境では ENV: RABBITMQ_PASSWORD で設定すること
+
+notification:
+  smtp_host: mailpit
+  smtp_port: 1025
+  from_address: noreply@mailshield.internal
+
+# ─── アクセス制御 ────────────────────────────────────────────────────────────
+
 server:
-  smtp_port: 10024
-  smtp_hostname: smtp-gateway           # SMTP EHLO/HELO で返すホスト名
-  max_message_size_mb: 50
-  smtp_max_recipients: 100
-  smtp_read_timeout_seconds: 30
-  smtp_write_timeout_seconds: 30
-  handler_timeout_seconds: 60           # 複数ルートの処理も考慮して長めに設定
-  health_port: 8080
-  shutdown_timeout_seconds: 30
-  # 処理後メールの再インジェクト先 MTA
-  # 本番環境: 自前の MTA ホスト名または IP に変更すること
-  # 開発環境: docker-compose dev プロファイルの Postfix（postfix:10025）
-  reinject_host: postfix      # env: MAILSHIELD_REINJECT_HOST
-  reinject_port: 10025        # env: MAILSHIELD_REINJECT_PORT
-  trusted_sources:                      # smtp-gateway への SMTP 接続を許可するホスト/IP
-    # 本番環境: 自前の MTA の IP またはホスト名に変更すること
-    # 例: - 10.0.0.5
+  trusted_sources:
     - postfix
     - postfix-submission
     - 127.0.0.1
 
-storage:
-  # backend: ストレージバックエンドの種別
-  #   minio      : MinIO / S3互換（デフォルト）profile: storage が必要
-  #   s3         : AWS S3（本番環境）
-  #   filesystem : ローカルファイルシステム（単一ノード・MinIO不要）
-  backend: minio                        # minio | s3 | filesystem
-  endpoint: minio:9000
-  bucket_eml: mailshield-eml
-  bucket_attachments: mailshield-attachments
-  use_ssl: false
-  # filesystem モードの設定（backend: filesystem のときのみ使用）
-  # local_dir: /var/mailshield/eml
-  # public_base_url: http://api-server:8090   # GetPresignedURL 用（空の場合はエラー）
+# ─── ルート定義 ──────────────────────────────────────────────────────────────
+#
+# routes: は配列のため、このブロック全体が default.yaml の routes: を置換します。
+# 変更が必要なもの:
+#   - match.to / match.from: 自組織のドメインに変更する
+#   - workers.inspect[].enabled: 使用するワーカーを有効化する
+#   - workers.transform[].enabled: 使用するワーカーを有効化する
 
-database:
-  driver: mariadb
-  host: mariadb
-  port: 3306
-  name: mailshield
-  max_open_conns: 10
-  max_idle_conns: 5
-  conn_max_lifetime_minutes: 5
-
-queue:
-  # backend: キューバックエンドの種別
-  #   rabbitmq : RabbitMQ（デフォルト）profile: queue が必要
-  #   none     : イベント通知なし（単一ノード・RabbitMQ不要）
-  backend: rabbitmq                     # rabbitmq | none
-  host: rabbitmq
-  port: 5672
-
-log:
-  level: info          # debug / info / warn / error
-  format: json         # json / text
-  output: stdout       # stdout / syslog
-  syslog_tag: smtp-gateway
-
-# システムメール（隔離通知等）の送信 SMTP 設定
-# 本番環境: 内部 SMTP リレーのホスト名/IP に変更すること（content_filter ループを避けるため
-#           smtp-gateway に再注入する MTA とは別のポートまたは別ホストを使用する）
-# 開発環境: docker-compose dev プロファイルの Mailpit（mailpit:1025）
-notification:
-  smtp_host: mailpit    # env: MAILSHIELD_NOTIFICATION_SMTP_HOST
-  smtp_port: 1025       # env: MAILSHIELD_NOTIFICATION_SMTP_PORT
-  from_address: noreply@mailshield.internal
-
-# 隔離即時通知: ActionQuarantine 決定時に受信者へ通知メールを送信する
-quarantine_notification:
-  enabled: true
-  ui_base_url: "http://localhost:3000"   # 通知メール内のログインリンクのベース URL
-
-# 承認フロー設定
-# policy アクション approval が返されたとき、smtp-gateway が approval_requests を作成する。
-# 承認者の解決順: 送信者の approver_id → 受信者の approver_id → global_approver_email
-approval:
-  # 承認依頼の有効期限（時間）。0 の場合は 72 時間が使用される。
-  expiry_hours: 72
-  # 承認者が解決できなかった場合のフォールバック承認者メールアドレス。
-  # 空の場合は承認依頼を作成せず警告ログのみ出力する。
-  global_approver_email: ""
-
-# 添付ファイルダウンロード認証方式（全ルート共通）
-attachment_download:
-  flows:
-    - match: outbound
-      mode: otp
-    - match: inbound
-      mode: auth
-      allowed_roles: [member, owner, admin]
-    - match: internal
-      mode: auth
-      allowed_roles: [member, owner, admin]
-
-# ─────────────────────────────────────────────────────────────
-# ルート定義
-# MAIL FROM / RCPT TO の正規表現に基づいて処理を振り分ける。
-# 設定順に評価し、最初にマッチしたルートが適用される（first-match-wins）。
-# match の from / to を省略すると全アドレスにマッチする。
-# ─────────────────────────────────────────────────────────────
 routes:
-  # ─────────────────────────────────────────────────────
-  # 受信ルート: RCPT TO が内部ドメイン宛てのメール
-  # 外部 → 内部ドメイン（Postfix の inbound から届く）
-  # ─────────────────────────────────────────────────────
   - name: inbound
     direction: inbound
     match:
-      to: "@internal\\.test$"    # 本番環境では自分のドメインに変更すること（例: "@example\\.com$"）
+      to: "@internal\\.test$"
       to_match: any
     workers:
-      workers_dir: /app/workers
-      worker_config_dir: /app/config/workers/conf
       inspect:
-        - name: subject-virus-inspector   # Lua ダミーワーカー（開発用）
+        - name: subject-virus-inspector
           enabled: true
           timeout_seconds: 5
-        - name: av-worker                 # ClamAV ウイルス検査
+        - name: av-worker
           enabled: true
           timeout_seconds: 30
-        - name: dlp-worker                # DLP 検査（受信時は無効）
+        - name: dlp-worker
           enabled: false
-          timeout_seconds: 30
-        - name: header-inspector          # ヘッダーなりすまし検査
+          timeout_seconds: 60
+        - name: header-inspector
           enabled: true
           timeout_seconds: 5
-        - name: url-worker                # URL レピュテーション検査
+        - name: url-worker
           enabled: true
           timeout_seconds: 15
-        - name: qr-worker                 # QR コード検査
+        - name: qr-worker
           enabled: true
           timeout_seconds: 15
       transform:
-        - name: sanitize-worker           # HTML 無害化
+        - name: sanitize-worker
           enabled: true
           order: 1
-        - name: url-rewrite-worker        # URL プロキシ書き換え
+        - name: url-rewrite-worker
           enabled: true
           order: 2
-        - name: subject-virus-transformer # Lua ダミーワーカー（開発用）
+        - name: subject-virus-transformer
           enabled: true
           order: 3
-        - name: disclaimer-worker         # メールフッター追加（受信時は無効）
+        - name: disclaimer-worker
           enabled: false
           order: 4
-        - name: filesep-worker            # 添付ファイル分離
+        - name: filesep-worker
           enabled: true
           order: 5
-        - name: arc-sealer               # ARC シール（変換後に実行・最後に設定すること）
-          enabled: false                 # 有効化には config/arc/private.pem と DNS TXT レコードが必要
+        - name: arc-sealer
+          enabled: false
           order: 6
     policy:
       rules_file: /app/config/policy-inbound.yaml
 
-  # ─────────────────────────────────────────────────────
-  # 送信ルート: MAIL FROM が内部ドメインのメール
-  # 内部ドメイン → 外部（Postfix の submission から届く）
-  # ─────────────────────────────────────────────────────
   - name: outbound
     direction: outbound
     match:
-      from: "@internal\\.test$"  # 本番環境では自分のドメインに変更すること（例: "@example\\.com$"）
+      from: "@internal\\.test$"
     workers:
-      workers_dir: /app/workers
-      worker_config_dir: /app/config/workers/conf
       inspect:
-        - name: dlp-worker                # DLP 検査（送信時は情報漏洩防止）
+        - name: dlp-worker
           enabled: true
           timeout_seconds: 60
-        - name: av-worker                 # ウイルス検査（送信時は無効）
+        - name: av-worker
           enabled: false
           timeout_seconds: 30
         - name: subject-virus-inspector
@@ -184,7 +114,7 @@ routes:
           enabled: false
           timeout_seconds: 15
       transform:
-        - name: sanitize-worker           # 送信時はコンテンツを変更しない
+        - name: sanitize-worker
           enabled: false
           order: 1
         - name: url-rewrite-worker
@@ -193,11 +123,14 @@ routes:
         - name: subject-virus-transformer
           enabled: false
           order: 3
-        - name: disclaimer-worker         # 送信メールに免責事項フッターを追加
+        - name: disclaimer-worker
           enabled: true
           order: 4
-        - name: filesep-worker            # 送信時も分離してOTPダウンロードリンクを挿入
+        - name: filesep-worker
           enabled: true
           order: 5
+        - name: arc-sealer
+          enabled: false
+          order: 6
     policy:
       rules_file: /app/config/policy-outbound.yaml

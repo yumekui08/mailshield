@@ -26,15 +26,17 @@ type Worker struct {
 	cfg            *Config
 	storage        domain.AttachmentStorage
 	repo           domain.MailRepository
-	reinjectHost   string
-	reinjectPort   int
+	notifSMTPHost  string
+	notifSMTPPort  int
 	downloadModeFn DownloadModeFn
 }
 
 // New は filesep-worker を初期化する。
 // workerConfigDir から filesep-worker.yaml を読み込む。
+// notifSMTPHost / notifSMTPPort は separate モードで通知メールを送信する SMTP サーバーの接続先。
+// notification.smtp_host / notification.smtp_port（mailshield.yaml）と同じ値を渡すこと。
 // downloadModeFn が nil の場合は常に simple モードを使用する。
-func New(workerConfigDir string, storage domain.AttachmentStorage, repo domain.MailRepository, reinjectHost string, reinjectPort int, downloadModeFn DownloadModeFn) (*Worker, error) {
+func New(workerConfigDir string, storage domain.AttachmentStorage, repo domain.MailRepository, notifSMTPHost string, notifSMTPPort int, downloadModeFn DownloadModeFn) (*Worker, error) {
 	cfg, err := loadConfig(workerConfigDir)
 	if err != nil {
 		return nil, fmt.Errorf("filesep-worker 設定ロード失敗: %w", err)
@@ -46,8 +48,8 @@ func New(workerConfigDir string, storage domain.AttachmentStorage, repo domain.M
 		cfg:            cfg,
 		storage:        storage,
 		repo:           repo,
-		reinjectHost:   reinjectHost,
-		reinjectPort:   reinjectPort,
+		notifSMTPHost:  notifSMTPHost,
+		notifSMTPPort:  notifSMTPPort,
 		downloadModeFn: downloadModeFn,
 	}, nil
 }
@@ -298,6 +300,6 @@ func (w *Worker) sendNotification(ctx context.Context, mail *domain.Mail, body s
 		return fmt.Errorf("通知メールエンコード失敗: %w", err)
 	}
 
-	addr := fmt.Sprintf("%s:%d", w.reinjectHost, w.reinjectPort)
+	addr := fmt.Sprintf("%s:%d", w.notifSMTPHost, w.notifSMTPPort)
 	return smtp.SendMail(addr, nil, w.cfg.SeparateFrom, mail.ToAddresses, buf.Bytes())
 }

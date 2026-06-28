@@ -1,11 +1,8 @@
-// Package domain はドメイン型とインターフェースを定義する。
-// このパッケージは外部ライブラリに依存しない。
+// Package domain はドメイン型とインターフェースを定義する。外部ライブラリに依存しない。
 package domain
 
 import "time"
 
-// Direction はメールの流通方向を表す。
-// smtp-gateway の設定から決定される。
 type Direction string
 
 const (
@@ -14,7 +11,6 @@ const (
 	DirectionInternal Direction = "internal" // 内部 → 内部
 )
 
-// DownloadMode は添付ファイルのダウンロード認証方式を表す。
 type DownloadMode string
 
 const (
@@ -23,7 +19,6 @@ const (
 	DownloadModeAuth   DownloadMode = "auth"   // MailShield ログイン必須
 )
 
-// AuthResult は SPF/DKIM/DMARC の検証結果を表す。
 type AuthResult string
 
 const (
@@ -32,7 +27,6 @@ const (
 	AuthNone AuthResult = "none"
 )
 
-// MessageStatus はメールの処理状態を表す。
 type MessageStatus string
 
 const (
@@ -45,7 +39,6 @@ const (
 	StatusExpired         MessageStatus = "expired"
 )
 
-// AuthResults は認証結果のセットを表す。
 type AuthResults struct {
 	SPF   AuthResult
 	DKIM  AuthResult
@@ -61,8 +54,6 @@ func DefaultAuthResults() AuthResults {
 	}
 }
 
-// Mail はシステム内で流通するメールの内部表現である。
-// EMLのバイト列とパース済みメタデータの両方を保持する。
 type Mail struct {
 	MessageID     string
 	EMLPath       string    // MinIO上のパス（保存後に設定される）
@@ -78,7 +69,6 @@ type Mail struct {
 	Direction     Direction // メールの流通方向（smtp-gateway の設定から決定）
 }
 
-// StorageBackend は添付ファイルの保存先を表す。
 type StorageBackend string
 
 const (
@@ -86,7 +76,6 @@ const (
 	StorageBackendSPO StorageBackend = "spo"
 )
 
-// MailAttachment は分離した添付ファイルのメタデータを表す。
 type MailAttachment struct {
 	ID             string
 	MessageID      string
