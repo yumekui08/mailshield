@@ -79,7 +79,7 @@ REST API サーバー。管理 Web UI のバックエンドとして動作する
 Cookie セッションを優先し、Cookie がなければ `Authorization: Bearer <api_key>` ヘッダで認証する。API キーは SHA-256 ハッシュで DB に保存され、平文は発行時のみ返す。
 
 **隔離解放フロー:**
-api-server が MinIO から処理済み EML を取得し、`config/api-server.yaml` の `notification.reinject_host:reinject_port` へ直接 SMTP 送信する。
+api-server が MinIO から処理済み EML を取得し、`config/mailshield.yaml` の `reinject.host:port`（api-server.yaml で明示設定されていない場合は自動継承）へ直接 SMTP 送信する。
 
 ### 受信 MTA（MailShield のスコープ外）
 

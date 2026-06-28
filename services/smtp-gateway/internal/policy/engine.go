@@ -41,11 +41,16 @@ type PolicyRules struct {
 
 // Engine はポリシーエンジンの実装である。
 type Engine struct {
-	rules []Rule
+	rules              []Rule
+	// defaultDestination は deliver アクションのルールに destination が指定されていない場合に使う宛先。
+	// mailshield.yaml の reinject.host:port から設定される。
+	defaultDestination string
 }
 
 // New は policy.yaml を読み込んで Engine を構築する。
-func New(rulesFile string) (*Engine, error) {
+// defaultDestination は deliver アクション時のデフォルト再インジェクト先（host:port）。
+// ルールに destination が明示されている場合はそちらが優先される。
+func New(rulesFile, defaultDestination string) (*Engine, error) {
 	data, err := os.ReadFile(rulesFile)
 	if err != nil {
 		return nil, fmt.Errorf("policy.yaml 読み込み失敗 (%s): %w", rulesFile, err)
@@ -56,7 +61,7 @@ func New(rulesFile string) (*Engine, error) {
 		return nil, fmt.Errorf("policy.yaml パース失敗: %w", err)
 	}
 
-	return &Engine{rules: pr.Rules}, nil
+	return &Engine{rules: pr.Rules, defaultDestination: defaultDestination}, nil
 }
 
 // Evaluate は検査結果を評価してアクション種別とマッチしたルール名を返す。
@@ -128,7 +133,10 @@ func (e *Engine) EvaluateAndAct(ctx context.Context, mail *domain.Mail, results 
 // smtp.SendMail と異なり呼び出し元の goroutine がブロックし続けることを防ぐ。
 func (e *Engine) deliver(ctx context.Context, mail *domain.Mail, destination string) error {
 	if destination == "" {
-		return fmt.Errorf("deliver アクションに destination が指定されていません")
+		destination = e.defaultDestination
+	}
+	if destination == "" {
+		return fmt.Errorf("deliver アクションの宛先が未設定です（policy の destination または mailshield.yaml の reinject.host を設定してください）")
 	}
 
 	// 宛先アドレスが host:port 形式でない場合は :25 を付加

@@ -83,7 +83,7 @@ flowchart TD
 
     API -->|"① DB: status を delivered に更新（先に更新・重複配送防止）"| DB[(MariaDB)]
     API -->|"② MinIO から処理済み EML を取得\n（processed_eml_path が空なら 409 NOT_READY）"| MinIO[(mailshield-eml)]
-    API -->|"③ 最終配送先 MTA へ直接 SMTP\n（config/api-server.yaml の reinject_host:reinject_port）\n開発: mailpit:1025"| Dest([最終宛先 MTA])
+    API -->|"③ 最終配送先 MTA へ直接 SMTP\n（mailshield.yaml の reinject.host:port から自動継承）\n開発: mailpit:1025"| Dest([最終宛先 MTA])
 
     API -->|"EML 取得失敗・SMTP 失敗時\nstatus を quarantined にロールバック"| DB
     API -->|"④ 成功時: 200 OK を返す\n（DB はすでに delivered）"| Admin

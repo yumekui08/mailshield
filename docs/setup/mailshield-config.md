@@ -510,10 +510,10 @@ notification:
   smtp_host: ${NOTIFY_SMTP_HOST}
   smtp_port: ${NOTIFY_SMTP_PORT}
 
-  # 隔離解放時に処理済み EML を再配送する MTA
-  # smtp-gateway の policy destination と同じ宛先を指定する
-  reinject_host: ${MTA_HOST}
-  reinject_port: ${REINJECT_PORT}
+  # reinject_host / reinject_port は mailshield.yaml の reinject 設定から自動継承されるため省略可。
+  # 隔離解放を api-server 経由で行う宛先を個別に上書きしたい場合のみ記載する。
+  # reinject_host: ${MTA_HOST}
+  # reinject_port: ${REINJECT_PORT}
 ```
 
 ### 7-4. approval.base_url（承認通知リンク）
@@ -588,10 +588,10 @@ docker compose restart api-server
 - [ ] `.env` のパスワード類（`CHANGE_ME_` のままになっていないか）
 - [ ] `server.trusted_sources` に自前 MTA の IP を追加した
 - [ ] `routes[].match.to/from` のドメインを自組織ドメインに変更した
-- [ ] `policy-inbound.yaml` / `policy-outbound.yaml` の `destination` を設定した
+- [ ] `mailshield.yaml` の `reinject.host/port` を最終配送先 MTA に設定した（policy ファイルから `destination` を削除済み）
 - [ ] `notification.smtp_host` をループしない SMTP リレーに設定した
 - [ ] `quarantine_notification.ui_base_url` をブラウザからアクセスできる URL に設定した
-- [ ] api プロファイルを使う場合: `api-server.yaml` の `frontend_url` / `storage.public_endpoint` / `reinject_host` を設定した
+- [ ] api プロファイルを使う場合: `api-server.yaml` の `frontend_url` / `storage.public_endpoint` を設定した（`reinject_host` は mailshield.yaml から自動継承）
 - [ ] filesep-worker を使う場合: `filesep-worker.yaml` の `frontend_url` を設定した
 - [ ] ヘルスチェック `curl http://${MAILSHIELD_HOST}:8080/healthz` が `ok` を返す
 - [ ] テストメールが MTA 経由で届いた（または Mailpit で確認できた）

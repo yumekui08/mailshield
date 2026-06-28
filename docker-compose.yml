@@ -11,6 +11,7 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"     # ヘルスチェック
+      - "10024:10024"     #リッスンポート 
     environment:
       CONFIG_FILE: /app/config/mailshield.yaml
       DB_HOST:     ${DB_HOST:-mariadb}

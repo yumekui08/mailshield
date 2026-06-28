@@ -21,6 +21,7 @@ type Config struct {
 	Notification       NotificationConfig       `mapstructure:"notification"`
 	Approval           ApprovalConfig           `mapstructure:"approval"`
 	Gateway            GatewayConfig            `mapstructure:"gateway"`
+	Settings           SettingsConfig           `mapstructure:"settings"`
 	Log                LogConfig                `mapstructure:"log"`
 }
 
@@ -96,9 +97,18 @@ type NotificationConfig struct {
 	AuthUser     string `mapstructure:"auth_user"`
 	AuthPass     string `mapstructure:"auth_pass"`
 	// ReinjectHost / ReinjectPort は隔離解放時に処理済み EML を再インジェクトする Postfix の接続先。
-	// Postfix の content_filter なしのポートを指定する（デフォルト: postfix:10025）。
+	// api-server.yaml に未設定の場合は settings.smtp_gateway_config_file の reinject 設定を継承する。
 	ReinjectHost string `mapstructure:"reinject_host"`
 	ReinjectPort int    `mapstructure:"reinject_port"`
+}
+
+// SettingsConfig は api-server が参照する外部ファイルパスの設定を保持する。
+type SettingsConfig struct {
+	// PolicyFile は smtp-gateway が読む policy.yaml のパス（GUI 編集用）。
+	PolicyFile string `mapstructure:"policy_file"`
+	// SmtpGatewayConfigFile は smtp-gateway の mailshield.yaml のパス。
+	// notification.reinject_host/port が未設定の場合、このファイルから reinject 設定を継承する。
+	SmtpGatewayConfigFile string `mapstructure:"smtp_gateway_config_file"`
 }
 
 // StorageConfig はオブジェクトストレージ（MinIO/S3）の接続設定を保持する。
@@ -249,5 +259,45 @@ func Load(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("設定のデシリアライズ失敗: %w", err)
 	}
 
+	// notification.reinject_host が未設定の場合、mailshield.yaml の reinject 設定を継承する。
+	if cfg.Notification.ReinjectHost == "" && cfg.Settings.SmtpGatewayConfigFile != "" {
+		if err := inheritReinjectFromGateway(&cfg); err != nil {
+			// 継承失敗は警告のみ（api-server.yaml 側で明示設定されていれば問題ない）
+			fmt.Printf("warn: smtp-gateway 設定からの reinject 継承失敗: %v\n", err)
+		}
+	}
+
 	return &cfg, nil
+}
+
+// inheritReinjectFromGateway は mailshield.yaml の reinject.host/port を読み込んで
+// cfg.Notification.ReinjectHost/Port に設定する。
+// mailshield.yaml 側の reinject 設定が唯一の正（SSOT）となる。
+func inheritReinjectFromGateway(cfg *Config) error {
+	// mailshield.default.yaml → mailshield.yaml の順にマージして最終値を得る
+	v := viper.New()
+	v.SetConfigType("yaml")
+
+	defaultFile := strings.TrimSuffix(cfg.Settings.SmtpGatewayConfigFile, ".yaml") + ".default.yaml"
+	v.SetConfigFile(defaultFile)
+	_ = v.ReadInConfig() // default がなければ無視（エラーは握りつぶす）
+
+	mv := viper.New()
+	mv.SetConfigFile(cfg.Settings.SmtpGatewayConfigFile)
+	mv.SetConfigType("yaml")
+	if err := mv.ReadInConfig(); err != nil {
+		return fmt.Errorf("mailshield.yaml 読み込み失敗 (%s): %w", cfg.Settings.SmtpGatewayConfigFile, err)
+	}
+	_ = v.MergeConfigMap(mv.AllSettings())
+
+	host := v.GetString("reinject.host")
+	port := v.GetInt("reinject.port")
+	if host == "" {
+		return fmt.Errorf("mailshield.yaml に reinject.host が設定されていません")
+	}
+	cfg.Notification.ReinjectHost = host
+	if port != 0 {
+		cfg.Notification.ReinjectPort = port
+	}
+	return nil
 }

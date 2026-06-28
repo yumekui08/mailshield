@@ -112,6 +112,15 @@ notification:
   smtp_port: 1025                       # ENV: MAILSHIELD_NOTIFICATION_SMTP_PORT
   from_address: noreply@mailshield.internal
 
+# ─── 再インジェクト ──────────────────────────────────────────────────────────
+
+# deliver アクション時のデフォルト再インジェクト先。
+# Postfix の content_filter なしポートを指定すること（ループ防止）。
+# policy ファイルの rules[].destination が指定されている場合はそちらが優先される。
+reinject:
+  host: mailpit                         # ENV: MAILSHIELD_REINJECT_HOST
+  port: 1025                            # ENV: MAILSHIELD_REINJECT_PORT
+
 # ─── 隔離通知 ────────────────────────────────────────────────────────────────
 
 # quarantine アクション決定時に受信者へ即時通知メールを送信する

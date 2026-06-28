@@ -246,7 +246,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		pe, err := policy.New(routeCfg.Policy.RulesFile)
+		pe, err := policy.New(routeCfg.Policy.RulesFile, cfg.Reinject.Addr())
 		if err != nil {
 			slog.Error("ポリシーエンジン初期化失敗", "route", routeCfg.Name, "error", err)
 			os.Exit(1)

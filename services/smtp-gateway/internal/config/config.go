@@ -25,6 +25,27 @@ type Config struct {
 	Notification            NotificationConfig            `mapstructure:"notification"`
 	QuarantineNotification  QuarantineNotificationConfig  `mapstructure:"quarantine_notification"`
 	Approval                ApprovalConfig                `mapstructure:"approval"`
+	// Reinject は deliver アクション時のデフォルト再インジェクト先。
+	// policy ファイルに destination が明示されている場合はそちらが優先される。
+	Reinject                ReinjectConfig                `mapstructure:"reinject"`
+}
+
+// ReinjectConfig は処理済みメールを MTA に戻す再インジェクト先の設定。
+type ReinjectConfig struct {
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+}
+
+// Addr は "host:port" 形式の文字列を返す。
+func (r ReinjectConfig) Addr() string {
+	if r.Host == "" {
+		return ""
+	}
+	port := r.Port
+	if port == 0 {
+		port = 25
+	}
+	return fmt.Sprintf("%s:%d", r.Host, port)
 }
 
 type WorkersGlobal struct {
@@ -220,6 +241,8 @@ func Load(configFile string) (*Config, error) {
 		"queue.password":         "RABBITMQ_PASSWORD",
 		"notification.smtp_host": "MAILSHIELD_NOTIFICATION_SMTP_HOST",
 		"notification.smtp_port": "MAILSHIELD_NOTIFICATION_SMTP_PORT",
+		"reinject.host":          "MAILSHIELD_REINJECT_HOST",
+		"reinject.port":          "MAILSHIELD_REINJECT_PORT",
 	}
 	for yamlKey, envKey := range bindEnvs {
 		if err := v.BindEnv(yamlKey, envKey); err != nil {

@@ -77,11 +77,10 @@ notification:
   starttls: false
   auth_user: ""
   auth_pass: ""                               # 環境変数 NOTIFICATION_AUTH_PASS で上書き可
-  # 隔離解放時に処理済み EML を送信する最終配送先 SMTP の接続先
-  # smtp-gateway の deliver アクションと同じ宛先を指定する
-  # 開発環境: mailpit:1025、本番環境: 下流の MTA を指定
-  reinject_host: mailpit
-  reinject_port: 1025
+  # reinject_host / reinject_port は mailshield.yaml の reinject 設定から自動継承される。
+  # この api-server.yaml で明示的に上書きしたい場合のみ記載する。
+  # reinject_host: mailpit
+  # reinject_port: 1025
 
 approval:
   # 承認依頼の有効期限（時間）。期限を過ぎると status=expired に自動更新される。

@@ -22,7 +22,7 @@ func newEngineFromYAML(t *testing.T, yaml string) *Engine {
 		t.Fatal(err)
 	}
 	f.Close()
-	e, err := New(f.Name())
+	e, err := New(f.Name(), "mailpit:1025")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestBuildFacts(t *testing.T) {
 }
 
 func TestNewEngine_InvalidFile(t *testing.T) {
-	_, err := New("/nonexistent/policy.yaml")
+	_, err := New("/nonexistent/policy.yaml", "mailpit:1025")
 	if err == nil {
 		t.Error("New() should return error for nonexistent file")
 	}

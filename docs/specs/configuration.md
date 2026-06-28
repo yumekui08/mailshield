@@ -105,6 +105,24 @@ notification:
   from_address: noreply@mailshield.internal
 ```
 
+### reinject
+
+`deliver` アクション時にメールを再インジェクトするデフォルト宛先。
+
+| キー | 型 | ENV | 説明 |
+|-----|-----|-----|------|
+| `reinject.host` | string | `MAILSHIELD_REINJECT_HOST` | 再インジェクト先の SMTP ホスト |
+| `reinject.port` | int | `MAILSHIELD_REINJECT_PORT` | 再インジェクト先の SMTP ポート |
+
+- policy ファイルのルールに `destination` が明示されている場合は、そちらが優先される
+- `api-server.yaml` の `notification.reinject_host/port` が未設定の場合、api-server は自動的にこの設定を継承する（SSOT）
+
+```yaml
+reinject:
+  host: mailpit   # 本番環境: 下流 MTA の FQDN
+  port: 1025      # 本番環境: Postfix の content_filter なしポート
+```
+
 **本番環境の注意点:**
 通知メールを Postfix 経由で送ると content_filter ループが発生する恐れがある。Postfix を経由せず直接 SMTP リレーへ送るか、`mynetworks` / `check_client_access` で smtp-gateway からの接続を content_filter バイパスするよう設定すること。
 
@@ -320,7 +338,7 @@ rules:
   - name: default_deliver
     condition: "true"
     action: deliver
-    destination: "mailpit:1025"
+    # destination: "mailpit:1025"   # 省略時は mailshield.yaml の reinject 設定が使われる
 ```
 
 | condition 形式 | 例 |
@@ -432,17 +450,16 @@ attachment_download:
 | `starttls` | bool | STARTTLS を使用するか |
 | `auth_user` | string | SMTP 認証ユーザー名（任意） |
 | `auth_pass` | string | SMTP 認証パスワード（環境変数 `NOTIFICATION_AUTH_PASS` で設定推奨） |
-| `reinject_host` | string | 隔離解放時の配送先 SMTP ホスト |
-| `reinject_port` | int | 隔離解放時の配送先 SMTP ポート |
+| `reinject_host` | string | 隔離解放時の配送先 SMTP ホスト（省略時は `mailshield.yaml` の `reinject.host` を自動継承） |
+| `reinject_port` | int | 隔離解放時の配送先 SMTP ポート（省略時は `mailshield.yaml` の `reinject.port` を自動継承） |
 
-**開発環境の設定例:**
+**開発環境の設定例（reinject は自動継承されるため通常は省略可）:**
 ```yaml
 notification:
   smtp_host: mailpit
   smtp_port: 1025
   from_address: noreply@mailshield.internal
-  reinject_host: mailpit
-  reinject_port: 1025
+  # reinject_host / reinject_port は mailshield.yaml の reinject 設定から自動継承される
 ```
 
 ### approval
