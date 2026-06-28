@@ -206,3 +206,74 @@ func TestURLRewrite_NoURL_NoChange(t *testing.T) {
 		t.Errorf("want same pointer (no-op), got different pointer")
 	}
 }
+
+// --- 危険スキームの URL は書き換えない（B-24） ---
+
+// javascript: スキームの href はプロキシ経由に書き換えられない
+func TestURLRewrite_JavascriptScheme_NotRewritten(t *testing.T) {
+	w := newWorker(proxyBase, "none", true, false, nil)
+	html := `<a href="javascript:alert(1)">Click</a><a href="https://safe.example.com">Safe</a>`
+	m := &domain.Mail{
+		FromAddress: "sender@example.com",
+		ToAddresses: []string{"recv@example.com"},
+		RawEML:      buildHTMLEML(html),
+	}
+	result, err := w.Transform(context.Background(), m)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := string(result.RawEML)
+	// javascript: URL はそのまま残っていること（プロキシ経由に変換しない）
+	if !strings.Contains(body, `href="javascript:alert(1)"`) {
+		t.Errorf("javascript: href was unexpectedly rewritten\nbody: %s", body)
+	}
+	// http/https の URL は書き換えられていること
+	if strings.Contains(body, `href="https://safe.example.com"`) {
+		t.Errorf("https URL was not rewritten\nbody: %s", body)
+	}
+	if !strings.Contains(body, proxyBase) {
+		t.Errorf("proxy URL not found for https link\nbody: %s", body)
+	}
+}
+
+// data: スキームの src はプロキシ経由に書き換えられない
+func TestURLRewrite_DataScheme_NotRewritten(t *testing.T) {
+	w := newWorker(proxyBase, "none", true, false, nil)
+	dataURI := `data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7`
+	html := `<img src="` + dataURI + `">`
+	m := &domain.Mail{
+		FromAddress: "sender@example.com",
+		ToAddresses: []string{"recv@example.com"},
+		RawEML:      buildHTMLEML(html),
+	}
+	result, err := w.Transform(context.Background(), m)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := string(result.RawEML)
+	if !strings.Contains(body, dataURI) {
+		t.Errorf("data: URI was unexpectedly rewritten\nbody: %s", body)
+	}
+}
+
+// http/https URL はプロキシ経由に書き換えられること
+func TestURLRewrite_HttpScheme_IsRewritten(t *testing.T) {
+	w := newWorker(proxyBase, "none", true, true, nil)
+	html := `<a href="http://example.com/page">HTTP link</a>`
+	m := &domain.Mail{
+		FromAddress: "sender@example.com",
+		ToAddresses: []string{"recv@example.com"},
+		RawEML:      buildHTMLEML(html),
+	}
+	result, err := w.Transform(context.Background(), m)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := string(result.RawEML)
+	if strings.Contains(body, `href="http://example.com/page"`) {
+		t.Errorf("http URL was not rewritten\nbody: %s", body)
+	}
+	if !strings.Contains(body, proxyBase+"http://example.com/page") {
+		t.Errorf("proxy URL not found\nbody: %s", body)
+	}
+}

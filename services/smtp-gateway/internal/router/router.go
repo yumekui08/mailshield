@@ -69,6 +69,9 @@ func (rt *Router) Resolve(from string, rcptTo []string) (*config.RouteConfig, bo
 
 func (cr *compiledRoute) matchTo(rcptTo []string) bool {
 	if cr.toMatch == "all" {
+		if len(rcptTo) == 0 {
+			return false
+		}
 		for _, to := range rcptTo {
 			if !cr.toRe.MatchString(to) {
 				return false

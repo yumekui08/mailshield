@@ -1,0 +1,51 @@
+# 送信ルート（内部ドメイン → 外部宛て）
+#
+# 変更が必要な項目:
+#   match.from                  ← 自組織の送信ドメインに変更する
+#   workers.inspect[].enabled   ← 使用するワーカーを有効化する
+#   workers.transform[].enabled ← 使用するワーカーを有効化する
+name: outbound
+direction: outbound
+match:
+  # 自組織の送信ドメインに変更すること（例: "@example\\.com$"）
+  from: "@internal\\.test$"
+workers:
+  inspect:
+    - name: dlp-worker              # 情報漏洩防止 DLP 検査
+      enabled: true
+      timeout_seconds: 60
+    - name: av-worker               # 送信ウイルス検査（通常は無効）
+      enabled: false
+      timeout_seconds: 30
+    - name: subject-virus-inspector
+      enabled: false
+      timeout_seconds: 5
+    - name: header-inspector
+      enabled: false
+      timeout_seconds: 5
+    - name: url-worker
+      enabled: false
+      timeout_seconds: 15
+    - name: qr-worker
+      enabled: false
+      timeout_seconds: 15
+  transform:
+    - name: sanitize-worker
+      enabled: false
+      order: 1
+    - name: url-rewrite-worker
+      enabled: false
+      order: 2
+    - name: subject-virus-transformer
+      enabled: false
+      order: 3
+    - name: disclaimer-worker       # 送信メールに免責事項フッターを追加
+      enabled: true
+      order: 4
+    - name: filesep-worker          # 添付を OTP ダウンロードリンクに置換
+      enabled: true
+      order: 5
+    - name: arc-sealer
+      enabled: false
+      order: 6
+# policy は同ディレクトリの policy.yaml を自動参照する

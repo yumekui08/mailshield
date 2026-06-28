@@ -156,7 +156,9 @@ func (w *Worker) extractText(ctx context.Context, data []byte, contentType strin
 		return "", fmt.Errorf("Tika 非200レスポンス: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Tika レスポンスを最大 10MB に制限し、巨大な PDF による OOM を防ぐ。
+	const maxTikaResponseBytes = 10 * 1024 * 1024
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTikaResponseBytes))
 	if err != nil {
 		return "", fmt.Errorf("Tika レスポンス読み取り失敗: %w", err)
 	}

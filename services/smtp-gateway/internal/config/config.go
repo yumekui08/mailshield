@@ -3,12 +3,15 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -168,13 +171,14 @@ type QueueConfig struct {
 
 // RouteConfig は1つのルート定義を保持する。
 // MAIL FROM / RCPT TO に対して正規表現マッチを行い、最初にマッチしたルートが適用される。
+// routes.d/<name>/route.yaml から yaml.v3 でデシリアライズされるため yaml タグが必要。
 type RouteConfig struct {
-	Name      string           `mapstructure:"name"`
+	Name      string           `mapstructure:"name"      yaml:"name"`
 	// Direction はこのルートで処理するメールの方向（inbound / outbound / internal）。
-	Direction string           `mapstructure:"direction"`
-	Match     RouteMatchConfig `mapstructure:"match"`
-	Workers   WorkersConfig    `mapstructure:"workers"`
-	Policy    PolicyConfig     `mapstructure:"policy"`
+	Direction string           `mapstructure:"direction" yaml:"direction"`
+	Match     RouteMatchConfig `mapstructure:"match"     yaml:"match"`
+	Workers   WorkersConfig    `mapstructure:"workers"   yaml:"workers"`
+	Policy    PolicyConfig     `mapstructure:"policy"    yaml:"policy"`
 }
 
 // RouteMatchConfig はルートのマッチ条件を保持する。
@@ -182,37 +186,37 @@ type RouteConfig struct {
 // From と To を両方指定した場合は AND 条件になる。
 type RouteMatchConfig struct {
 	// From は MAIL FROM アドレスに対する正規表現。空の場合は全マッチ。
-	From string `mapstructure:"from"`
+	From string `mapstructure:"from"     yaml:"from"`
 	// To は RCPT TO アドレスに対する正規表現。空の場合は全マッチ。
-	To string `mapstructure:"to"`
+	To string `mapstructure:"to"       yaml:"to"`
 	// ToMatch は To 正規表現の評価方式。"any"（デフォルト）または "all"。
 	// any: RCPT TO のいずれか1つがマッチすればルールを適用
 	// all: RCPT TO の全員がマッチしたときのみルールを適用
-	ToMatch string `mapstructure:"to_match"`
+	ToMatch string `mapstructure:"to_match" yaml:"to_match"`
 }
 
 type WorkersConfig struct {
 	// Inspect は検査ワーカーの有効・無効とタイムアウトの設定。
 	// ワーカーの実装（Lua スクリプトや接続先）は workers.worker_config_dir 配下の YAML で設定する。
-	Inspect   []InspectWorkerConfig  `mapstructure:"inspect"`
-	Transform []TransformWorkerConfig `mapstructure:"transform"`
+	Inspect   []InspectWorkerConfig   `mapstructure:"inspect"   yaml:"inspect"`
+	Transform []TransformWorkerConfig `mapstructure:"transform" yaml:"transform"`
 }
 
 type InspectWorkerConfig struct {
-	Name           string `mapstructure:"name"`
-	Enabled        bool   `mapstructure:"enabled"`
-	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
+	Name           string `mapstructure:"name"            yaml:"name"`
+	Enabled        bool   `mapstructure:"enabled"         yaml:"enabled"`
+	TimeoutSeconds int    `mapstructure:"timeout_seconds" yaml:"timeout_seconds"`
 }
 
 type TransformWorkerConfig struct {
-	Name    string `mapstructure:"name"`
-	Enabled bool   `mapstructure:"enabled"`
-	Order   int    `mapstructure:"order"`
+	Name    string `mapstructure:"name"    yaml:"name"`
+	Enabled bool   `mapstructure:"enabled" yaml:"enabled"`
+	Order   int    `mapstructure:"order"   yaml:"order"`
 }
 
 type PolicyConfig struct {
-	RulesFile string `mapstructure:"rules_file"`
-	LuaFile   string `mapstructure:"lua_file"`
+	RulesFile string `mapstructure:"rules_file" yaml:"rules_file"`
+	LuaFile   string `mapstructure:"lua_file"   yaml:"lua_file"`
 }
 
 // Load は設定ファイルと環境変数から Config を読み込む。
@@ -277,10 +281,102 @@ func Load(configFile string) (*Config, error) {
 		}
 	}
 
+	// mailshield.d/ 配下の *.yaml をアルファベット順にマージ（任意・存在しなければスキップ）
+	// LDAP / SCIM などの追加統合設定をここに置く。
+	fragmentsDir := filepath.Join(filepath.Dir(configFile), "mailshield.d")
+	if fragEntries, err := os.ReadDir(fragmentsDir); err == nil {
+		for _, entry := range fragEntries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+				continue
+			}
+			fragPath := filepath.Join(fragmentsDir, entry.Name())
+			v.SetConfigFile(fragPath)
+			if err := v.MergeInConfig(); err != nil {
+				return nil, fmt.Errorf("mailshield.d フラグメント読み込み失敗 (%s): %w", fragPath, err)
+			}
+			slog.Info("mailshield.d フラグメント読み込み完了", "file", entry.Name())
+		}
+	}
+	v.SetConfigFile(configFile) // フラグメントループ後にメイン設定ファイルに戻す
+
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("設定のデシリアライズ失敗: %w", err)
 	}
 
+	routesDir := filepath.Join(filepath.Dir(configFile), "routes.d")
+	routes, err := loadRoutes(routesDir)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Routes = routes
+
 	return &cfg, nil
+}
+
+// loadRoutes は routesDir 内のサブディレクトリをアルファベット順に読み込む。
+// 各ディレクトリには route.yaml が必要。
+// ディレクトリ名の数値プレフィックス（00-、10-）がルートの評価順（first-match-wins）を決める。
+//
+// policy の自動解決:
+//   - policy.rules_file が空かつ <route_dir>/policy.yaml が存在する → 自動設定
+//   - policy.lua_file   が空かつ <route_dir>/policy.lua   が存在する → 自動設定
+func loadRoutes(routesDir string) ([]RouteConfig, error) {
+	entries, err := os.ReadDir(routesDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("routes.d ディレクトリ読み込み失敗 (%s): %w", routesDir, err)
+	}
+
+	var routes []RouteConfig
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		routeDir := filepath.Join(routesDir, entry.Name())
+		routeFile := filepath.Join(routeDir, "route.yaml")
+
+		data, err := os.ReadFile(routeFile)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				slog.Warn("routes.d のサブディレクトリに route.yaml がありません（スキップ）", "dir", entry.Name())
+				continue
+			}
+			return nil, fmt.Errorf("ルートファイル読み込み失敗 (%s): %w", routeFile, err)
+		}
+
+		var route RouteConfig
+		if err := yaml.Unmarshal(data, &route); err != nil {
+			return nil, fmt.Errorf("ルートファイルパース失敗 (%s): %w", routeFile, err)
+		}
+
+		// policy.yaml の自動解決
+		if route.Policy.RulesFile == "" {
+			if p := filepath.Join(routeDir, "policy.yaml"); fileExists(p) {
+				route.Policy.RulesFile = p
+			}
+		}
+		// policy.lua の自動解決（任意）
+		if route.Policy.LuaFile == "" {
+			if p := filepath.Join(routeDir, "policy.lua"); fileExists(p) {
+				route.Policy.LuaFile = p
+			}
+		}
+
+		routes = append(routes, route)
+	}
+	return routes, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("設定ファイルの存在確認失敗", "path", path, "error", err)
+	}
+	return false
 }

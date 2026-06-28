@@ -9,8 +9,8 @@
 mode: inline
 
 # テンプレートファイルパス（省略時はデフォルトテンプレートを使用）
-inline_template: /app/config/workers/conf/filesep_inline_template.txt
-separate_template: /app/config/workers/conf/filesep_separate_template.txt
+inline_template: /app/config/workers/filesep-worker/inline-template.txt
+separate_template: /app/config/workers/filesep-worker/separate-template.txt
 
 # 署名付き URL の有効期限（時間）
 link_expiry_hours: 72

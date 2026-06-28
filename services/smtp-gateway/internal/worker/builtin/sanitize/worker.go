@@ -97,9 +97,24 @@ func (w *Worker) Transform(_ context.Context, mail *domain.Mail) (*domain.Mail, 
 	if err != nil {
 		return nil, fmt.Errorf("EML 再構築失敗: %w", err)
 	}
-	for _, h := range []string{"Message-ID", "CC", "Reply-To", "In-Reply-To", "References"} {
-		if v := env.GetHeader(h); v != "" {
-			root.Header.Set(h, v)
+
+	// Builder が管理する基本ヘッダー以外のすべての元ヘッダーを保持する。
+	// Authentication-Results, Received, DKIM-Signature, X-Spam-* 等の
+	// セキュリティ・監査用ヘッダーを失わないようにするために必要。
+	builderManagedHeaders := map[string]bool{
+		"From":         true,
+		"To":           true,
+		"Subject":      true,
+		"Date":         true,
+		"Mime-Version": true,
+		"Content-Type": true,
+	}
+	for _, key := range env.GetHeaderKeys() {
+		if builderManagedHeaders[key] {
+			continue
+		}
+		for _, val := range env.GetHeaderValues(key) {
+			root.Header.Add(key, val)
 		}
 	}
 

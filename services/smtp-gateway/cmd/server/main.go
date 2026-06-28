@@ -360,7 +360,9 @@ func main() {
 	handler.archiveWg.Wait()
 
 	slog.Info("HTTPサーバー停止中")
-	if err := httpServer.Shutdown(ctx); err != nil {
+	httpCtx, httpCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer httpCancel()
+	if err := httpServer.Shutdown(httpCtx); err != nil {
 		slog.Warn("HTTPサーバーのシャットダウンに時間がかかりました", "error", err)
 	}
 
@@ -403,7 +405,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 			"from", mail.FromAddress,
 			"to", mail.ToAddresses,
 		)
-		return fmt.Errorf("マッチするルートなし: from=%s to=%v", mail.FromAddress, mail.ToAddresses)
+		return fmt.Errorf("マッチするルートなし: from=%s to=%v: %w", mail.FromAddress, mail.ToAddresses, domain.ErrNoRuleMatched)
 	}
 	rh := h.routeHandlers[route.Name]
 	mail.Direction = domain.Direction(route.Direction)

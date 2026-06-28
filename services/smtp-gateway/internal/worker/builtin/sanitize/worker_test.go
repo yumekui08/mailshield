@@ -233,3 +233,91 @@ func TestName(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", got, "sanitize-worker")
 	}
 }
+
+// buildEMLWithHeaders はカスタムヘッダーを含むテスト用 EML バイト列を生成する。
+// enmime.Builder はカスタムヘッダーの追加 API を持たないため、
+// Build 後に root.Header へ直接書き込む。
+func buildEMLWithHeaders(t *testing.T, subject, htmlBody string, extraHeaders map[string]string) []byte {
+	t.Helper()
+	b := enmime.Builder().
+		From("Sender", "sender@example.com").
+		To("Recipient", "recipient@example.com").
+		Subject(subject).
+		Date(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if htmlBody != "" {
+		b = b.HTML([]byte(htmlBody))
+	}
+	root, err := b.Build()
+	if err != nil {
+		t.Fatalf("EML ビルド失敗: %v", err)
+	}
+	for k, v := range extraHeaders {
+		root.Header.Set(k, v)
+	}
+	var buf bytes.Buffer
+	if err := root.Encode(&buf); err != nil {
+		t.Fatalf("EML エンコード失敗: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// parseHeader は EML バイト列から指定ヘッダー値を取り出すヘルパー。
+func parseHeader(t *testing.T, raw []byte, name string) string {
+	t.Helper()
+	env, err := enmime.ReadEnvelope(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("EML パース失敗: %v", err)
+	}
+	return env.GetHeader(name)
+}
+
+// sanitize-worker は HTML 無害化後も Authentication-Results ヘッダーを保持すること（B-23）
+func TestTransform_AuthenticationResultsHeaderPreserved(t *testing.T) {
+	w := workerWithPolicy(t, "standard")
+
+	authResults := "mx.example.com; dkim=pass; spf=pass; dmarc=pass"
+	html := `<p>Hello</p><script>alert('xss')</script>`
+	raw := buildEMLWithHeaders(t, "auth-test", html, map[string]string{
+		"Authentication-Results": authResults,
+		"X-Spam-Status":          "No, score=0.1",
+		"DKIM-Signature":         "v=1; a=rsa-sha256; d=example.com; s=default",
+	})
+	mail := &domain.Mail{
+		MessageID:   "test-auth",
+		RawEML:      raw,
+		ReceivedAt:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		FromAddress: "sender@example.com",
+		ToAddresses: []string{"recipient@example.com"},
+		Subject:     "auth-test",
+	}
+
+	result, err := w.Transform(context.Background(), mail)
+	if err != nil {
+		t.Fatalf("Transform エラー: %v", err)
+	}
+
+	// HTML サニタイズが正常に行われたこと
+	got := parseHTML(t, result.RawEML)
+	if bytes.Contains([]byte(got), []byte("<script>")) {
+		t.Errorf("<script> タグが残っている\ngot: %s", got)
+	}
+
+	// Authentication-Results ヘッダーが保持されていること
+	gotAuth := parseHeader(t, result.RawEML, "Authentication-Results")
+	if gotAuth == "" {
+		t.Error("Authentication-Results ヘッダーが消えた")
+	}
+	if gotAuth != authResults {
+		t.Errorf("Authentication-Results が変わった\ngot:  %s\nwant: %s", gotAuth, authResults)
+	}
+
+	// X-Spam-Status ヘッダーが保持されていること
+	if v := parseHeader(t, result.RawEML, "X-Spam-Status"); v == "" {
+		t.Error("X-Spam-Status ヘッダーが消えた")
+	}
+
+	// DKIM-Signature ヘッダーが保持されていること
+	if v := parseHeader(t, result.RawEML, "DKIM-Signature"); v == "" {
+		t.Error("DKIM-Signature ヘッダーが消えた")
+	}
+}

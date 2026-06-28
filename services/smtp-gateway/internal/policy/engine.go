@@ -4,7 +4,9 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/smtp"
@@ -50,7 +52,14 @@ type Engine struct {
 // New は policy.yaml を読み込んで Engine を構築する。
 // defaultDestination は deliver アクション時のデフォルト再インジェクト先（host:port）。
 // ルールに destination が明示されている場合はそちらが優先される。
+// rulesFile が空の場合はポリシーファイル未指定として全メールをデフォルト宛先に配送する。
 func New(rulesFile, defaultDestination string) (*Engine, error) {
+	if rulesFile == "" {
+		return &Engine{
+			rules:              []Rule{{Name: "default", Condition: "true", Action: "deliver"}},
+			defaultDestination: defaultDestination,
+		}, nil
+	}
 	data, err := os.ReadFile(rulesFile)
 	if err != nil {
 		return nil, fmt.Errorf("policy.yaml 読み込み失敗 (%s): %w", rulesFile, err)
@@ -186,8 +195,13 @@ func (e *Engine) deliver(ctx context.Context, mail *domain.Mail, destination str
 		return fmt.Errorf("DATA 完了失敗: %w", err)
 	}
 	if err := c.Quit(); err != nil {
-		return fmt.Errorf("QUIT 失敗 (destination=%s, message_id=%s): %w",
-			destination, mail.MessageID, err)
+		// 一部のMTA（Mailpit等）はDATA完了後に即接続を閉じる。
+		// QUITのEOFは配送成功後の接続切断であり、再配送の原因にならない。
+		if !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "connection reset") {
+			return fmt.Errorf("QUIT 失敗 (destination=%s, message_id=%s): %w",
+				destination, mail.MessageID, err)
+		}
+		slog.Debug("QUIT接続切断（配送済み・無視）", "destination", destination, "error", err)
 	}
 
 	slog.Info("メール配送完了",

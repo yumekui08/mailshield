@@ -36,7 +36,7 @@ server:
   shutdown_timeout_seconds: 30
 
   # smtp-gateway への SMTP 接続を許可するホスト/IP
-  # CIDR 表記可（例: 172.17.0.0/16）。ホスト名は起動時とその後30秒ごとに DNS 解決される。
+  # CIDR 表記可（例: 172.17.0.0/16）。ホスト名は SMTP 接続ごとにオンデマンドで DNS 解決される。
   # Postfix 以外からの接続を受け付けないようにすること。
   trusted_sources:
     - postfix
@@ -164,117 +164,16 @@ workers:
   workers_dir: /app/workers
 
   # ワーカー固有設定ファイル（YAML）のディレクトリ。
-  # <worker名>.yaml が各ワーカーの設定として渡される（接続先・閾値など）。
-  # config/workers/conf/ 配下の各 YAML を参照すること。
-  worker_config_dir: /app/config/workers/conf
+  # シンプルなワーカー: <worker名>.yaml
+  # テンプレート等複数ファイルを持つワーカー: <worker名>/config.yaml
+  worker_config_dir: /app/config/workers
 
 # ─── ルート定義 ──────────────────────────────────────────────────────────────
 
-# MAIL FROM / RCPT TO の正規表現に基づいて処理を振り分ける。
-# 設定順に評価し、最初にマッチしたルートが適用される（first-match-wins）。
+# ルートは config/routes.d/*.yaml で管理します（nginx の conf.d/ と同じ方式）。
+# ファイル名のアルファベット順に評価されます（first-match-wins）。
+# mailshield.yaml / default.yaml には routes: セクションはありません。
 #
-# mailshield.yaml で routes: を記述すると、このブロック全体が置換される。
-# 変更不要なルートも含めて mailshield.yaml に記述すること。
-routes:
-  # ─── 受信ルート ────────────────────────────────────────────────────────────
-  # 外部 → 内部ドメイン宛て（Postfix inbound から届く）
-  - name: inbound
-    direction: inbound    # テナント解決に RCPT TO のドメインを使う
-    match:
-      # 自組織のドメインに変更すること（例: "@example\\.com$"）
-      to: "@example\\.com$"
-      # any: 宛先のいずれか1つがマッチ / all: 全宛先がマッチ
-      to_match: any
-    workers:
-      inspect:
-        # timeout_seconds: このワーカーが応答しない場合にスキップするまでの時間（秒）
-        # 全ワーカーは並列実行される
-        - name: subject-virus-inspector  # 開発用ダミー（本番では false に）
-          enabled: false
-          timeout_seconds: 5
-        - name: av-worker               # ClamAV ウイルス検査（profile: scanners 必要）
-          enabled: true
-          timeout_seconds: 30
-        - name: dlp-worker              # Apache Tika DLP 検査（受信時は通常無効）
-          enabled: false
-          timeout_seconds: 60
-        - name: header-inspector        # ヘッダーなりすまし・SPF/DKIM異常検査
-          enabled: true
-          timeout_seconds: 5
-        - name: url-worker              # URL レピュテーション検査
-          enabled: true
-          timeout_seconds: 15
-        - name: qr-worker               # QR コード埋め込みURL検査
-          enabled: true
-          timeout_seconds: 15
-      transform:
-        # order の昇順で直列実行される。前のワーカーの出力が次の入力になる。
-        - name: sanitize-worker         # HTML 無害化（不審スクリプト・属性を除去）
-          enabled: true
-          order: 1
-        - name: url-rewrite-worker      # URL をプロキシ経由に書き換え
-          enabled: true
-          order: 2
-        - name: subject-virus-transformer  # 開発用ダミー（本番では false に）
-          enabled: false
-          order: 3
-        - name: disclaimer-worker       # メールフッター追加（受信時は通常無効）
-          enabled: false
-          order: 4
-        - name: filesep-worker          # 添付ファイル分離（MinIO + ダウンロードリンク挿入）
-          enabled: true
-          order: 5
-        - name: arc-sealer             # ARC 署名（変換後に付与・必ず最後に配置すること）
-          enabled: false               # 有効化には config/arc/private.pem と DNS TXT が必要
-          order: 6
-    policy:
-      rules_file: /app/config/policy-inbound.yaml
-
-  # ─── 送信ルート ────────────────────────────────────────────────────────────
-  # 内部ドメイン → 外部宛て（Postfix submission から届く）
-  - name: outbound
-    direction: outbound   # テナント解決に MAIL FROM のドメインを使う
-    match:
-      # 自組織のドメインに変更すること
-      from: "@example\\.com$"
-    workers:
-      inspect:
-        - name: dlp-worker              # 情報漏洩防止 DLP 検査
-          enabled: true
-          timeout_seconds: 60
-        - name: av-worker               # 送信ウイルス検査（通常は無効）
-          enabled: false
-          timeout_seconds: 30
-        - name: subject-virus-inspector
-          enabled: false
-          timeout_seconds: 5
-        - name: header-inspector
-          enabled: false
-          timeout_seconds: 5
-        - name: url-worker
-          enabled: false
-          timeout_seconds: 15
-        - name: qr-worker
-          enabled: false
-          timeout_seconds: 15
-      transform:
-        - name: sanitize-worker
-          enabled: false
-          order: 1
-        - name: url-rewrite-worker
-          enabled: false
-          order: 2
-        - name: subject-virus-transformer
-          enabled: false
-          order: 3
-        - name: disclaimer-worker       # 送信メールに免責事項フッターを追加
-          enabled: true
-          order: 4
-        - name: filesep-worker          # 添付を OTP ダウンロードリンクに置換
-          enabled: true
-          order: 5
-        - name: arc-sealer
-          enabled: false
-          order: 6
-    policy:
-      rules_file: /app/config/policy-outbound.yaml
+#   routes.d/00-bounce/    変更不要（バウンス/DSN 専用）
+#   routes.d/10-inbound/   route.yaml の match.to を自組織ドメインに変更する
+#   routes.d/20-outbound/  route.yaml の match.from を自組織ドメインに変更する

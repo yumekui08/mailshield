@@ -35,16 +35,24 @@ func scan(ctx context.Context, addr string, timeout time.Duration, data []byte) 
 	}
 	defer conn.Close()
 
-	// コンテキストの期限とタイムアウトの短い方をデッドラインに設定
-	deadline := time.Now().Add(timeout)
-	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
-		deadline = ctxDeadline
-	}
-	if err := conn.SetDeadline(deadline); err != nil {
-		return nil, fmt.Errorf("clamd デッドライン設定失敗: %w", err)
+	// チャンク転送ごとにデッドラインを延長するローリングデッドライン。
+	// 固定デッドラインでは大きな EML の転送中に期限が切れ、ストリーム終端を送れない。
+	// コンテキスト期限との調整は setChunkDeadline 内で行う。
+	const chunkDeadlineExtension = 10 * time.Second
+
+	// setChunkDeadline はコンテキスト期限と chunkDeadlineExtension の短い方をデッドラインに設定する。
+	setChunkDeadline := func() error {
+		deadline := time.Now().Add(chunkDeadlineExtension)
+		if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+		return conn.SetDeadline(deadline)
 	}
 
 	// nINSTREAM\n: clamd は n（改行終端）または z（NUL終端）プレフィックス必須
+	if err := setChunkDeadline(); err != nil {
+		return nil, fmt.Errorf("clamd デッドライン設定失敗: %w", err)
+	}
 	if _, err := conn.Write([]byte("nINSTREAM\n")); err != nil {
 		return nil, fmt.Errorf("clamd コマンド送信失敗: %w", err)
 	}
@@ -57,6 +65,9 @@ func scan(ctx context.Context, addr string, timeout time.Duration, data []byte) 
 		}
 		chunk := data[i:end]
 
+		if err := setChunkDeadline(); err != nil {
+			return nil, fmt.Errorf("clamd デッドライン設定失敗: %w", err)
+		}
 		var size [4]byte
 		binary.BigEndian.PutUint32(size[:], uint32(len(chunk)))
 		if _, err := conn.Write(size[:]); err != nil {
@@ -68,12 +79,18 @@ func scan(ctx context.Context, addr string, timeout time.Duration, data []byte) 
 	}
 
 	// ストリーム終端（4バイトゼロ）
+	if err := setChunkDeadline(); err != nil {
+		return nil, fmt.Errorf("clamd デッドライン設定失敗: %w", err)
+	}
 	if _, err := conn.Write([]byte{0, 0, 0, 0}); err != nil {
 		return nil, fmt.Errorf("clamd ストリーム終端送信失敗: %w", err)
 	}
 
 	// レスポンスを1行だけ読む
 	// clamd は "stream: OK\n" または "stream: <virus> FOUND\n" を返して接続を閉じる
+	if err := setChunkDeadline(); err != nil {
+		return nil, fmt.Errorf("clamd デッドライン設定失敗: %w", err)
+	}
 	resp, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
 		return nil, fmt.Errorf("clamd レスポンス読み取り失敗: %w", err)

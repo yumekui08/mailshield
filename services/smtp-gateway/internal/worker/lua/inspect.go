@@ -19,7 +19,28 @@ func (w *inspectWorker) Name() string { return w.name }
 
 // Inspect はスクリプト内の inspect(mail, config) 関数を呼び出して結果を返す。
 // Lua の実行は goroutine ごとに独立した State で行うため並列安全。
-func (w *inspectWorker) Inspect(_ context.Context, mail *domain.Mail) (*domain.InspectResult, error) {
+// ctx がキャンセルまたはタイムアウトした場合はエラーを返す。
+func (w *inspectWorker) Inspect(ctx context.Context, mail *domain.Mail) (*domain.InspectResult, error) {
+	type result struct {
+		r   *domain.InspectResult
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		r, err := w.runInspect(mail)
+		ch <- result{r, err}
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("Luaワーカー %q タイムアウト: %w", w.name, ctx.Err())
+	case res := <-ch:
+		return res.r, res.err
+	}
+}
+
+// runInspect は Lua の inspect(mail, config) を同期的に実行する。
+// LState はこの呼び出しごとに新規作成するため goroutine 安全。
+func (w *inspectWorker) runInspect(mail *domain.Mail) (*domain.InspectResult, error) {
 	L := glua.NewState()
 	defer L.Close()
 
@@ -46,21 +67,21 @@ func (w *inspectWorker) Inspect(_ context.Context, mail *domain.Mail) (*domain.I
 		return nil, fmt.Errorf("inspect() がテーブルを返しませんでした (%s)", w.name)
 	}
 
-	result := &domain.InspectResult{
+	res := &domain.InspectResult{
 		WorkerName: w.name,
 		Details:    make(map[string]any),
 	}
 	if b, ok := resultTable.RawGetString("detected").(glua.LBool); ok {
-		result.Detected = bool(b)
+		res.Detected = bool(b)
 	}
 	if n, ok := resultTable.RawGetString("score").(glua.LNumber); ok {
-		result.Score = int(n)
+		res.Score = int(n)
 	}
 	if dt, ok := resultTable.RawGetString("details").(*glua.LTable); ok {
 		dt.ForEach(func(k, v glua.LValue) {
-			result.Details[k.String()] = luaToAny(v)
+			res.Details[k.String()] = luaToAny(v)
 		})
 	}
 
-	return result, nil
+	return res, nil
 }

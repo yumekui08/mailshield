@@ -8,6 +8,18 @@ import (
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
 )
 
+// makeRouteDir は routesDir 配下にルートディレクトリと route.yaml を作成するヘルパー。
+func makeRouteDir(t *testing.T, routesDir, dirName, routeYAML string) {
+	t.Helper()
+	d := filepath.Join(routesDir, dirName)
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "route.yaml"), []byte(routeYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDownloadModeFor(t *testing.T) {
 	cfg := &config.AttachmentDownloadConfig{
 		Flows: []config.AttachmentDownloadFlow{
@@ -67,7 +79,8 @@ func TestDownloadModeFor_EmptyFlows(t *testing.T) {
 }
 
 func TestLoad(t *testing.T) {
-	yaml := `
+	dir := t.TempDir()
+	mainYAML := `
 server:
   smtp_port: 10024
   trusted_sources:
@@ -78,18 +91,21 @@ database:
   name: mailshield
   user: mailshield
   password: secret
-routes:
-  - name: inbound
-    direction: inbound
-    match:
-      to: "@internal.test$"
-    policy:
-      rules_file: /etc/mailshield/policy.yaml
 `
-	f := filepath.Join(t.TempDir(), "mailshield.yaml")
-	if err := os.WriteFile(f, []byte(yaml), 0o644); err != nil {
+	f := filepath.Join(dir, "mailshield.yaml")
+	if err := os.WriteFile(f, []byte(mainYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
+
+	routesDir := filepath.Join(dir, "routes.d")
+	makeRouteDir(t, routesDir, "10-inbound", `
+name: inbound
+direction: inbound
+match:
+  to: "@internal.test$"
+policy:
+  rules_file: /etc/mailshield/policy.yaml
+`)
 
 	cfg, err := config.Load(f)
 	if err != nil {
@@ -106,6 +122,178 @@ routes:
 	}
 	if len(cfg.Server.TrustedSources) != 1 || cfg.Server.TrustedSources[0] != "127.0.0.1" {
 		t.Errorf("TrustedSources = %v, want [127.0.0.1]", cfg.Server.TrustedSources)
+	}
+}
+
+func TestLoad_RoutesOrdering(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mailshield.yaml"), []byte("server:\n  smtp_port: 10024\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	routesDir := filepath.Join(dir, "routes.d")
+	// 意図的に逆順で作成してもディレクトリ名のアルファベット順に読まれることを確認する
+	for _, tc := range []struct{ dir, name string }{
+		{"20-outbound", "outbound"},
+		{"00-bounce", "bounce"},
+		{"10-inbound", "inbound"},
+	} {
+		makeRouteDir(t, routesDir, tc.dir,
+			"name: "+tc.name+"\ndirection: outbound\npolicy:\n  rules_file: /dev/null\n")
+	}
+
+	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := []string{"bounce", "inbound", "outbound"}
+	if len(cfg.Routes) != 3 {
+		t.Fatalf("len(Routes) = %d, want 3", len(cfg.Routes))
+	}
+	for i, w := range want {
+		if cfg.Routes[i].Name != w {
+			t.Errorf("Routes[%d].Name = %q, want %q", i, cfg.Routes[i].Name, w)
+		}
+	}
+}
+
+func TestLoad_PolicyAutoResolve(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mailshield.yaml"), []byte("server:\n  smtp_port: 10024\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	routesDir := filepath.Join(dir, "routes.d")
+	// route.yaml に policy: を書かずに policy.yaml / policy.lua を同ディレクトリに置く
+	routeDir := filepath.Join(routesDir, "10-inbound")
+	if err := os.MkdirAll(routeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(routeDir, "route.yaml"),
+		[]byte("name: inbound\ndirection: inbound\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(routeDir, "policy.yaml"),
+		[]byte("rules:\n  - name: default\n    condition: \"true\"\n    action: deliver\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(routeDir, "policy.lua"),
+		[]byte("-- custom lua\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Routes) != 1 {
+		t.Fatalf("len(Routes) = %d, want 1", len(cfg.Routes))
+	}
+	wantRules := filepath.Join(routeDir, "policy.yaml")
+	if cfg.Routes[0].Policy.RulesFile != wantRules {
+		t.Errorf("RulesFile = %q, want %q", cfg.Routes[0].Policy.RulesFile, wantRules)
+	}
+	wantLua := filepath.Join(routeDir, "policy.lua")
+	if cfg.Routes[0].Policy.LuaFile != wantLua {
+		t.Errorf("LuaFile = %q, want %q", cfg.Routes[0].Policy.LuaFile, wantLua)
+	}
+}
+
+func TestLoad_PolicyAutoResolveNoFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mailshield.yaml"), []byte("server:\n  smtp_port: 10024\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// policy.yaml が存在しない場合は RulesFile が空のままであることを確認
+	makeRouteDir(t, filepath.Join(dir, "routes.d"), "10-inbound",
+		"name: inbound\ndirection: inbound\n")
+
+	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Routes[0].Policy.RulesFile != "" {
+		t.Errorf("policy.yaml が存在しない場合 RulesFile は空であるべき: got %q", cfg.Routes[0].Policy.RulesFile)
+	}
+}
+
+func TestLoad_MailshieldDFragment(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mailshield.yaml"),
+		[]byte("server:\n  smtp_port: 10024\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "routes.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// mailshield.d/ にフラグメントを置いて値が反映されることを確認する
+	fragDir := filepath.Join(dir, "mailshield.d")
+	if err := os.MkdirAll(fragDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fragDir, "ldap.yaml"),
+		[]byte("database:\n  host: fragment-db\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Database.Host != "fragment-db" {
+		t.Errorf("Database.Host = %q, want fragment-db (from mailshield.d/ldap.yaml)", cfg.Database.Host)
+	}
+}
+
+func TestLoad_MailshieldDNotExistIsOK(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mailshield.yaml"),
+		[]byte("server:\n  smtp_port: 10024\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "routes.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// mailshield.d/ が存在しなくても正常に読み込める
+	_, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	if err != nil {
+		t.Errorf("mailshield.d/ が存在しなくてもエラーにならないべき: %v", err)
+	}
+}
+
+func TestLoad_RoutesDirNotExistIsOK(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mailshield.yaml"),
+		[]byte("server:\n  smtp_port: 10024\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// routes.d/ が存在しなくても正常に読み込める（フレッシュインストール対応）
+	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	if err != nil {
+		t.Errorf("routes.d/ が存在しなくてもエラーにならないべき: %v", err)
+	}
+	if len(cfg.Routes) != 0 {
+		t.Errorf("routes.d/ がない場合 Routes は空であるべき: got %v", cfg.Routes)
+	}
+}
+
+func TestLoad_RouteWithoutRouteYamlSkipped(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mailshield.yaml"),
+		[]byte("server:\n  smtp_port: 10024\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	routesDir := filepath.Join(dir, "routes.d")
+	// route.yaml のないディレクトリはスキップされる
+	if err := os.MkdirAll(filepath.Join(routesDir, "99-empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	makeRouteDir(t, routesDir, "10-inbound", "name: inbound\ndirection: inbound\n")
+
+	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Routes) != 1 || cfg.Routes[0].Name != "inbound" {
+		t.Errorf("route.yaml のないディレクトリがスキップされ inbound のみ残るべき: %v", cfg.Routes)
 	}
 }
 
@@ -131,6 +319,9 @@ database:
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(userFile, []byte(userYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "routes.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

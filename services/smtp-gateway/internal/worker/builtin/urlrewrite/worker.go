@@ -49,7 +49,8 @@ type Worker struct {
 var urlInTextPattern = regexp.MustCompile(`https?://\S+`)
 
 // htmlAttrPattern は HTML の href/src 属性内の URL を検出する。
-var htmlAttrPattern = regexp.MustCompile(`(?i)(href|src)="(https?://[^"]*)"`)
+// スキームを問わずすべての属性値を対象とし、isRewritableURL で http/https のみを書き換える。
+var htmlAttrPattern = regexp.MustCompile(`(?i)(href|src)="([^"]*)"`)
 
 // New は url-rewrite-worker を初期化する。
 func New(workerConfigDir string) (*Worker, error) {
@@ -146,10 +147,25 @@ func (w *Worker) Transform(_ context.Context, m *domain.Mail) (*domain.Mail, err
 	return &modified, nil
 }
 
+// isRewritableURL は URL のスキームが http または https であることを確認する。
+// javascript:, data:, mailto:, ftp: 等の危険または不要なスキームを持つ URL は
+// プロキシ経由の書き換えを行わない。
+func isRewritableURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	return scheme == "http" || scheme == "https"
+}
+
 // rewriteText_ はプレーンテキスト本文の URL を書き換える。
 func (w *Worker) rewriteText_(text string) string {
 	return urlInTextPattern.ReplaceAllStringFunc(text, func(match string) string {
 		rawURL := strings.TrimRight(match, ".,;:!?\"')")
+		if !isRewritableURL(rawURL) {
+			return match
+		}
 		if w.shouldSkip(rawURL) {
 			return match
 		}
@@ -160,6 +176,7 @@ func (w *Worker) rewriteText_(text string) string {
 }
 
 // rewriteHTML_ は HTML 本文の href/src 属性内の URL を書き換える。
+// javascript:, data: 等の危険なスキームはプロキシ経由に書き換えない。
 func (w *Worker) rewriteHTML_(html string) string {
 	return htmlAttrPattern.ReplaceAllStringFunc(html, func(match string) string {
 		parts := htmlAttrPattern.FindStringSubmatch(match)
@@ -168,6 +185,9 @@ func (w *Worker) rewriteHTML_(html string) string {
 		}
 		attr := parts[1]
 		rawURL := parts[2]
+		if !isRewritableURL(rawURL) {
+			return match
+		}
 		if w.shouldSkip(rawURL) {
 			return match
 		}

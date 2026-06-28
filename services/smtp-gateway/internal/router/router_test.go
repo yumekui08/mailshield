@@ -136,6 +136,28 @@ func TestResolve_ToMatchAll(t *testing.T) {
 	}
 }
 
+func TestResolve_ToMatchAll_EmptyRcptTo(t *testing.T) {
+	routes := []config.RouteConfig{
+		{
+			Name: "all-internal",
+			Match: config.RouteMatchConfig{
+				To:      "@internal\\.test$",
+				ToMatch: "all",
+			},
+		},
+	}
+	rt, err := New(routes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// RCPT TO が空の場合は to_match:all はマッチしてはいけない（B-29）
+	_, ok := rt.Resolve("sender@external.com", []string{})
+	if ok {
+		t.Error("RCPT TO が空なのに to_match:all ルートにマッチした")
+	}
+}
+
 func TestNew_InvalidRegex(t *testing.T) {
 	routes := []config.RouteConfig{
 		{Name: "bad", Match: config.RouteMatchConfig{From: "[invalid"}},

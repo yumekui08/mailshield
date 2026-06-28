@@ -19,7 +19,28 @@ func (w *transformWorker) Name() string { return w.name }
 
 // Transform はスクリプト内の transform(mail, config) 関数を呼び出し、変更後の Mail を返す。
 // subject フィールドが変更された場合は RawEML の Subject ヘッダーも書き換える。
-func (w *transformWorker) Transform(_ context.Context, mail *domain.Mail) (*domain.Mail, error) {
+// ctx がキャンセルまたはタイムアウトした場合はエラーを返す。
+func (w *transformWorker) Transform(ctx context.Context, mail *domain.Mail) (*domain.Mail, error) {
+	type result struct {
+		r   *domain.Mail
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		r, err := w.runTransform(mail)
+		ch <- result{r, err}
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("Luaワーカー %q タイムアウト: %w", w.name, ctx.Err())
+	case res := <-ch:
+		return res.r, res.err
+	}
+}
+
+// runTransform は Lua の transform(mail, config) を同期的に実行する。
+// LState はこの呼び出しごとに新規作成するため goroutine 安全。
+func (w *transformWorker) runTransform(mail *domain.Mail) (*domain.Mail, error) {
 	L := glua.NewState()
 	defer L.Close()
 

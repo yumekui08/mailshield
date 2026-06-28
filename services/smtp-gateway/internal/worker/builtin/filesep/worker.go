@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/smtp"
 	"strings"
 	"time"
@@ -277,6 +278,7 @@ func (w *Worker) rebuildEML(env *enmime.Envelope, separated map[*enmime.Part]boo
 }
 
 // sendNotification は separate モード用の通知メールを reinject SMTP 経由で送信する。
+// ctx を使って接続・送信をキャンセル可能にしている（stdlib smtp.SendMail はコンテキスト非対応）。
 func (w *Worker) sendNotification(ctx context.Context, mail *domain.Mail, body string) error {
 	notifSubject := "[添付ファイルのご案内] " + mail.Subject
 
@@ -300,6 +302,52 @@ func (w *Worker) sendNotification(ctx context.Context, mail *domain.Mail, body s
 		return fmt.Errorf("通知メールエンコード失敗: %w", err)
 	}
 
+	return w.sendSeparateNotification(ctx, w.cfg.SeparateFrom, mail.ToAddresses, buf.Bytes())
+}
+
+// sendSeparateNotification は ctx-aware な SMTP 送信を行う。
+// net.Dialer.DialContext でコンテキストを TCP 接続に伝播し、
+// ctx にデッドラインがある場合はソケットにもセットする。
+func (w *Worker) sendSeparateNotification(ctx context.Context, from string, to []string, msg []byte) error {
 	addr := fmt.Sprintf("%s:%d", w.notifSMTPHost, w.notifSMTPPort)
-	return smtp.SendMail(addr, nil, w.cfg.SeparateFrom, mail.ToAddresses, buf.Bytes())
+
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("通知SMTP接続失敗: %w", err)
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		if setErr := conn.SetDeadline(deadline); setErr != nil {
+			_ = conn.Close()
+			return fmt.Errorf("通知SMTPデッドライン設定失敗: %w", setErr)
+		}
+	}
+
+	host, _, _ := net.SplitHostPort(addr)
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("通知SMTPクライアント作成失敗: %w", err)
+	}
+	defer c.Close()
+
+	if err := c.Mail(from); err != nil {
+		return fmt.Errorf("通知SMTP MAIL FROM失敗: %w", err)
+	}
+	for _, rcpt := range to {
+		if err := c.Rcpt(rcpt); err != nil {
+			return fmt.Errorf("通知SMTP RCPT TO失敗 (%s): %w", rcpt, err)
+		}
+	}
+	wc, err := c.Data()
+	if err != nil {
+		return fmt.Errorf("通知SMTP DATA失敗: %w", err)
+	}
+	if _, err := wc.Write(msg); err != nil {
+		_ = wc.Close()
+		return fmt.Errorf("通知SMTPメッセージ書き込み失敗: %w", err)
+	}
+	if err := wc.Close(); err != nil {
+		return fmt.Errorf("通知SMTPデータクローズ失敗: %w", err)
+	}
+	return c.Quit()
 }

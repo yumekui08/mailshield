@@ -246,12 +246,29 @@ func (w *Worker) extractURLsFromImages(ctx context.Context, env *enmime.Envelope
 	return result
 }
 
+// maxImagePixels は OOM 防止のための画像ピクセル数上限（4096×4096 = 16M ピクセル）。
+const maxImagePixels = 4096 * 4096
+
+// decodeImageSafe は画像ヘッダーを先読みしてサイズを確認してからデコードする。
+// 巨大な PNG 等（< 1MB 圧縮, > 4GB 展開）による OOM を防ぐ。
+func decodeImageSafe(data []byte) (image.Image, error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("画像ヘッダー読み取り失敗: %w", err)
+	}
+	if cfg.Width*cfg.Height > maxImagePixels {
+		return nil, fmt.Errorf("画像サイズが上限を超えています (%dx%d > %d pixels)", cfg.Width, cfg.Height, maxImagePixels)
+	}
+	img, _, err2 := image.Decode(bytes.NewReader(data))
+	return img, err2
+}
+
 // scanImage は1枚の画像から URL を抽出する。QR デコードと OCR の両方を試みる。
 func (w *Worker) scanImage(ctx context.Context, data []byte, contentType string) []string {
 	var found []string
 
 	if w.qrDecoder != nil {
-		img, _, err := image.Decode(bytes.NewReader(data))
+		img, err := decodeImageSafe(data)
 		if err == nil {
 			if text, err := w.qrDecoder.Decode(img); err == nil && text != "" {
 				for _, u := range urlInImagePattern.FindAllString(text, -1) {

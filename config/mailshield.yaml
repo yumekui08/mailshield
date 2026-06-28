@@ -39,102 +39,11 @@ server:
 
 # ─── ルート定義 ──────────────────────────────────────────────────────────────
 #
-# routes: は配列のため、このブロック全体が default.yaml の routes: を置換します。
-# 変更が必要なもの:
-#   - match.to / match.from: 自組織のドメインに変更する
-#   - workers.inspect[].enabled: 使用するワーカーを有効化する
-#   - workers.transform[].enabled: 使用するワーカーを有効化する
-
-routes:
-  - name: inbound
-    direction: inbound
-    match:
-      to: "@internal\\.test$"
-      to_match: any
-    workers:
-      inspect:
-        - name: subject-virus-inspector
-          enabled: true
-          timeout_seconds: 5
-        - name: av-worker
-          enabled: true
-          timeout_seconds: 30
-        - name: dlp-worker
-          enabled: false
-          timeout_seconds: 60
-        - name: header-inspector
-          enabled: true
-          timeout_seconds: 5
-        - name: url-worker
-          enabled: true
-          timeout_seconds: 15
-        - name: qr-worker
-          enabled: true
-          timeout_seconds: 15
-      transform:
-        - name: sanitize-worker
-          enabled: true
-          order: 1
-        - name: url-rewrite-worker
-          enabled: true
-          order: 2
-        - name: subject-virus-transformer
-          enabled: true
-          order: 3
-        - name: disclaimer-worker
-          enabled: false
-          order: 4
-        - name: filesep-worker
-          enabled: true
-          order: 5
-        - name: arc-sealer
-          enabled: false
-          order: 6
-    policy:
-      rules_file: /app/config/policy-inbound.yaml
-
-  - name: outbound
-    direction: outbound
-    match:
-      from: "@internal\\.test$"
-    workers:
-      inspect:
-        - name: dlp-worker
-          enabled: true
-          timeout_seconds: 60
-        - name: av-worker
-          enabled: false
-          timeout_seconds: 30
-        - name: subject-virus-inspector
-          enabled: false
-          timeout_seconds: 5
-        - name: header-inspector
-          enabled: false
-          timeout_seconds: 5
-        - name: url-worker
-          enabled: false
-          timeout_seconds: 15
-        - name: qr-worker
-          enabled: false
-          timeout_seconds: 15
-      transform:
-        - name: sanitize-worker
-          enabled: false
-          order: 1
-        - name: url-rewrite-worker
-          enabled: false
-          order: 2
-        - name: subject-virus-transformer
-          enabled: false
-          order: 3
-        - name: disclaimer-worker
-          enabled: true
-          order: 4
-        - name: filesep-worker
-          enabled: true
-          order: 5
-        - name: arc-sealer
-          enabled: false
-          order: 6
-    policy:
-      rules_file: /app/config/policy-outbound.yaml
+# ルートは config/routes.d/*.yaml で管理します（nginx の conf.d/ と同じ方式）。
+# ファイル名のアルファベット順に評価されます（first-match-wins）。
+#
+#   00-bounce.yaml  ← 変更不要（バウンス/DSN 専用）
+#   10-inbound.yaml ← match.to を自組織ドメインに変更する
+#   20-outbound.yaml ← match.from を自組織ドメインに変更する
+#
+# ルートを追加する場合は routes.d/ に新しいファイルを追加してください。

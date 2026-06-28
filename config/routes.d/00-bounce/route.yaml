@@ -1,0 +1,13 @@
+# バウンス/DSN（MAIL FROM:<>）ルート
+#
+# MAIL FROM:<> は RFC 5321 で定義されたバウンス・配送失敗通知（DSN）の識別子。
+# 空の送信者にすることで「このバウンス自体がバウンスを生まない」ことを保証する。
+# このファイルは変更不要。ワーカーを追加しないこと（バウンスループ防止）。
+name: bounce
+direction: outbound
+match:
+  from: "^$"
+workers:
+  inspect: []
+  transform: []
+# policy は同ディレクトリの policy.yaml を自動参照する

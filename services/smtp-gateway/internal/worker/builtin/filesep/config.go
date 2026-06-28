@@ -32,7 +32,12 @@ type Config struct {
 }
 
 func loadConfig(workerConfigDir string) (*Config, error) {
-	path := filepath.Join(workerConfigDir, workerName+".yaml")
+	// サブディレクトリ形式（workers/filesep-worker/config.yaml）を優先し、
+	// 見つからなければフラット形式（workers/filesep-worker.yaml）にフォールバック。
+	path := filepath.Join(workerConfigDir, workerName, "config.yaml")
+	if _, err := os.Stat(path); err != nil {
+		path = filepath.Join(workerConfigDir, workerName+".yaml")
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {

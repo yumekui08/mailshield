@@ -96,6 +96,12 @@ func (n *QuarantineNotifier) send(to, originalSubject, originalFrom, messageID s
 	if err != nil {
 		return fmt.Errorf("SMTP 接続失敗: %w", err)
 	}
+	// 接続全体のデッドライン: 30秒以内に全SMTP操作を完了する。
+	// これにより、リレーが途中で応答しなくなった場合でもゴルーチンが無期限にブロックされない。
+	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		conn.Close()
+		return fmt.Errorf("SMTP デッドライン設定失敗: %w", err)
+	}
 	c, err := smtp.NewClient(conn, n.smtpHost)
 	if err != nil {
 		return fmt.Errorf("SMTP クライアント作成失敗: %w", err)
