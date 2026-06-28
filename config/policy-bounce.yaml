@@ -1,0 +1,4 @@
+rules:
+  - name: bounce_deliver
+    condition: "true"
+    action: deliver
