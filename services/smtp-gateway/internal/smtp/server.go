@@ -83,7 +83,8 @@ func New(opts Options, handler Handler) *Server {
 	s.Domain = opts.Hostname
 	s.MaxMessageBytes = maxSize
 	s.MaxRecipients = opts.MaxRecipients
-	s.AllowInsecureAuth = true // 内部ネットワーク専用・TLS不要
+	s.AllowInsecureAuth = true   // 内部ネットワーク専用・TLS不要
+	s.EnableSMTPUTF8 = true      // SMTPUTF8 を広告しないと UTF8 アドレスを含むバウンスが届かない
 	s.ReadTimeout = time.Duration(opts.ReadTimeoutSeconds) * time.Second
 	s.WriteTimeout = time.Duration(opts.WriteTimeoutSeconds) * time.Second
 
