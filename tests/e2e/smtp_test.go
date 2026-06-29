@@ -5,7 +5,7 @@
 //
 // 前提:
 //   - `make dev-up` で docker-compose dev プロファイルが起動済み
-//   - Postfix が localhost:25 で待ち受け中（relay_domains に example.com が含まれる）
+//   - Postfix が localhost:25 で待ち受け中（relay_domains に internal.test が含まれる）
 //   - smtp-gateway が Mailpit に deliver する設定
 //
 // 実行方法:
@@ -27,7 +27,7 @@ func TestSMTP_InboundNormal_ArrivesInMailpit(t *testing.T) {
 	clearMailpit(t)
 	subject := fmt.Sprintf("e2e-normal-%s", randomID())
 
-	err := sendSMTP("sender@external.test", "user@example.com", subject, "通常のテストメールです。")
+	err := sendSMTP("sender@external.test", "user@internal.test", subject, "通常のテストメールです。")
 	if err != nil {
 		t.Skipf("SMTP 送信失敗（Postfix が起動していない可能性）: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestSMTP_InboundVirusSubject_SubjectPrefixed(t *testing.T) {
 	origSubject := fmt.Sprintf("virus test e2e-%s", id)
 	expectedSubject := fmt.Sprintf("[迷惑メール注意] %s", origSubject)
 
-	err := sendSMTP("sender@external.test", "user@example.com", origSubject, "件名に virus が含まれるテストメールです。")
+	err := sendSMTP("sender@external.test", "user@internal.test", origSubject, "件名に virus が含まれるテストメールです。")
 	if err != nil {
 		t.Skipf("SMTP 送信失敗: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestSMTP_InboundEICAR_Quarantined(t *testing.T) {
 	subject := fmt.Sprintf("eicar-quarantine-%s", randomID())
 
 	const eicar = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
-	err := sendSMTP("sender@external.test", "user@example.com", subject, eicar)
+	err := sendSMTP("sender@external.test", "user@internal.test", subject, eicar)
 	if err != nil {
 		t.Skipf("SMTP 送信失敗: %v", err)
 	}

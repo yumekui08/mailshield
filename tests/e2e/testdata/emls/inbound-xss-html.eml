@@ -1,5 +1,5 @@
 From: attacker@external.test
-To: user@example.com
+To: user@internal.test
 Subject: XSS sanitize test
 MIME-Version: 1.0
 Content-Type: multipart/alternative; boundary="==xss_test_boundary=="

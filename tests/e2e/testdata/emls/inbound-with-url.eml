@@ -1,5 +1,5 @@
 From: sender@external.test
-To: user@example.com
+To: user@internal.test
 Subject: URL rewrite test
 MIME-Version: 1.0
 Content-Type: multipart/alternative; boundary="==url_test_boundary=="

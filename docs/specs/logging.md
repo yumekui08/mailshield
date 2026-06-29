@@ -41,11 +41,11 @@ tail -f /var/log/mail.log
   "level": "INFO",
   "msg": "[2/7] EML 保存完了",
   "message_id": "550e8400-e29b-41d4-a716-446655440000",
-  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "route": "inbound",
   "from": "sender@external.test",
   "to": ["user@internal.test"],
   "size_bytes": 1024,
-  "eml_path": "00000000-.../raw/2026/06/03/550e8400....eml"
+  "eml_path": "raw/2026/06/03/550e8400....eml"
 }
 ```
 
@@ -56,10 +56,20 @@ tail -f /var/log/mail.log
 | フィールド | 型 | 説明 |
 |-----------|----|------|
 | `message_id` | string | 内部UUID（受信時に採番） |
-| `tenant_id` | string | テナントUUID |
+| `route` | string | マッチしたルート名（`inbound` / `outbound` 等）。処理開始後に付与される |
 | `from` | string | 送信者アドレス |
 | `to` | []string | 宛先アドレスリスト |
 | `size_bytes` | int | メールサイズ（バイト） |
+
+ステップ固有フィールド（一部のログにのみ付与される）:
+
+| フィールド | 型 | ログ箇所 | 説明 |
+|-----------|----|---------|------|
+| `direction` | string | `[1/7]` | ルートの direction（`inbound` / `outbound`） |
+| `subject` | string | `[1/7]` | メールの件名 |
+| `eml_path` | string | `[2/7]` | オブジェクトストレージ上の保存パス |
+| `action` | string | 処理完了時 | ポリシーエンジンが決定したアクション（`deliver` / `reject` / `quarantine` 等） |
+| `elapsed_ms` | int | メール処理完了時 | メール1通の総処理時間（ミリ秒） |
 
 ワーカー処理中はさらに以下が付与される。
 
@@ -74,14 +84,14 @@ tail -f /var/log/mail.log
 メール1通を処理する際は `[N/7]` プレフィックスでステップを識別できる。
 
 ```
-[1/7] メール受信          ← SMTPセッションからメールを受け取った
-[2/7] EML 保存完了        ← MinIO への保存が完了した
+[1/7] メール受信          ← SMTPセッションからメールを受け取った（direction, subject を含む）
+[2/7] EML 保存完了        ← オブジェクトストレージへの保存が完了した（eml_path を含む）
 [3/7] DB メタデータ記録   ← MariaDB への記録が完了した
-[4/7] mail.received 発行  ← RabbitMQ へのイベント発行が完了した
+[4/7] mail.received 発行  ← イベント発行が完了した（none モード時はスキップ）
 [5/7] 検査結果            ← 各検査ワーカーの結果（ワーカー数分出力）
 [6/7] 変換パイプライン    ← 変換の有無と結果
-[7/7] ポリシー評価        ← マッチしたルールとアクション
-     メール処理完了       ← 総処理時間（elapsed_ms）
+[7/7] ポリシー評価        ← マッチしたルールとアクション（action を含む）
+     メール処理完了       ← 総処理時間（elapsed_ms を含む）
 ```
 
 `message_id` フィールドで grep することで1通のメールの全ログを追跡できる。

@@ -5,9 +5,19 @@
 | 種別 | 実装言語 | 用途 |
 |-----|---------|------|
 | **組み込みワーカー** | Go | ClamAV・Tika・添付ファイル分離など外部サービス連携・バイナリ処理 |
-| **Lua ワーカー** | Lua | ルール・条件判定・テナント固有ロジックなど軽量なカスタム処理 |
+| **Lua ワーカー** | Lua | ルール・条件判定など軽量なカスタム処理 |
 
 どちらも `domain.InspectWorker` / `domain.TransformWorker` インターフェースを実装するため、パイプラインは実装形態を意識しない。`mailshield.yaml` の `routes[].workers` 設定で有効化・無効化・実行順序を制御する。
+
+## 組み込みワーカーの優先順位
+
+同じ名前の組み込みワーカーと Lua ワーカーが両方存在する場合は、**組み込みワーカーが優先**される。起動時に WARN ログが出力される。
+
+```
+WARN 組み込み検査ワーカーが同名のLuaワーカーを上書きします name=av-worker
+```
+
+---
 
 ## ディレクトリ構造
 
@@ -18,15 +28,40 @@
 └── subject-virus-transformer/
     └── init.lua
 
-/app/config/workers/conf/               ← worker_config_dir（全ワーカー共通）
-├── av-worker.yaml
+/app/config/workers/                    ← worker_config_dir（全ワーカー共通）
+├── av-worker.yaml                      ← シンプルなワーカーは <worker-name>.yaml
 ├── dlp-worker.yaml
 ├── header-inspector.yaml
 ├── url-worker.yaml
 ├── qr-worker.yaml
 ├── url-rewrite-worker.yaml
-├── filesep-worker.yaml
+├── filesep-worker/
+│   └── config.yaml                     ← 複数ファイルが必要なワーカーは <worker-name>/config.yaml
 ```
+
+### ワーカー設定ファイルの命名規則
+
+| パターン | 用途 | 例 |
+|---------|------|-----|
+| `<worker-name>.yaml` | 単一ファイルで完結するシンプルなワーカー | `av-worker.yaml` |
+| `<worker-name>/config.yaml` | 複数ファイルが必要なワーカー（テンプレート等） | `filesep-worker/config.yaml` |
+
+---
+
+## InspectEntry と goroutine 実行モデル
+
+検査ワーカーはパイプラインから `domain.InspectEntry` の形で管理される。
+
+```go
+// InspectEntry はパイプラインに渡す検査ワーカーとタイムアウトのペアを表す。
+// Timeout が 0 の場合は親 context のタイムアウトのみ適用される。
+type InspectEntry struct {
+    Worker  InspectWorker
+    Timeout time.Duration
+}
+```
+
+各検査ワーカーは **独立した goroutine** として並列実行される。それぞれの goroutine は `InspectEntry.Timeout` で指定された期限を持つ専用の `context` を生成し、タイムアウトを超えた場合は当該ワーカーの結果をスキップして続行する。
 
 ---
 
@@ -39,7 +74,7 @@
 - **依存外部サービス**: ClamAV daemon（`clamav:3310`）
 - **用途**: inbound
 
-**設定** (`config/workers/conf/av-worker.yaml`):
+**設定** (`config/workers/av-worker.yaml`):
 ```yaml
 host: clamav
 port: 3310
@@ -58,7 +93,7 @@ scores:
 - **依存外部サービス**: Apache Tika REST API（`tika:9998`）
 - **用途**: outbound（送信情報漏洩防止）
 
-**設定** (`config/workers/conf/dlp-worker.yaml`):
+**設定** (`config/workers/dlp-worker.yaml`):
 ```yaml
 endpoint: "http://tika:9998"
 timeout_seconds: 55
@@ -75,12 +110,12 @@ patterns:
 
 ### header-inspector（ヘッダーなりすまし検査）
 
-- **パッケージ**: `internal/worker/builtin/headerinspector/`
+- **パッケージ**: `internal/worker/builtin/header/`
 - **種別**: inspect
 - **依存外部サービス**: なし
 - **用途**: inbound
 
-**設定** (`config/workers/conf/header-inspector.yaml`):
+**設定** (`config/workers/header-inspector.yaml`):
 ```yaml
 threshold: 60
 scores:
@@ -96,12 +131,12 @@ brand_names: [amazon, google, microsoft, paypal, apple]
 
 ### url-worker（URL レピュテーション検査）
 
-- **パッケージ**: `internal/worker/builtin/urlworker/`
+- **パッケージ**: `internal/worker/builtin/urlcheck/`
 - **種別**: inspect
 - **依存外部サービス**: Google Safe Browsing / Web Risk API（オプション）
 - **用途**: inbound
 
-**設定** (`config/workers/conf/url-worker.yaml`):
+**設定** (`config/workers/url-worker.yaml`):
 ```yaml
 max_urls: 20
 deny_list: []
@@ -117,12 +152,12 @@ scores:
 
 ### qr-worker（QR コード検査）
 
-- **パッケージ**: `internal/worker/builtin/qrworker/`
+- **パッケージ**: `internal/worker/builtin/qrcheck/`
 - **種別**: inspect
 - **依存外部サービス**: Tesseract OCR REST API（オプション）
 - **用途**: inbound
 
-**設定** (`config/workers/conf/qr-worker.yaml`):
+**設定** (`config/workers/qr-worker.yaml`):
 ```yaml
 max_images: 10
 qr_decode:
@@ -159,7 +194,7 @@ scores:
 - **種別**: transform
 - **用途**: inbound
 
-**設定** (`config/workers/conf/url-rewrite-worker.yaml`):
+**設定** (`config/workers/url-rewrite-worker.yaml`):
 ```yaml
 proxy_base_url: ""      # 空の場合はノーオペレーション
 url_encode: base64
@@ -190,7 +225,7 @@ skip_domains: [internal.test, localhost]
 
 テキスト / HTML 本文の末尾に組織フッターを付与する。二重付与防止のためマーカー文字列を検索し、既にフッターが含まれる場合はスキップする。
 
-**設定ファイル** `config/workers/conf/disclaimer-worker.yaml`:
+**設定ファイル** `config/workers/disclaimer-worker.yaml`:
 
 ```yaml
 marker: "mailshield-disclaimer"
@@ -220,7 +255,13 @@ html_footer: |
 
 処理済みメールに ARC（Authenticated Received Chain）署名ヘッダー（`ARC-Seal`, `ARC-Message-Signature`, `ARC-Authentication-Results`）を付与する。他の変換ワーカーよりも後ろの order を指定すること。
 
-**設定ファイル** `config/workers/conf/arcsealer-worker.yaml`:
+**初期化の条件付きスキップ**: 設定ファイル（`config/workers/arcsealer-worker.yaml`）が存在しない場合、初期化エラーは致命的エラーとして扱われない。起動時に WARN ログを出力してワーカーをスキップし、ARC 署名なしで動作する。
+
+```
+WARN arc-sealer 初期化スキップ（設定ファイルなし・ARC シールは無効） error=...
+```
+
+**設定ファイル** `config/workers/arcsealer-worker.yaml`:
 
 ```yaml
 selector: mailshield
@@ -292,7 +333,7 @@ return M
 1. `services/smtp-gateway/internal/worker/builtin/<name>/` にパッケージを作成する
 2. `domain.InspectWorker` または `domain.TransformWorker` インターフェースを実装する
 3. `cmd/server/main.go` の `builtinInspect` / `builtinTransform` スライスに追加する
-4. `config/workers/conf/<name>.yaml` に設定ファイルを追加する
+4. `config/workers/<name>.yaml` に設定ファイルを追加する
 5. `config/mailshield.yaml` の該当ルートの `workers` リストに追加する
 
 ### Lua ワーカー
@@ -303,6 +344,7 @@ return M
 ```yaml
 workers:
   workers_dir: /app/workers
+  worker_config_dir: /app/config/workers
   inspect:
     - name: my-worker
       enabled: true

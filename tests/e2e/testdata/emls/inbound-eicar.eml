@@ -1,5 +1,5 @@
 From: sender@external.test
-To: user@example.com
+To: user@internal.test
 Subject: EICAR antivirus test
 MIME-Version: 1.0
 Content-Type: text/plain; charset=US-ASCII
