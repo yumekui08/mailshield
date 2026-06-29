@@ -72,3 +72,23 @@ func TestTransformPipeline_Run_ErrorStopsChain(t *testing.T) {
 		t.Error("Run() should return error when a worker fails")
 	}
 }
+
+// panicTransformWorker はパニックを起こすスタブ。
+type panicTransformWorker struct{ name string }
+
+func (w *panicTransformWorker) Name() string { return w.name }
+func (w *panicTransformWorker) Transform(_ context.Context, _ *domain.Mail) (*domain.Mail, error) {
+	panic("intentional panic in worker")
+}
+
+func TestTransformPipeline_Run_PanicReturnsError(t *testing.T) {
+	workers := []domain.TransformWorker{
+		&panicTransformWorker{name: "panic-worker"},
+	}
+
+	p := pipeline.NewTransformPipeline(workers)
+	_, err := p.Run(context.Background(), &domain.Mail{MessageID: "test"})
+	if err == nil {
+		t.Error("Run() should return error when a worker panics")
+	}
+}
