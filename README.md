@@ -14,11 +14,10 @@
 ## クイックスタート
 
 詳細な手順は [クイックスタートガイド](docs/setup/quick-start.md) を参照してください。
-**2パターンあります。用途に合わせて選んでください。**
 
-### パターン A: スタンドアロンバイナリ（Docker 不要）
+### バイナリで動かす
 
-MariaDB のみインストール済みであれば Docker なしで動作します。
+MariaDB が用意できていれば Docker なしで動作します。
 
 ```bash
 # 1. クローン
@@ -48,7 +47,7 @@ swaks --to test@internal.test --from sender@external.test \
 - キュー: なし（RabbitMQ 不要）
 - DB: `localhost:3306`
 
-### パターン B: Docker Compose（Postfix + Mailpit 含む全構成）
+### Docker Compose で動かす
 
 ```bash
 # 1. クローン・.env 作成（パスワードを変更）
