@@ -39,8 +39,6 @@ server:
   # CIDR 表記可（例: 172.17.0.0/16）。ホスト名は SMTP 接続ごとにオンデマンドで DNS 解決される。
   # Postfix 以外からの接続を受け付けないようにすること。
   trusted_sources:
-    - postfix
-    - postfix-submission
     - 127.0.0.1
 
 # ─── オブジェクトストレージ ──────────────────────────────────────────────────
@@ -50,9 +48,9 @@ storage:
   #   minio      : MinIO / S3互換（docker-compose profile: storage が必要）
   #   s3         : AWS S3（本番環境向け）
   #   filesystem : ローカルFS（MinIO不要・開発/単一ノード向け）
-  backend: minio                        # ENV: なし（設定ファイルのみ）
+  backend: filesystem                   # ENV: なし（設定ファイルのみ）
 
-  endpoint: minio:9000                  # ENV: MINIO_ENDPOINT
+  endpoint: localhost:9000              # ENV: MINIO_ENDPOINT
   access_key: minioadmin                # ENV: MINIO_ACCESS_KEY
   secret_key: minioadmin                # ENV: MINIO_SECRET_KEY
   use_ssl: false                        # ENV: MINIO_USE_SSL
@@ -63,14 +61,14 @@ storage:
   bucket_attachments: mailshield-attachments
 
   # filesystem モード専用
-  # local_dir: /var/mailshield/eml
-  # public_base_url: http://api-server:8090    # GetPresignedURL が返すURLのベース
+  local_dir: ./data/eml
+  # public_base_url: http://localhost:8090    # GetPresignedURL が返すURLのベース
 
 # ─── データベース ────────────────────────────────────────────────────────────
 
 database:
   driver: mariadb                       # 現時点では mariadb のみ対応
-  host: mariadb                         # ENV: DB_HOST
+  host: localhost                       # ENV: DB_HOST
   port: 3306                            # ENV: DB_PORT
   name: mailshield                      # ENV: DB_NAME
   user: mailshield                      # ENV: DB_USER
@@ -88,8 +86,8 @@ queue:
   # キューバックエンド
   #   rabbitmq : RabbitMQ（docker-compose profile: queue が必要）
   #   none     : イベント通知なし（RabbitMQ不要・開発/単一ノード向け）
-  backend: rabbitmq
-  host: rabbitmq                        # ENV: RABBITMQ_HOST
+  backend: none
+  host: localhost                       # ENV: RABBITMQ_HOST
   port: 5672                            # ENV: RABBITMQ_PORT
   user: mailshield                      # ENV: RABBITMQ_USER
   password: ""                          # ENV: RABBITMQ_PASSWORD
@@ -108,8 +106,8 @@ log:
 # Postfix を経由させると content_filter ループが発生するため、
 # Mailpit や内部 SMTP リレーを直接指定すること。
 notification:
-  smtp_host: mailpit                    # ENV: MAILSHIELD_NOTIFICATION_SMTP_HOST
-  smtp_port: 1025                       # ENV: MAILSHIELD_NOTIFICATION_SMTP_PORT
+  smtp_host: localhost                  # ENV: MAILSHIELD_NOTIFICATION_SMTP_HOST
+  smtp_port: 25                         # ENV: MAILSHIELD_NOTIFICATION_SMTP_PORT
   from_address: noreply@mailshield.internal
 
 # ─── 再インジェクト ──────────────────────────────────────────────────────────
@@ -118,8 +116,8 @@ notification:
 # Postfix の content_filter なしポートを指定すること（ループ防止）。
 # policy ファイルの rules[].destination が指定されている場合はそちらが優先される。
 reinject:
-  host: mailpit                         # ENV: MAILSHIELD_REINJECT_HOST
-  port: 1025                            # ENV: MAILSHIELD_REINJECT_PORT
+  host: localhost                       # ENV: MAILSHIELD_REINJECT_HOST
+  port: 25                              # ENV: MAILSHIELD_REINJECT_PORT
 
 # ─── 隔離通知 ────────────────────────────────────────────────────────────────
 
@@ -161,12 +159,12 @@ attachment_download:
 workers:
   # Lua ワーカースクリプトのルートディレクトリ。
   # 配下の <worker名>/init.lua を自動ロードする。
-  workers_dir: /app/workers
+  workers_dir: ./workers
 
   # ワーカー固有設定ファイル（YAML）のディレクトリ。
   # シンプルなワーカー: <worker名>.yaml
   # テンプレート等複数ファイルを持つワーカー: <worker名>/config.yaml
-  worker_config_dir: /app/config/workers
+  worker_config_dir: ./config/workers
 
 # ─── ルート定義 ──────────────────────────────────────────────────────────────
 

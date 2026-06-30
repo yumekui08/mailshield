@@ -11,10 +11,14 @@ docs/PLAN.md
 .env.*.local
 
 # ─── Go ビルド成果物 ───────────────────────────────────────────────
+dist/
 services/smtp-gateway/server
 services/api-server/server
 **/tmp/
 vendor/
+
+# ─── smtp-gateway ランタイムデータ ────────────────────────────────
+data/
 
 # ─── Node.js / フロントエンド ──────────────────────────────────────
 web/node_modules/
@@ -27,7 +31,7 @@ web/.cache/
 *.tsbuildinfo
 
 # ─── Docker ────────────────────────────────────────────────────────
-docker-compose.override.yml
+docker/docker-compose.override.yml
 
 # ─── エディタ・IDE ─────────────────────────────────────────────────
 .vscode/

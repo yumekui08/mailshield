@@ -16,22 +16,50 @@
 詳細な手順は [クイックスタートガイド](docs/setup/quick-start.md) を参照してください。
 **2パターンあります。用途に合わせて選んでください。**
 
-### パターン A: 開発・動作確認（組み込み MTA を使う）
+### パターン A: スタンドアロンバイナリ（Docker 不要）
 
-Postfix + Mailpit を含めてまとめて起動します。
+MariaDB のみインストール済みであれば Docker なしで動作します。
 
 ```bash
 # 1. クローン
 git clone https://github.com/koizumib/mailshield.git
 cd mailshield
 
-# 2. .env を作成し、CHANGE_ME_ の4箇所のパスワードを変更
+# 2. ビルド
+make build          # → dist/smtp-gateway  dist/api-server
+
+# 3. MariaDB にスキーマを適用
+mysql -u root mailshield < schema/mariadb/001_schema.sql
+mysql -u root mailshield < schema/mariadb/002_seed.sql
+
+# 4. config/mailshield.yaml で DB 接続先・ルートドメインを設定
+
+# 5. 起動
+./dist/smtp-gateway
+
+# 6. テストメール送信（別ターミナル）
+swaks --to test@internal.test --from sender@external.test \
+      --server localhost --port 10024 \
+      --header "Subject: Hello MailShield"
+```
+
+デフォルト設定（`config/mailshield.default.yaml`）:
+- ストレージ: ローカルファイルシステム（`./data/eml/`）
+- キュー: なし（RabbitMQ 不要）
+- DB: `localhost:3306`
+
+### パターン B: Docker Compose（Postfix + Mailpit 含む全構成）
+
+```bash
+# 1. クローン・.env 作成（パスワードを変更）
+git clone https://github.com/koizumib/mailshield.git
+cd mailshield
 cp .env.example .env
 
-# 3. 起動
+# 2. 起動（MariaDB + MinIO + RabbitMQ + Postfix + Mailpit）
 make dev-up
 
-# 4. テストメール送信
+# 3. テストメール送信
 swaks --to test@internal.test --from sender@external.test \
       --server localhost --port 25 \
       --header "Subject: Hello MailShield"
@@ -40,22 +68,7 @@ swaks --to test@internal.test --from sender@external.test \
 open http://localhost:8025
 ```
 
-### パターン B: 自前 MTA と組み合わせる（全機能テスト・本番に近い構成）
-
-```bash
-# 1. クローン・.env 作成（パスワード + MAILSHIELD_REINJECT_HOST を変更）
-cp .env.example .env
-
-# 2. config/mailshield.yaml の trusted_sources とルートドメインを変更
-# 3. config/api-server.yaml の frontend_url と storage.public_endpoint を変更
-# 4. 起動（ClamAV・Tika・Web UI 含む全機能）
-COMPOSE_PROFILES=storage,queue,scanners,api docker compose up -d
-
-# 5. Web UI にアクセス
-open http://localhost:3000
-```
-
-デフォルトの管理者アカウント（`infra/mariadb/init/002_seed.sql` で設定）:
+デフォルトの管理者アカウント（`schema/mariadb/002_seed.sql` で設定）:
 - メールアドレス: `admin@example.com`
 - パスワード: `password`
 
@@ -110,20 +123,21 @@ open http://localhost:3000
 ## 開発コマンド
 
 ```bash
+# ─── バイナリビルド ───────────────────────────────────────────────
+make build          # dist/smtp-gateway + dist/api-server（カレントOS向け）
+make build-linux    # Linux amd64 向けクロスコンパイル
+make dist           # 全プラットフォーム（linux/darwin × amd64/arm64）
+make install        # /usr/local/bin/ にインストール
+
+# ─── テスト ──────────────────────────────────────────────────────
+make test           # ユニットテスト（全パッケージ）
+make test-simulate  # E2E シミュレーターテスト（smtp-gateway のみ必要）
+make test-e2e       # 全 E2E テスト
+
+# ─── Docker（任意） ──────────────────────────────────────────────
 make dev-up     # フル構成起動（Postfix + Mailpit + Web UI）
-make core-up    # コアのみ起動（smtp-gateway + インフラ）
+make core-up    # コアのみ起動（smtp-gateway + MariaDB）
 make dev-down   # 停止
-
-# smtp-gateway（Go サービス）
-cd services/smtp-gateway
-go test ./...               # 全テスト
-go test ./... -v            # 詳細出力
-go build ./cmd/server/      # ビルド
-
-# api-server（Go サービス）
-cd services/api-server
-go test ./...
-go build ./cmd/server/
 ```
 
 ## コンポーネント構成

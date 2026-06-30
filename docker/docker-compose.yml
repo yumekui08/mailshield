@@ -6,12 +6,12 @@ services:
 
   smtp-gateway:
     build:
-      context: ./services/smtp-gateway
+      context: ../services/smtp-gateway
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "8080:8080"     # ヘルスチェック
-      - "10024:10024"     #リッスンポート 
+      - "10024:10024"     #リッスンポート
     environment:
       CONFIG_FILE: /app/config/mailshield.yaml
       DB_HOST:     ${DB_HOST:-mariadb}
@@ -28,8 +28,8 @@ services:
       RABBITMQ_USER:     ${RABBITMQ_USER:-mailshield}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-mailshield}
     volumes:
-      - ./config:/app/config:ro
-      - ./workers:/app/workers:ro
+      - ../config:/app/config:ro
+      - ../workers:/app/workers:ro
     depends_on:
       mariadb:
         condition: service_healthy
@@ -66,7 +66,7 @@ services:
       MARIADB_PASSWORD:      ${DB_PASSWORD:-mailshield}
     volumes:
       - mariadb_data:/var/lib/mysql
-      - ./infra/mariadb/init:/docker-entrypoint-initdb.d:ro
+      - ../schema/mariadb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
@@ -238,7 +238,7 @@ services:
   api-server:
     profiles: [api]
     build:
-      context: ./services/api-server
+      context: ../services/api-server
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
@@ -259,7 +259,7 @@ services:
       NOTIFICATION_AUTH_PASS: ${NOTIFICATION_AUTH_PASS:-}
       OIDC_CLIENT_SECRET:     ${OIDC_CLIENT_SECRET:-}
     volumes:
-      - ./config:/app/config:ro
+      - ../config:/app/config:ro
     depends_on:
       mariadb:
         condition: service_healthy
@@ -276,7 +276,7 @@ services:
   web:
     profiles: [api]
     build:
-      context: ./web
+      context: ../web
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
