@@ -60,7 +60,7 @@ MariaDB が必要なテストは `infra` プロファイルを起動してから
 make core-up
 
 # MariaDB が ready になるまで待機
-docker compose ps mariadb   # State が "healthy" になるまで
+docker compose -f docker/docker-compose.yml ps mariadb   # State が "healthy" になるまで
 
 # 統合テスト実行（環境変数で接続先を指定）
 DB_HOST=localhost DB_PORT=3306 DB_USER=mailshield DB_PASSWORD=mailshield \
@@ -127,11 +127,11 @@ EOF
 open http://localhost:8025
 
 # MariaDB でステータス確認
-docker compose exec mariadb mysql -u mailshield -pmailshield mailshield \
+docker compose -f docker/docker-compose.yml exec mariadb mysql -u mailshield -pmailshield mailshield \
   -e "SELECT message_id, subject, status, direction FROM mail_messages ORDER BY created_at DESC LIMIT 5\G"
 
 # smtp-gateway ログ確認
-docker compose logs smtp-gateway --tail=50
+docker compose -f docker/docker-compose.yml logs smtp-gateway --tail=50
 ```
 
 ---
@@ -160,6 +160,6 @@ make lint
 make build
 
 # Docker イメージビルド
-docker compose build smtp-gateway
-docker compose build api-server
+docker compose -f docker/docker-compose.yml build smtp-gateway
+docker compose -f docker/docker-compose.yml build api-server
 ```

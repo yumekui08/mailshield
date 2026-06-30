@@ -7,7 +7,7 @@
 | **組み込みワーカー** | Go | ClamAV・Tika・添付ファイル分離など外部サービス連携・バイナリ処理 |
 | **Lua ワーカー** | Lua | ルール・条件判定など軽量なカスタム処理 |
 
-どちらも `domain.InspectWorker` / `domain.TransformWorker` インターフェースを実装するため、パイプラインは実装形態を意識しない。`mailshield.yaml` の `routes[].workers` 設定で有効化・無効化・実行順序を制御する。
+どちらも `domain.InspectWorker` / `domain.TransformWorker` インターフェースを実装するため、パイプラインは実装形態を意識しない。`config/routes.d/<ルート名>/route.yaml` の `workers` セクションで有効化・無効化・実行順序を制御する。
 
 ## 組み込みワーカーの優先順位
 
@@ -22,13 +22,13 @@ WARN 組み込み検査ワーカーが同名のLuaワーカーを上書きしま
 ## ディレクトリ構造
 
 ```
-/app/workers/                           ← workers_dir（Lua ワーカーのみ）
+./workers/                              ← workers_dir（Lua ワーカーのみ。Docker では /app/workers）
 ├── subject-virus-inspector/
 │   └── init.lua
 └── subject-virus-transformer/
     └── init.lua
 
-/app/config/workers/                    ← worker_config_dir（全ワーカー共通）
+./config/workers/                       ← worker_config_dir（Docker では /app/config/workers）
 ├── av-worker.yaml                      ← シンプルなワーカーは <worker-name>.yaml
 ├── dlp-worker.yaml
 ├── header-inspector.yaml
@@ -339,12 +339,11 @@ return M
 ### Lua ワーカー
 
 1. `workers/<name>/init.lua` を作成する（Go のビルド不要）
-2. `config/mailshield.yaml` の該当ルートの `workers` リストに追加する
+2. `config/routes.d/<ルート名>/route.yaml` の `workers` リストに追加する
 
 ```yaml
+# config/routes.d/10-inbound/route.yaml
 workers:
-  workers_dir: /app/workers
-  worker_config_dir: /app/config/workers
   inspect:
     - name: my-worker
       enabled: true

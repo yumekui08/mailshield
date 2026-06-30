@@ -24,7 +24,7 @@ MailShield のデータは MariaDB と MinIO の2箇所に保存されます。
 
 ```bash
 # mysqldump でフルバックアップ
-docker compose exec mariadb \
+docker compose -f docker/docker-compose.yml exec mariadb \
   mysqldump \
     --single-transaction \
     --routines \
@@ -34,7 +34,7 @@ docker compose exec mariadb \
   > backup_mariadb_$(date +%Y%m%d_%H%M%S).sql
 
 # 圧縮する場合
-docker compose exec mariadb \
+docker compose -f docker/docker-compose.yml exec mariadb \
   mysqldump --single-transaction -u root -p${MARIADB_ROOT_PASSWORD} mailshield \
   | gzip > backup_mariadb_$(date +%Y%m%d).sql.gz
 ```
@@ -51,7 +51,7 @@ mysqldump -h <host> -u root -p \
 
 ```bash
 # /etc/cron.d/mailshield-backup
-0 3 * * * root docker compose -f /opt/mailshield/docker-compose.yml exec -T mariadb \
+0 3 * * * root docker compose -f /opt/mailshield/docker/docker-compose.yml exec -T mariadb \
   mysqldump --single-transaction -u root -pmysqlrootpassword mailshield \
   | gzip > /backup/mariadb/mailshield_$(date +\%Y\%m\%d).sql.gz
 ```
@@ -97,7 +97,7 @@ docker run --rm \
 tar czf config_backup_$(date +%Y%m%d).tar.gz \
   config/ \
   .env \
-  docker-compose.yml
+  docker/
 ```
 
 設定ファイルは Git で管理することを推奨します（`.env` は `.gitignore` に追加）。
@@ -110,10 +110,10 @@ tar czf config_backup_$(date +%Y%m%d).tar.gz \
 
 ```bash
 # 既存データを削除してリストア
-docker compose exec -T mariadb \
+docker compose -f docker/docker-compose.yml exec -T mariadb \
   mysql -u root -p${MARIADB_ROOT_PASSWORD} -e "DROP DATABASE mailshield; CREATE DATABASE mailshield;"
 
-docker compose exec -T mariadb \
+docker compose -f docker/docker-compose.yml exec -T mariadb \
   mysql -u root -p${MARIADB_ROOT_PASSWORD} mailshield < backup_mariadb_YYYYMMDD.sql
 ```
 

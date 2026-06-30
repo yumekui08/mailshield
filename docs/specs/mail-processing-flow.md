@@ -71,7 +71,7 @@ flowchart TD
 
 ## inbound / outbound の判定
 
-inbound と outbound の区別はテナントテーブルの参照では行わない。ルート解決（[1/7]）で取得したルートの `direction:` フィールドによって決まる。ポリシーエンジンは方向に応じた設定ファイル（`policy-inbound.yaml` など）を読み込む。
+inbound と outbound の区別はテナントテーブルの参照では行わない。ルート解決（[1/7]）で取得したルートの `direction:` フィールドによって決まる。ポリシーエンジンは方向に応じたルートの `policy.yaml`（`config/routes.d/<ルート名>/policy.yaml`）を読み込む。
 
 ---
 

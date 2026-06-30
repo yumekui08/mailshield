@@ -21,17 +21,17 @@ flowchart TD
 
 ## ファイルの場所
 
-ルートごとに異なるポリシーファイルを指定できます。
+ポリシーファイルはルートディレクトリに配置します。
+`route.yaml` と同じディレクトリの `policy.yaml`（および `policy.lua`）が自動的に読み込まれます。
 
-```yaml
-# config/mailshield.yaml
-routes:
-  - name: inbound
-    policy:
-      rules_file: /app/config/policy-inbound.yaml
-  - name: outbound
-    policy:
-      rules_file: /app/config/policy-outbound.yaml
+```
+config/routes.d/
+├── 10-inbound/
+│   ├── route.yaml
+│   └── policy.yaml   ← 受信ルートのポリシー
+└── 20-outbound/
+    ├── route.yaml
+    └── policy.yaml   ← 送信ルートのポリシー
 ```
 
 ---
@@ -39,7 +39,7 @@ routes:
 ## ルールの書き方
 
 ```yaml
-# config/policy-inbound.yaml
+# config/routes.d/10-inbound/policy.yaml
 rules:
   - name: av_detected          # ルール名（ログに記録される）
     condition: "av-worker.detected == true"
@@ -133,7 +133,7 @@ condition: "header-inspector.score >= 60"
 受信と送信で異なるポリシーを設定する典型例:
 
 ```yaml
-# policy-inbound.yaml（受信）
+# config/routes.d/10-inbound/policy.yaml（受信）
 rules:
   - name: virus
     condition: "av-worker.detected == true"
@@ -142,11 +142,11 @@ rules:
   - name: default
     condition: "true"
     action: deliver
-    destination: "postfix:10025"
+    destination: "mail.example.com:10025"
 ```
 
 ```yaml
-# policy-outbound.yaml（送信）
+# config/routes.d/20-outbound/policy.yaml（送信）
 rules:
   - name: dlp_block
     condition: "dlp-worker.score >= 80"
@@ -155,7 +155,7 @@ rules:
   - name: default
     condition: "true"
     action: deliver
-    destination: "postfix:10025"
+    destination: "mail.example.com:10025"
 ```
 
 ---

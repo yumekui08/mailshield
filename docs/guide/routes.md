@@ -10,7 +10,7 @@ MAIL FROM / RCPT TO の正規表現で動的に判定し、ルートごとに異
 ```mermaid
 flowchart TD
     A(["SMTP 接続到着\n（port 10024）"]) --> B["MAIL FROM / RCPT TO を解析"]
-    B --> C{"routes を上から順に評価\nfirst-match-wins"}
+    B --> C{"config/routes.d/ を\nディレクトリ名順に評価\nfirst-match-wins"}
     C -->|マッチ| D["マッチしたルートの\nワーカー・ポリシーを適用"]
     C -->|全ルートにマッチしない| E(["451 Try again later"])
 ```
@@ -19,28 +19,63 @@ flowchart TD
 
 ## 設定の場所
 
-`config/mailshield.yaml` の `routes:` セクションで定義します。
+ルートは `config/routes.d/` 配下の個別ディレクトリで定義します。
+`config/mailshield.yaml` にルートは記述しません。
+
+```
+config/routes.d/
+├── 00-bounce/          # バウンス（MAIL FROM:<>）ルート
+│   ├── route.yaml      # ルート定義（match / workers）
+│   └── policy.yaml     # アクション定義
+├── 10-inbound/         # 受信ルート
+│   ├── route.yaml
+│   ├── policy.yaml
+│   └── policy.lua      # Lua 拡張ルール（任意）
+└── 20-outbound/        # 送信ルート
+    ├── route.yaml
+    └── policy.yaml
+```
+
+ディレクトリ名の数字プレフィックスが評価順序を決めます（小さい方が先）。
+同じメールが複数のディレクトリにマッチした場合、最初にマッチしたルートだけが適用されます（first-match-wins）。
+
+### route.yaml の形式
 
 ```yaml
-routes:
-  - name: inbound
-    direction: inbound
-    match:
-      to: "@example\\.com$"
-      to_match: any
-    workers:
-      ...
-    policy:
-      rules_file: /app/config/policy-inbound.yaml
+# config/routes.d/10-inbound/route.yaml
+name: inbound           # ルート名（ログに記録される）
+direction: inbound      # inbound / outbound / internal
+match:
+  to: "@example\\.com$"   # RCPT TO を評価する正規表現
+  to_match: any            # any: 宛先の1つでもマッチ / all: 全員マッチ
+workers:
+  inspect:
+    - name: av-worker
+      enabled: true
+      timeout_seconds: 30
+  transform:
+    - name: sanitize-worker
+      enabled: true
+      order: 1
+# policy は同ディレクトリの policy.yaml / policy.lua を自動参照する
+```
 
-  - name: outbound
-    direction: outbound
-    match:
-      from: "@example\\.com$"
-    workers:
-      ...
-    policy:
-      rules_file: /app/config/policy-outbound.yaml
+`policy:` キーは不要です。`policy.yaml`（および存在する場合は `policy.lua`）は
+同じディレクトリにあるファイルが自動的に読み込まれます。
+
+### policy.yaml の形式
+
+```yaml
+# config/routes.d/10-inbound/policy.yaml
+rules:
+  - name: av_detected
+    condition: "av-worker.detected == true"
+    action: quarantine
+
+  - name: default_deliver
+    condition: "true"
+    action: deliver
+    destination: "mail.example.com:10025"
 ```
 
 ---
@@ -78,15 +113,6 @@ match:
   to_match: all                             # 宛先が全員内部ドメイン
 ```
 
-### `policy`
-
-```yaml
-policy:
-  rules_file: /app/config/policy-inbound.yaml
-```
-
-ルートごとに異なるポリシーファイルを指定できます。
-
 ---
 
 ## 典型的な構成例
@@ -94,72 +120,55 @@ policy:
 ### 受信のみ（シンプル）
 
 ```yaml
-routes:
-  - name: inbound
-    direction: inbound
-    match:
-      to: "@example\\.com$"
-    workers:
-      inspect:
-        - name: av-worker
-          enabled: true
-          timeout_seconds: 30
-      transform:
-        - name: sanitize-worker
-          enabled: true
-          order: 1
-    policy:
-      rules_file: /app/config/policy-inbound.yaml
+# config/routes.d/10-inbound/route.yaml
+name: inbound
+direction: inbound
+match:
+  to: "@example\\.com$"
+workers:
+  inspect:
+    - name: av-worker
+      enabled: true
+      timeout_seconds: 30
+  transform:
+    - name: sanitize-worker
+      enabled: true
+      order: 1
 ```
 
-### 受信 + 送信
-
 ```yaml
-routes:
-  # 内部ドメイン宛て（受信）
-  - name: inbound
-    direction: inbound
-    match:
-      to: "@example\\.com$"
-    workers:
-      inspect:
-        - name: av-worker
-          enabled: true
-          timeout_seconds: 30
-      transform:
-        - name: sanitize-worker
-          enabled: true
-          order: 1
-    policy:
-      rules_file: /app/config/policy-inbound.yaml
-
-  # 内部ドメイン発（送信）
-  - name: outbound
-    direction: outbound
-    match:
-      from: "@example\\.com$"
-    workers:
-      inspect:
-        - name: dlp-worker
-          enabled: true
-          timeout_seconds: 60
-      transform:
-        - name: filesep-worker
-          enabled: true
-          order: 1
-    policy:
-      rules_file: /app/config/policy-outbound.yaml
+# config/routes.d/10-inbound/policy.yaml
+rules:
+  - name: av_detected
+    condition: "av-worker.detected == true"
+    action: quarantine
+  - name: default_deliver
+    condition: "true"
+    action: deliver
+    destination: "mail.example.com:10025"
 ```
 
 ### 複数ドメイン
 
 ```yaml
-routes:
-  - name: inbound
-    direction: inbound
-    match:
-      to: "@(example\\.com|example\\.org|subsidiary\\.example\\.net)$"
-    ...
+# config/routes.d/10-inbound/route.yaml
+match:
+  to: "@(example\\.com|example\\.org|subsidiary\\.example\\.net)$"
+  to_match: any
+```
+
+---
+
+## ルートを追加する
+
+新しいルートを追加するには、`config/routes.d/` に新しいディレクトリを作成します。
+
+```bash
+mkdir config/routes.d/30-partner
+cp config/routes.d/10-inbound/route.yaml config/routes.d/30-partner/
+cp config/routes.d/10-inbound/policy.yaml config/routes.d/30-partner/
+vi config/routes.d/30-partner/route.yaml   # match.to を変更
+vi config/routes.d/30-partner/policy.yaml  # 配送先を変更
 ```
 
 ---
@@ -170,13 +179,19 @@ routes:
 送信元 MTA のキューに残します。設定漏れを防ぐため、必要に応じてキャッチオールを末尾に追加してください。
 
 ```yaml
-routes:
-  - name: inbound
-    ...
+# config/routes.d/99-catchall/route.yaml
+name: catchall
+direction: inbound
+# match を省略すると全メールにマッチ
+workers:
+  inspect: []
+  transform: []
+```
 
-  - name: catchall
-    direction: inbound
-    # match を省略すると全メールにマッチ
-    policy:
-      rules_file: /app/config/policy-catchall.yaml
+```yaml
+# config/routes.d/99-catchall/policy.yaml
+rules:
+  - name: reject_unknown
+    condition: "true"
+    action: reject
 ```

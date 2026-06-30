@@ -74,7 +74,7 @@ RABBITMQ_PASSWORD=（任意のパスワード）
 > **重要**: `make dev-up` より前に `.env` を設定してください。
 > 先に起動すると MariaDB がデフォルトパスワードで初期化され、
 > 後から `.env` を変更してもパスワード不一致で起動しません。
-> 間違えた場合は `make clean` でボリュームを削除してやり直してください。
+> 間違えた場合は `make docker-clean` でボリュームを削除してやり直してください。
 
 ### 2-2. MTA 接続先
 
@@ -124,91 +124,46 @@ CIDR 表記も使用できます。ホスト名は起動時と 30 秒ごとに D
 
 ### 3-2. ルート定義（受信・送信ドメイン）
 
-`routes:` ブロックは配列のため、ファイル全体を置換します。
-受信・送信の両ルートをまとめて定義してください。
+ルートは `config/mailshield.yaml` ではなく、`config/routes.d/` 配下の個別ディレクトリで定義します。
+
+```
+config/routes.d/
+├── 00-bounce/          # バウンス（MAIL FROM:<>）ルート ← 変更不要
+│   ├── route.yaml
+│   └── policy.yaml
+├── 10-inbound/         # 受信ルート（外部 → 自組織ドメイン）
+│   ├── route.yaml      ← ドメインとワーカー設定を変更する
+│   └── policy.yaml     ← 配送先 MTA を変更する
+└── 20-outbound/        # 送信ルート（自組織ドメイン → 外部）
+    ├── route.yaml      ← ドメインとワーカー設定を変更する
+    └── policy.yaml     ← 配送先 MTA を変更する
+```
+
+ディレクトリ名の数字プレフィックスが評価順序を決めます（小さい方が先）。
+
+**受信ルートのドメイン変更（必須）:**
+
+```bash
+vi config/routes.d/10-inbound/route.yaml
+```
 
 ```yaml
-routes:
-  - name: inbound
-    direction: inbound
-    match:
-      to: "@${DOMAIN}$"      # 受信ドメインの正規表現（バックスラッシュはYAML内で \\. と書く）
-      to_match: any           # any: 宛先のいずれか1つがマッチすればこのルートを適用
-    workers:
-      inspect:
-        - name: av-worker
-          enabled: true        # ClamAV（scanners プロファイルが必要）
-          timeout_seconds: 30
-        - name: header-inspector
-          enabled: true
-          timeout_seconds: 5
-        - name: url-worker
-          enabled: true
-          timeout_seconds: 15
-        - name: qr-worker
-          enabled: true
-          timeout_seconds: 15
-        - name: dlp-worker
-          enabled: false       # 受信時は通常 false
-          timeout_seconds: 60
-      transform:
-        - name: sanitize-worker
-          enabled: true        # HTML 無害化（推奨）
-          order: 1
-        - name: url-rewrite-worker
-          enabled: true        # URL をプロキシ経由に書き換え
-          order: 2
-        - name: disclaimer-worker
-          enabled: false       # 受信時は通常 false
-          order: 3
-        - name: filesep-worker
-          enabled: true        # 添付ファイル分離
-          order: 4
-        - name: arc-sealer
-          enabled: false       # ARC 署名（別途鍵設定が必要）
-          order: 5
-    policy:
-      rules_file: /app/config/policy-inbound.yaml
+# config/routes.d/10-inbound/route.yaml （変更箇所のみ）
+match:
+  to: "@${DOMAIN}$"   # ← 自組織の受信ドメインに変更する
+  to_match: any
+```
 
-  - name: outbound
-    direction: outbound
-    match:
-      from: "@${DOMAIN}$"     # 送信ドメインの正規表現
-    workers:
-      inspect:
-        - name: dlp-worker
-          enabled: true        # DLP 情報漏洩検査（送信時に推奨）
-          timeout_seconds: 60
-        - name: av-worker
-          enabled: false       # 送信時は通常 false
-          timeout_seconds: 30
-        - name: header-inspector
-          enabled: false
-          timeout_seconds: 5
-        - name: url-worker
-          enabled: false
-          timeout_seconds: 15
-        - name: qr-worker
-          enabled: false
-          timeout_seconds: 15
-      transform:
-        - name: sanitize-worker
-          enabled: false       # 送信時は通常 false
-          order: 1
-        - name: url-rewrite-worker
-          enabled: false
-          order: 2
-        - name: disclaimer-worker
-          enabled: true        # 送信フッター追加
-          order: 3
-        - name: filesep-worker
-          enabled: true        # 添付ファイル分離（OTP ダウンロードリンクに置換）
-          order: 4
-        - name: arc-sealer
-          enabled: false
-          order: 5
-    policy:
-      rules_file: /app/config/policy-outbound.yaml
+**送信ルートのドメイン変更（必須）:**
+
+```bash
+vi config/routes.d/20-outbound/route.yaml
+```
+
+```yaml
+# config/routes.d/20-outbound/route.yaml （変更箇所のみ）
+match:
+  from: "@${DOMAIN}$"  # ← 自組織の送信ドメインに変更する
 ```
 
 ドメインの正規表現について：YAML ファイル内ではバックスラッシュをエスケープする必要があります。
@@ -218,6 +173,8 @@ routes:
 # OK: "@example\\.com$"
 ```
 
+各 `route.yaml` の `workers.inspect` / `workers.transform` セクションで
+ワーカーの有効・無効・タイムアウトを設定します。詳細は [ワーカー設定ガイド](../guide/workers.md) を参照してください。
 ### 3-3. 通知メール SMTP
 
 隔離通知・OTP メールなどシステムが送信するメールの設定です。
@@ -280,33 +237,17 @@ quarantine_notification:
 log:
   level: info
 
-routes:
-  - name: inbound
-    direction: inbound
-    match:
-      to: "@${DOMAIN}$"
-      to_match: any
-    workers:
-      # ... (上記 3-2 の workers ブロックを記載)
-    policy:
-      rules_file: /app/config/policy-inbound.yaml
-
-  - name: outbound
-    direction: outbound
-    match:
-      from: "@${DOMAIN}$"
-    workers:
-      # ... (上記 3-2 の workers ブロックを記載)
-    policy:
-      rules_file: /app/config/policy-outbound.yaml
+# routes は config/routes.d/ のディレクトリで定義するため mailshield.yaml には不要
 ```
 
 ---
 
-## Step 4: `config/policy-inbound.yaml` の設定
+## Step 4: ポリシー定義（配送先の設定）
 
-検査ワーカーの結果に応じた配送先を定義します。
-**`destination` にはループを回避できる MTA エンドポイントを指定してください。**
+各ルートのポリシーは `config/routes.d/<ルート名>/policy.yaml` で定義します。
+検査ワーカーの結果に応じたアクションと配送先を設定します。
+
+**受信ポリシー（`config/routes.d/10-inbound/policy.yaml`）:**
 
 ```yaml
 rules:
@@ -322,6 +263,21 @@ rules:
     destination: "${MTA_HOST}:${REINJECT_PORT}"
 ```
 
+**送信ポリシー（`config/routes.d/20-outbound/policy.yaml`）:**
+
+```yaml
+rules:
+  # DLP 検知 → 隔離
+  - name: dlp_quarantine
+    condition: "dlp-worker.detected == true"
+    action: quarantine
+
+  - name: default_deliver
+    condition: "true"
+    action: deliver
+    destination: "${MTA_HOST}:${REINJECT_PORT}"
+```
+
 > **destination の選択肢:**
 >
 > | パターン | 指定例 | 説明 |
@@ -329,8 +285,6 @@ rules:
 > | MTA の再インジェクトポート | `mail.example.com:10025` | content_filter なしのポートに戻す（本番標準） |
 > | 内部 SMTP リレー直指定 | `exchange.internal:25` | Exchange 等の内部MTA へ直接配送 |
 > | Mailpit（開発確認用） | `localhost:1025` | dev プロファイルの Mailpit で受信確認 |
-
-送信ポリシーは `config/policy-outbound.yaml` に同様の形式で定義します。
 
 ---
 
@@ -355,19 +309,19 @@ rules:
 # config/mailshield.yaml で以下を設定してから起動する
 # storage.backend: filesystem
 # queue.backend: none
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 **標準構成（MinIO + RabbitMQ）**
 
 ```bash
-COMPOSE_PROFILES=storage,queue docker compose up -d
+COMPOSE_PROFILES=storage,queue docker compose -f docker/docker-compose.yml up -d
 ```
 
 **開発確認あり（Mailpit で処理後メールをキャッチ）**
 
 ```bash
-COMPOSE_PROFILES=storage,queue,dev docker compose up -d
+COMPOSE_PROFILES=storage,queue,dev docker compose -f docker/docker-compose.yml up -d
 # または
 make dev-up
 ```
@@ -375,7 +329,7 @@ make dev-up
 **スキャナー有効（ClamAV 等）**
 
 ```bash
-COMPOSE_PROFILES=storage,queue,dev,scanners docker compose up -d
+COMPOSE_PROFILES=storage,queue,dev,scanners docker compose -f docker/docker-compose.yml up -d
 # または
 make scanners-up
 ```
@@ -383,7 +337,7 @@ make scanners-up
 **Web UI + API 込み**
 
 ```bash
-COMPOSE_PROFILES=storage,queue,dev,api docker compose up -d
+COMPOSE_PROFILES=storage,queue,dev,api docker compose -f docker/docker-compose.yml up -d
 # または
 make api-up
 ```
@@ -396,13 +350,13 @@ make api-up
 ```bash
 make dev-down
 # または
-COMPOSE_PROFILES=storage,queue,dev docker compose down
+COMPOSE_PROFILES=storage,queue,dev docker compose -f docker/docker-compose.yml down
 ```
 
 **ボリュームごと初期化する場合（パスワード変更後など）**
 
 ```bash
-make clean
+make docker-clean
 ```
 
 ---
@@ -438,7 +392,7 @@ swaks --to recipient@external.example \
 
 ```bash
 # smtp-gateway のログをリアルタイム表示
-docker compose logs -f smtp-gateway
+docker compose -f docker/docker-compose.yml logs -f smtp-gateway
 
 # 正常時のログ例（log.level: info の場合）
 # [1/7] メール受信  route=inbound from=sender@external.example
@@ -575,10 +529,10 @@ extensions: []        # [] = すべての拡張子が対象
 変更後は smtp-gateway を再起動するだけで反映されます。
 
 ```bash
-docker compose restart smtp-gateway
+docker compose -f docker/docker-compose.yml restart smtp-gateway
 
 # api-server.yaml を変更した場合
-docker compose restart api-server
+docker compose -f docker/docker-compose.yml restart api-server
 ```
 
 ---
@@ -587,7 +541,8 @@ docker compose restart api-server
 
 - [ ] `.env` のパスワード類（`CHANGE_ME_` のままになっていないか）
 - [ ] `server.trusted_sources` に自前 MTA の IP を追加した
-- [ ] `routes[].match.to/from` のドメインを自組織ドメインに変更した
+- [ ] `config/routes.d/10-inbound/route.yaml` の `match.to` を自組織の受信ドメインに変更した
+- [ ] `config/routes.d/20-outbound/route.yaml` の `match.from` を自組織の送信ドメインに変更した
 - [ ] `mailshield.yaml` の `reinject.host/port` を最終配送先 MTA に設定した（policy ファイルから `destination` を削除済み）
 - [ ] `notification.smtp_host` をループしない SMTP リレーに設定した
 - [ ] `quarantine_notification.ui_base_url` をブラウザからアクセスできる URL に設定した

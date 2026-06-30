@@ -49,37 +49,57 @@ MAILSHIELD_NOTIFICATION_SMTP_PORT=25
 ```
 
 > **先に `.env` を設定してから起動してください。**
-> 起動後に変更してもパスワードが反映されません（`make clean` でやり直し）。
+> 起動後に変更してもパスワードが反映されません（`make docker-clean` でやり直し）。
 
 ### 3. `config/mailshield.yaml` を編集
 
-最低限変更が必要な箇所は2つです。
+最低限変更が必要な箇所は `trusted_sources`（MTA からの接続許可）です。
 
 ```yaml
 server:
   trusted_sources:
     - （MTA のホスト名 or IP）  # 受信 MTA からの接続を許可
-
-routes:
-  - name: inbound
-    match:
-      to: "@example\\.com$"   # ← 自分のドメインに変更
-
-  - name: outbound
-    match:
-      from: "@example\\.com$"  # ← 自分のドメインに変更
 ```
 
-### 4. `config/policy-inbound.yaml` の配送先を設定
+### 4. ルート定義のドメインを変更
+
+受信・送信ルートはそれぞれ `config/routes.d/` 配下のディレクトリで定義します。
+
+```bash
+# 受信ルート
+vi config/routes.d/10-inbound/route.yaml
+```
 
 ```yaml
+# config/routes.d/10-inbound/route.yaml
+match:
+  to: "@example\\.com$"   # ← 自組織の受信ドメインに変更
+```
+
+```bash
+# 送信ルート
+vi config/routes.d/20-outbound/route.yaml
+```
+
+```yaml
+# config/routes.d/20-outbound/route.yaml
+match:
+  from: "@example\\.com$"  # ← 自組織の送信ドメインに変更
+```
+
+### 5. ポリシーの配送先を設定
+
+`config/routes.d/10-inbound/policy.yaml` を開いて再インジェクト先 MTA を設定します。
+
+```yaml
+rules:
   - name: default_deliver
     condition: "true"
     action: deliver
     destination: "（MTA のホスト名）:10025"   # ← 再インジェクト先に変更
 ```
 
-### 5. 起動
+### 6. 起動
 
 ```bash
 # 標準構成（MinIO + RabbitMQ + Mailpit）
@@ -87,7 +107,7 @@ make dev-up
 
 # 最小構成（MariaDB のみ・filesystem モード）
 # ※ config/mailshield.yaml で storage.backend=filesystem, queue.backend=none を設定すること
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 ### 6. 動作確認
@@ -103,7 +123,7 @@ swaks --to test@example.com \
       --header "Subject: MailShield テスト"
 
 # smtp-gateway のログ確認
-docker compose logs -f smtp-gateway
+docker compose -f docker/docker-compose.yml logs -f smtp-gateway
 ```
 
 ---

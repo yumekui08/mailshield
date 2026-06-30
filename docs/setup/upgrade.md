@@ -31,7 +31,7 @@
 
 ```bash
 # Docker の場合
-docker compose exec mariadb \
+docker compose -f docker/docker-compose.yml exec mariadb \
   mysqldump -u root -p${MARIADB_ROOT_PASSWORD} mailshield > backup_$(date +%Y%m%d).sql
 
 # 外部 MariaDB の場合
@@ -50,19 +50,19 @@ mc mirror mailshield/mailshield-attachments /backup/attachments/
 
 ## 3. DB マイグレーション
 
-`infra/mariadb/init/` に新しい SQL ファイルが追加されている場合は適用します。
+`schema/mariadb/` に新しい SQL ファイルが追加されている場合は適用します。
 
 ```bash
 # 適用済みのマイグレーション番号を確認
-docker compose exec mariadb mysql -u mailshield -p mailshield \
+docker compose -f docker/docker-compose.yml exec mariadb mysql -u mailshield -p mailshield \
   -e "SHOW TABLES;"
 
 # 番号順に未適用のファイルを適用
-docker compose exec -T mariadb \
-  mysql -u mailshield -p mailshield < infra/mariadb/init/007_xxxx.sql
+docker compose -f docker/docker-compose.yml exec -T mariadb \
+  mysql -u mailshield -p mailshield < schema/mariadb/007_xxxx.sql
 ```
 
-> **注意:** `infra/mariadb/init/` のファイルはコンテナ初回起動時のみ自動実行されます。
+> **注意:** `schema/mariadb/` のファイルはコンテナ初回起動時のみ自動実行されます。
 > アップグレード時は **手動で** 適用してください。
 
 ---
@@ -73,28 +73,30 @@ docker compose exec -T mariadb \
 
 ```bash
 # イメージを再ビルド
-docker compose build smtp-gateway api-server
+docker compose -f docker/docker-compose.yml build smtp-gateway api-server
 
 # サービスを順番に再起動（ダウンタイムを最小化）
 
 # 1. api-server を先に停止（受付を止める）
-docker compose stop api-server
+docker compose -f docker/docker-compose.yml stop api-server
 
 # 2. smtp-gateway をグレースフルに再起動
 # SIGTERM を送ると処理中のメールを完了してから停止する
-docker compose stop smtp-gateway
-docker compose up -d smtp-gateway
+docker compose -f docker/docker-compose.yml stop smtp-gateway
+docker compose -f docker/docker-compose.yml up -d smtp-gateway
 
 # 3. api-server を再起動
-docker compose up -d api-server
+docker compose -f docker/docker-compose.yml up -d api-server
 ```
 
 ### バイナリの場合
 
 ```bash
 # バイナリを再ビルド
-cd services/smtp-gateway && go build -o ../../bin/smtp-gateway ./cmd/server/
-cd services/api-server && go build -o ../../bin/api-server ./cmd/server/
+make build
+# または個別に:
+# cd services/smtp-gateway && go build -o ../../dist/smtp-gateway ./cmd/server/
+# cd services/api-server && go build -o ../../dist/api-server ./cmd/server/
 
 # systemd でリスタート
 systemctl restart smtp-gateway
@@ -114,8 +116,8 @@ curl http://localhost:8081/healthz   # api-server
 make e2e-normal
 
 # ログ確認
-docker compose logs smtp-gateway --tail=50
-docker compose logs api-server --tail=50
+docker compose -f docker/docker-compose.yml logs smtp-gateway --tail=50
+docker compose -f docker/docker-compose.yml logs api-server --tail=50
 ```
 
 ---
@@ -126,17 +128,17 @@ docker compose logs api-server --tail=50
 
 ```bash
 # 1. 更新したコンテナを停止
-docker compose stop smtp-gateway api-server
+docker compose -f docker/docker-compose.yml stop smtp-gateway api-server
 
 # 2. DB をバックアップから復元
-docker compose exec -T mariadb \
+docker compose -f docker/docker-compose.yml exec -T mariadb \
   mysql -u root -p${MARIADB_ROOT_PASSWORD} mailshield < backup_YYYYMMDD.sql
 
 # 3. 前バージョンのイメージで起動
 # （事前にタグを付けておくか、git checkout で前バージョンに戻す）
 git checkout <前バージョンのタグ>
-docker compose build smtp-gateway api-server
-docker compose up -d smtp-gateway api-server
+docker compose -f docker/docker-compose.yml build smtp-gateway api-server
+docker compose -f docker/docker-compose.yml up -d smtp-gateway api-server
 ```
 
 ---

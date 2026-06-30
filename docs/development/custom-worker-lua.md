@@ -13,19 +13,16 @@ workers/
     └── init.lua         ← このファイルが読み込まれる
 ```
 
-`mailshield.yaml` の `workers.workers_dir` で指定したディレクトリ以下に、
+`workers.workers_dir`（デフォルト: `./workers`）で指定したディレクトリ以下に、
 ワーカー名と同じディレクトリを作成し `init.lua` を置きます。
 
 ```yaml
-# mailshield.yaml
-routes:
-  - name: inbound
-    workers:
-      workers_dir: /app/workers       # ← この下に my-worker/ を置く
-      inspect:
-        - name: my-worker
-          enabled: true
-          timeout_seconds: 10
+# config/routes.d/10-inbound/route.yaml
+workers:
+  inspect:
+    - name: my-worker
+      enabled: true
+      timeout_seconds: 10
 ```
 
 ---
@@ -179,18 +176,16 @@ score: 50
 ```
 
 ```yaml
-# mailshield.yaml
-routes:
-  - name: inbound
-    workers:
-      inspect:
-        - name: spf-fail-inspector
-          enabled: true
-          timeout_seconds: 5
+# config/routes.d/10-inbound/route.yaml
+workers:
+  inspect:
+    - name: spf-fail-inspector
+      enabled: true
+      timeout_seconds: 5
 ```
 
 ```yaml
-# policy-inbound.yaml
+# config/routes.d/10-inbound/policy.yaml
 rules:
   - name: spf_fail
     condition: "spf-fail-inspector.detected == true"
@@ -203,7 +198,7 @@ rules:
 
 ```bash
 # smtp-gateway のログを確認（ワーカー名でフィルタ）
-docker compose logs smtp-gateway | grep "my-worker"
+docker compose -f docker/docker-compose.yml logs smtp-gateway | grep "my-worker"
 
 # ログレベルを debug にして詳細を確認
 # config/mailshield.yaml

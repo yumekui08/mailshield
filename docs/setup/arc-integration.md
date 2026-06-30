@@ -198,7 +198,7 @@ ARC-Authentication-Results: i=2; mx.google.com;
 2. 新しいセレクターの DNS TXT レコードを追加する（古いレコードはまだ削除しない）
 3. DNS の TTL 時間（通常 1〜24 時間）待つ
 4. `arcsealer-worker.yaml` の `selector` を新しい値に更新する
-5. smtp-gateway を再起動する（`docker compose restart smtp-gateway`）
+5. smtp-gateway を再起動する（`docker compose -f docker/docker-compose.yml restart smtp-gateway`）
 6. 48 時間後に古い TXT レコードを削除する
 
 ---
@@ -215,7 +215,7 @@ ARC-Authentication-Results: i=2; mx.google.com;
 ログでのデバッグ:
 
 ```bash
-docker compose logs smtp-gateway | grep arcsealer
+docker compose -f docker/docker-compose.yml logs smtp-gateway | grep arcsealer
 ```
 
 ---
