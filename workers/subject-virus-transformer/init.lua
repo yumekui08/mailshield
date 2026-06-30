@@ -1,13 +1,5 @@
 -- subject-virus-transformer
--- 設定ファイル（/app/config/workers/conf/subject-virus-transformer.yaml）の
--- キーワードに一致する件名冒頭にプレフィックスを付加する変換ワーカー。
---
--- transform(mail, config) の引数:
---   mail   : メール情報テーブル（subject フィールドを変更すると EML も書き換えられる）
---   config : subject-virus-transformer.yaml の内容
---
--- 戻り値:
---   変更後の mail テーブル
+-- config/workers/subject-virus-transformer.yaml のキーワードに一致する件名にプレフィックスを付加する。
 
 local M = {}
 

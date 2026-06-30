@@ -5,7 +5,7 @@
 ## 特徴
 
 - **プラグイン型ワーカー**: 検査ワーカー（並列）と変換ワーカー（直列）を設定ファイルで有効化・無効化できる
-- **マルチルート**: `mailshield.yaml` の `routes:` で受信・送信を1ファイルに定義。正規表現でルートを振り分ける
+- **マルチルート**: `config/routes.d/` 配下のディレクトリで受信・送信ルートを個別定義。正規表現でルートを振り分ける
 - **MTA非依存**: Postfix・Sendmail・外部MTAを問わず、SMTP after-queue content filter として動作する
 - **MariaDB のみ必須**: RabbitMQ・MinIO・Redis はすべてオプション。`queue.backend: none` / `storage.backend: filesystem` / `redis.backend: mariadb` で外部サービスなしの単一ノード構成にできる
 - **管理 Web UI**: メール一覧・隔離管理・添付ファイル分離・ユーザー管理・監査ログ・API キー管理を Web ブラウザで操作できる

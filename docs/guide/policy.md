@@ -64,7 +64,7 @@ rules:
 | `deliver` | `destination` で指定した MTA へ SMTP 送信する |
 | `quarantine` | メールを隔離する。受信者に即時通知メールを送信（設定による） |
 | `reject` | 送信者にバウンスを返す |
-| `approval` | 承認キューに保留する（フェーズ4実装予定） |
+| `approval` | 承認キューに保留する |
 
 ### `deliver` の `destination`
 

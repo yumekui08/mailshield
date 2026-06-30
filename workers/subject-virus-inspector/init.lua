@@ -1,13 +1,5 @@
 -- subject-virus-inspector
--- 設定ファイル（/app/config/workers/conf/subject-virus-inspector.yaml）の
--- キーワードに一致する件名を検知する検査ワーカー。
---
--- inspect(mail, config) の引数:
---   mail   : メール情報テーブル（subject, from, to, auth_results など）
---   config : subject-virus-inspector.yaml の内容
---
--- 戻り値:
---   { detected: bool, score: int, details: table }
+-- config/workers/subject-virus-inspector.yaml のキーワードに一致する件名を検知する。
 
 local M = {}
 

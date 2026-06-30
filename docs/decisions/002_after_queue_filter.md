@@ -2,10 +2,10 @@
 
 ## 決定
 
-smtp-inbound は Postfix の after-queue content filter として動作する（port 10024）。
+smtp-gateway は Postfix の after-queue content filter として動作する（port 10024）。
 
 ## 理由
 
 - Postfix がメールをキューに受け取った後に処理するため、MTA側のキューイングが保証される
-- smtp-inbound が 451 を返すと Postfix がリトライキューに残す（メール消失を防ぐ）
+- smtp-gateway が 451 を返すと Postfix がリトライキューに残す（メール消失を防ぐ）
 - before-queue filter と違い、Postfix のキュー管理・バウンス処理をそのまま活用できる
