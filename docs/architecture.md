@@ -86,8 +86,8 @@ api-server が MinIO から処理済み EML を取得し、`config/mailshield.ya
 MailShield のスコープ外。インターネットから SMTP(:25) でメールを受け取り、
 `content_filter` として smtp-gateway(port 10024) へ転送する。
 
-開発・動作確認用の Postfix + Rspamd が `examples/mta/` に同梱されており、
-`dev` プロファイルで起動できる。本番環境では自前の MTA を使うこと。
+本番・開発ともに自前の MTA を用意すること。
+詳細な設定例は [MTA との連携](./setup/mta-self-managed.md) を参照。
 
 詳細は [システム概要と前提アーキテクチャ](./setup/overview.md) を参照。
 
@@ -152,11 +152,6 @@ mailshield/
 │   ├── architecture.md              # 本ドキュメント
 │   ├── decisions/                   # ADR
 │   └── specs/                       # 技術仕様
-├── examples/                        # 参考設定（開発・動作確認用）
-│   └── mta/                         # 開発用 MTA（本番環境では自前の MTA を使うこと）
-│       ├── postfix/
-│       ├── postfix-submission/
-│       └── rspamd/
 ├── infra/                           # インフラ設定（コードなし）
 │   ├── minio/
 │   └── rabbitmq/

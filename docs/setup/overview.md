@@ -156,7 +156,7 @@ MailShield 自体は `make dev-up` で起動できます。
 
 | 必要なコンポーネント | 対応方法 |
 |-------------------|---------|
-| 受信 MTA | **自前で用意する**（設定例: `examples/mta/`） |
+| 受信 MTA | **自前で用意する**（詳細: [MTA との連携](./mta-self-managed.md)） |
 | 再インジェクト MTA | 同じ MTA の content_filter なしポート（通常 10025） |
 | 通知用 SMTP リレー | Mailpit（`dev` プロファイル・port 1025）で代替可 |
 

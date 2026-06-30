@@ -1,7 +1,6 @@
 # 自前 MTA（Postfix + Rspamd）の接続設定
 
-このガイドでは、Postfix + Rspamd を自前で用意して MailShield と連携させる手順を説明します。  
-Docker 同梱の MTA を使う場合は [mta-docker.md](./mta-docker.md) を参照してください。
+このガイドでは、Postfix + Rspamd を自前で用意して MailShield と連携させる手順を説明します。
 
 ---
 

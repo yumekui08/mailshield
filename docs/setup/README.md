@@ -26,7 +26,6 @@
 | **[MailShield 設定ガイド](./mailshield-config.md)** | **全設定項目のステップバイステップ解説（メイン）** |
 | [Docker プロファイル](./profiles.md) | 起動するコンポーネントの選択方法 |
 | [MTA との連携](./mta-self-managed.md) | 自前 Postfix / Rspamd の要件と設定例 |
-| [MTA 設定例（examples/mta/）](./mta-docker.md) | examples/ フォルダの Postfix + Rspamd 設定ファイルの解説 |
 | [バイナリインストール](./binary-install.md) | Docker を使わないセットアップ |
 | [アップグレード](./upgrade.md) | バージョンアップ手順 |
 | [ARC 署名統合](./arc-integration.md) | Exchange Online / Google Workspace への ARC 登録手順 |
