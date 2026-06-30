@@ -149,7 +149,7 @@ mailshield/
 │   └── workers/
 │       └── conf/                    # ワーカー固有設定ファイル
 ├── docs/                            # ドキュメント
-│   ├── architecture.md              # 本ドキュメント
+│   ├── architecture.md
 │   ├── decisions/                   # ADR
 │   └── specs/                       # 技術仕様
 ├── infra/                           # インフラ設定（コードなし）

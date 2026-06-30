@@ -130,7 +130,7 @@ docker compose -f docker/docker-compose.yml logs -f smtp-gateway
 
 ## 次のステップ
 
-設定の詳細・全パラメータの説明は以下を参照してください。
+設定の詳細と全パラメータは以下のドキュメントを参照してください。
 
 - [MailShield 設定ガイド](./mailshield-config.md) — 全設定項目のステップバイステップ解説
 - [Docker プロファイル](./profiles.md) — 起動するコンポーネントの選択方法

@@ -26,7 +26,7 @@ flowchart TD
 
 ## セッション認証（ブラウザ向け）
 
-### ログインフロー（スタンドアロン認証）
+### メール・パスワードでのログイン
 
 ```mermaid
 sequenceDiagram
@@ -186,7 +186,7 @@ DELETE /api/v1/api-keys/{id}    # 即時失効
 |-------------|------|
 | `GET /healthz` | ヘルスチェック |
 | `GET /api/v1/auth/providers` | 認証プロバイダー一覧 |
-| `POST /api/v1/auth/login` | スタンドアロンログイン |
+| `POST /api/v1/auth/login` | メール・パスワードでのログイン |
 | `GET /api/v1/auth/login/oidc` | OIDC ログイン開始 |
 | `GET /api/v1/auth/callback` | OIDC コールバック |
 | `POST /api/v1/auth/setup` | 初期管理者作成 |

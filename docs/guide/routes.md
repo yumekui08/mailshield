@@ -117,7 +117,7 @@ match:
 
 ## 典型的な構成例
 
-### 受信のみ（シンプル）
+### 受信のみ
 
 ```yaml
 # config/routes.d/10-inbound/route.yaml

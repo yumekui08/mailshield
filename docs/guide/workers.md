@@ -1,6 +1,5 @@
 # ワーカー設定ガイド
 
-MailShield の組み込みワーカーの設定方法を説明します。
 カスタムワーカー（Lua / Go）の作成方法は [開発者向けガイド](../development/custom-worker-lua.md) を参照してください。
 
 ---
@@ -29,7 +28,7 @@ workers:
 各ワーカーの詳細設定は `config/workers/conf/{name}.yaml` に記述します。
 
 Lua ワーカーの配置ディレクトリは `config/mailshield.yaml` の `workers.workers_dir` で指定します。
-デフォルトは `./workers`（スタンドアロン実行時）または `/app/workers`（Docker 実行時）です。
+デフォルトは `./workers`（バイナリ直接実行時）または `/app/workers`（Docker 実行時）です。
 
 ---
 

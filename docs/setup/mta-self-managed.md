@@ -1,6 +1,6 @@
 # 自前 MTA（Postfix + Rspamd）の接続設定
 
-このガイドでは、Postfix + Rspamd を自前で用意して MailShield と連携させる手順を説明します。
+Postfix + Rspamd を自前で用意して MailShield と連携させる場合の手順です。
 
 ---
 

@@ -1,6 +1,6 @@
 # ARC 署名統合ガイド
 
-MailShield の `arcsealer-worker` を使って、処理済みメールに ARC（Authenticated Received Chain）署名を付与する手順を説明します。
+`arcsealer-worker` を有効にすると、処理済みメールに ARC（Authenticated Received Chain）署名を付与できます。
 
 ---
 
