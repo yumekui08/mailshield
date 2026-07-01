@@ -58,8 +58,12 @@ type OCRConfig struct {
 
 // ReputationAPIConfig は外部レピュテーション API の設定を保持する。
 type ReputationAPIConfig struct {
-	Backend string `yaml:"backend"` // none | safe_browsing | web_risk
-	APIKey  string `yaml:"api_key"`
+	Backend       string `yaml:"backend"` // none | safe_browsing | web_risk
+	APIKey        string `yaml:"api_key"`
+	Endpoint      string `yaml:"endpoint"`
+	TimeoutSeconds int   `yaml:"timeout_seconds"`
+	ClientID      string `yaml:"client_id"`
+	ClientVersion string `yaml:"client_version"`
 }
 
 // ScoresConfig は各検知項目のスコアを保持する。
@@ -71,19 +75,22 @@ type ScoresConfig struct {
 // Config は qr-worker の設定を保持する。
 type Config struct {
 	// MaxImages はメール1通で検査する画像の上限。
-	MaxImages     int                 `yaml:"max_images"`
-	QRDecode      QRDecodeConfig      `yaml:"qr_decode"`
-	OCR           OCRConfig           `yaml:"ocr"`
-	DenyList      []string            `yaml:"deny_list"`
-	ReputationAPI ReputationAPIConfig `yaml:"reputation_api"`
-	Scores        ScoresConfig        `yaml:"scores"`
+	MaxImages      int                 `yaml:"max_images"`
+	// MaxImagePixels は OOM 防止のための画像ピクセル数上限（幅×高さ）。
+	MaxImagePixels int                 `yaml:"max_image_pixels"`
+	QRDecode       QRDecodeConfig      `yaml:"qr_decode"`
+	OCR            OCRConfig           `yaml:"ocr"`
+	DenyList       []string            `yaml:"deny_list"`
+	ReputationAPI  ReputationAPIConfig `yaml:"reputation_api"`
+	Scores         ScoresConfig        `yaml:"scores"`
 }
 
 // Worker は QR コード検査ワーカーである。
 type Worker struct {
-	maxImages  int
-	qrDecoder  qrDecoder    // nil のとき QR デコード無効
-	ocrClient  ocrScanner   // nil のとき OCR 無効
+	maxImages      int
+	maxImagePixels int
+	qrDecoder      qrDecoder  // nil のとき QR デコード無効
+	ocrClient      ocrScanner // nil のとき OCR 無効
 	denyList   []string     // 小文字に正規化済み
 	reputation reputationChecker
 	scores     ScoresConfig
@@ -113,11 +120,11 @@ func New(workerConfigDir string) (*Worker, error) {
 	switch cfg.ReputationAPI.Backend {
 	case "safe_browsing":
 		if apiKey != "" {
-			checker = newSafeBrowsingChecker(apiKey)
+			checker = newSafeBrowsingChecker(apiKey, cfg.ReputationAPI.Endpoint, cfg.ReputationAPI.TimeoutSeconds, cfg.ReputationAPI.ClientID, cfg.ReputationAPI.ClientVersion)
 		}
 	case "web_risk":
 		if apiKey != "" {
-			checker = newWebRiskChecker(apiKey)
+			checker = newWebRiskChecker(apiKey, cfg.ReputationAPI.Endpoint, cfg.ReputationAPI.TimeoutSeconds)
 		}
 	}
 
@@ -131,13 +138,19 @@ func New(workerConfigDir string) (*Worker, error) {
 		ocrCli = newOCRClient(cfg.OCR.Endpoint, cfg.OCR.TimeoutSeconds)
 	}
 
+	maxImagePixels := cfg.MaxImagePixels
+	if maxImagePixels <= 0 {
+		maxImagePixels = 4096 * 4096
+	}
+
 	return &Worker{
-		maxImages:  cfg.MaxImages,
-		qrDecoder:  qrDec,
-		ocrClient:  ocrCli,
-		denyList:   denyList,
-		reputation: checker,
-		scores:     cfg.Scores,
+		maxImages:      cfg.MaxImages,
+		maxImagePixels: maxImagePixels,
+		qrDecoder:      qrDec,
+		ocrClient:      ocrCli,
+		denyList:       denyList,
+		reputation:     checker,
+		scores:         cfg.Scores,
 	}, nil
 }
 
@@ -246,18 +259,16 @@ func (w *Worker) extractURLsFromImages(ctx context.Context, env *enmime.Envelope
 	return result
 }
 
-// maxImagePixels は OOM 防止のための画像ピクセル数上限（4096×4096 = 16M ピクセル）。
-const maxImagePixels = 4096 * 4096
-
 // decodeImageSafe は画像ヘッダーを先読みしてサイズを確認してからデコードする。
 // 巨大な PNG 等（< 1MB 圧縮, > 4GB 展開）による OOM を防ぐ。
-func decodeImageSafe(data []byte) (image.Image, error) {
+// maxPixels は許容するピクセル数上限（幅×高さ）。
+func decodeImageSafe(data []byte, maxPixels int) (image.Image, error) {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("画像ヘッダー読み取り失敗: %w", err)
 	}
-	if cfg.Width*cfg.Height > maxImagePixels {
-		return nil, fmt.Errorf("画像サイズが上限を超えています (%dx%d > %d pixels)", cfg.Width, cfg.Height, maxImagePixels)
+	if cfg.Width*cfg.Height > maxPixels {
+		return nil, fmt.Errorf("画像サイズが上限を超えています (%dx%d > %d pixels)", cfg.Width, cfg.Height, maxPixels)
 	}
 	img, _, err2 := image.Decode(bytes.NewReader(data))
 	return img, err2
@@ -268,7 +279,7 @@ func (w *Worker) scanImage(ctx context.Context, data []byte, contentType string)
 	var found []string
 
 	if w.qrDecoder != nil {
-		img, err := decodeImageSafe(data)
+		img, err := decodeImageSafe(data, w.maxImagePixels)
 		if err == nil {
 			if text, err := w.qrDecoder.Decode(img); err == nil && text != "" {
 				for _, u := range urlInImagePattern.FindAllString(text, -1) {
@@ -353,6 +364,9 @@ func loadConfig(dir string) (*Config, error) {
 	if cfg.MaxImages <= 0 {
 		cfg.MaxImages = defaultConfig().MaxImages
 	}
+	if cfg.MaxImagePixels <= 0 {
+		cfg.MaxImagePixels = defaultConfig().MaxImagePixels
+	}
 	if cfg.Scores == (ScoresConfig{}) {
 		cfg.Scores = defaultConfig().Scores
 	}
@@ -361,10 +375,11 @@ func loadConfig(dir string) (*Config, error) {
 
 func defaultConfig() *Config {
 	return &Config{
-		MaxImages: 10,
-		QRDecode:  QRDecodeConfig{Enabled: true},
-		OCR:       OCRConfig{Enabled: false, TimeoutSeconds: 30},
-		ReputationAPI: ReputationAPIConfig{Backend: "none"},
+		MaxImages:      10,
+		MaxImagePixels: 4096 * 4096,
+		QRDecode:       QRDecodeConfig{Enabled: true},
+		OCR:            OCRConfig{Enabled: false, TimeoutSeconds: 30},
+		ReputationAPI:  ReputationAPIConfig{Backend: "none"},
 		Scores: ScoresConfig{
 			DenyListMatch:    100,
 			ReputationAPIHit: 90,

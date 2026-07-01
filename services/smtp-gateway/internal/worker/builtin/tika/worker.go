@@ -31,9 +31,13 @@ type PatternConfig struct {
 
 // Config は dlp-worker の設定を保持する。
 type Config struct {
-	TikaURL        string          `yaml:"tika_url"`
-	TimeoutSeconds int             `yaml:"timeout_seconds"`
-	Patterns       []PatternConfig `yaml:"patterns"`
+	TikaURL             string          `yaml:"tika_url"`
+	TimeoutSeconds      int             `yaml:"timeout_seconds"`
+	// MaxResponseBytes は Tika からのレスポンス読み取りサイズ上限（OOM防止）。
+	MaxResponseBytes    int             `yaml:"max_response_bytes"`
+	// DefaultPatternScore はパターンの score が 0 以下のとき適用されるデフォルトスコア。
+	DefaultPatternScore int             `yaml:"default_pattern_score"`
+	Patterns            []PatternConfig `yaml:"patterns"`
 }
 
 type compiledPattern struct {
@@ -44,10 +48,11 @@ type compiledPattern struct {
 
 // Worker は Tika を使った DLP 検査ワーカーである。
 type Worker struct {
-	tikaURL  string
-	timeout  time.Duration
-	patterns []compiledPattern
-	client   *http.Client
+	tikaURL          string
+	timeout          time.Duration
+	maxResponseBytes int
+	patterns         []compiledPattern
+	client           *http.Client
 }
 
 // New は dlp-worker を初期化する。
@@ -57,16 +62,17 @@ func New(workerConfigDir string) (*Worker, error) {
 		return nil, fmt.Errorf("dlp-worker 設定ロード失敗: %w", err)
 	}
 
-	patterns, err := compilePatterns(cfg.Patterns)
+	patterns, err := compilePatterns(cfg.Patterns, cfg.DefaultPatternScore)
 	if err != nil {
 		return nil, fmt.Errorf("dlp-worker パターンコンパイル失敗: %w", err)
 	}
 
 	return &Worker{
-		tikaURL:  cfg.TikaURL,
-		timeout:  time.Duration(cfg.TimeoutSeconds) * time.Second,
-		patterns: patterns,
-		client:   &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second},
+		tikaURL:          cfg.TikaURL,
+		timeout:          time.Duration(cfg.TimeoutSeconds) * time.Second,
+		maxResponseBytes: cfg.MaxResponseBytes,
+		patterns:         patterns,
+		client:           &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second},
 	}, nil
 }
 
@@ -156,9 +162,7 @@ func (w *Worker) extractText(ctx context.Context, data []byte, contentType strin
 		return "", fmt.Errorf("Tika 非200レスポンス: %d", resp.StatusCode)
 	}
 
-	// Tika レスポンスを最大 10MB に制限し、巨大な PDF による OOM を防ぐ。
-	const maxTikaResponseBytes = 10 * 1024 * 1024
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTikaResponseBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(w.maxResponseBytes)))
 	if err != nil {
 		return "", fmt.Errorf("Tika レスポンス読み取り失敗: %w", err)
 	}
@@ -184,18 +188,29 @@ func loadConfig(dir string) (*Config, error) {
 	if cfg.TimeoutSeconds == 0 {
 		cfg.TimeoutSeconds = 30
 	}
+	if cfg.MaxResponseBytes == 0 {
+		cfg.MaxResponseBytes = 10 * 1024 * 1024
+	}
+	if cfg.DefaultPatternScore == 0 {
+		cfg.DefaultPatternScore = 50
+	}
 	return &cfg, nil
 }
 
 func defaultConfig() *Config {
 	return &Config{
-		TikaURL:        "http://tika:9998",
-		TimeoutSeconds: 30,
-		Patterns:       []PatternConfig{},
+		TikaURL:             "http://tika:9998",
+		TimeoutSeconds:      30,
+		MaxResponseBytes:    10 * 1024 * 1024,
+		DefaultPatternScore: 50,
+		Patterns:            []PatternConfig{},
 	}
 }
 
-func compilePatterns(cfgs []PatternConfig) ([]compiledPattern, error) {
+func compilePatterns(cfgs []PatternConfig, defaultScore int) ([]compiledPattern, error) {
+	if defaultScore <= 0 {
+		defaultScore = 50
+	}
 	compiled := make([]compiledPattern, 0, len(cfgs))
 	for _, c := range cfgs {
 		re, err := regexp.Compile(c.Regex)
@@ -204,7 +219,7 @@ func compilePatterns(cfgs []PatternConfig) ([]compiledPattern, error) {
 		}
 		score := c.Score
 		if score <= 0 {
-			score = 50
+			score = defaultScore
 		}
 		compiled = append(compiled, compiledPattern{name: c.Name, re: re, score: score})
 	}

@@ -107,7 +107,7 @@ policy:
   rules_file: /etc/mailshield/policy.yaml
 `)
 
-	cfg, err := config.Load(f)
+	cfg, err := config.Load(dir)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -141,7 +141,7 @@ func TestLoad_RoutesOrdering(t *testing.T) {
 			"name: "+tc.name+"\ndirection: outbound\npolicy:\n  rules_file: /dev/null\n")
 	}
 
-	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	cfg, err := config.Load(dir)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -180,7 +180,7 @@ func TestLoad_PolicyAutoResolve(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	cfg, err := config.Load(dir)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -206,7 +206,7 @@ func TestLoad_PolicyAutoResolveNoFile(t *testing.T) {
 	makeRouteDir(t, filepath.Join(dir, "routes.d"), "10-inbound",
 		"name: inbound\ndirection: inbound\n")
 
-	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	cfg, err := config.Load(dir)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -234,7 +234,7 @@ func TestLoad_MailshieldDFragment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	cfg, err := config.Load(dir)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -253,7 +253,7 @@ func TestLoad_MailshieldDNotExistIsOK(t *testing.T) {
 		t.Fatal(err)
 	}
 	// mailshield.d/ が存在しなくても正常に読み込める
-	_, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	_, err := config.Load(dir)
 	if err != nil {
 		t.Errorf("mailshield.d/ が存在しなくてもエラーにならないべき: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestLoad_RoutesDirNotExistIsOK(t *testing.T) {
 		t.Fatal(err)
 	}
 	// routes.d/ が存在しなくても正常に読み込める（フレッシュインストール対応）
-	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	cfg, err := config.Load(dir)
 	if err != nil {
 		t.Errorf("routes.d/ が存在しなくてもエラーにならないべき: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestLoad_RouteWithoutRouteYamlSkipped(t *testing.T) {
 	}
 	makeRouteDir(t, routesDir, "10-inbound", "name: inbound\ndirection: inbound\n")
 
-	cfg, err := config.Load(filepath.Join(dir, "mailshield.yaml"))
+	cfg, err := config.Load(dir)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -325,7 +325,7 @@ database:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(userFile)
+	cfg, err := config.Load(dir)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -350,8 +350,8 @@ database:
 }
 
 func TestLoad_FileNotFound(t *testing.T) {
-	_, err := config.Load("/nonexistent/path/mailshield.yaml")
+	_, err := config.Load("/nonexistent/path")
 	if err == nil {
-		t.Error("存在しないファイルはエラーを返すべき")
+		t.Error("存在しないディレクトリはエラーを返すべき")
 	}
 }

@@ -9,19 +9,39 @@ import (
 	"time"
 )
 
-const safeBrowsingEndpoint = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
+const defaultSafeBrowsingEndpoint = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
+const defaultSafeBrowsingClientID = "mailshield"
+const defaultSafeBrowsingClientVersion = "1.0"
 
 // safeBrowsingChecker は Google Safe Browsing API v4 を使う reputationChecker 実装。
 // 非商用利用向け。バッチ API のため複数 URL を1リクエストで検査できる。
 type safeBrowsingChecker struct {
-	apiKey string
-	client *http.Client
+	apiKey        string
+	endpoint      string
+	client        *http.Client
+	clientID      string
+	clientVersion string
 }
 
-func newSafeBrowsingChecker(apiKey string) *safeBrowsingChecker {
+func newSafeBrowsingChecker(apiKey, endpoint string, timeoutSeconds int, clientID, clientVersion string) *safeBrowsingChecker {
+	if endpoint == "" {
+		endpoint = defaultSafeBrowsingEndpoint
+	}
+	if timeoutSeconds == 0 {
+		timeoutSeconds = 10
+	}
+	if clientID == "" {
+		clientID = defaultSafeBrowsingClientID
+	}
+	if clientVersion == "" {
+		clientVersion = defaultSafeBrowsingClientVersion
+	}
 	return &safeBrowsingChecker{
-		apiKey: apiKey,
-		client: &http.Client{Timeout: 10 * time.Second},
+		apiKey:        apiKey,
+		endpoint:      endpoint,
+		client:        &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
+		clientID:      clientID,
+		clientVersion: clientVersion,
 	}
 }
 
@@ -48,8 +68,8 @@ func (c *safeBrowsingChecker) Check(ctx context.Context, urls []string) ([]strin
 	}
 
 	var body reqBody
-	body.Client.ClientID = "mailshield"
-	body.Client.ClientVersion = "1.0"
+	body.Client.ClientID = c.clientID
+	body.Client.ClientVersion = c.clientVersion
 	body.ThreatInfo.ThreatTypes = []string{"MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE"}
 	body.ThreatInfo.PlatformTypes = []string{"ANY_PLATFORM"}
 	body.ThreatInfo.ThreatEntryTypes = []string{"URL"}
@@ -60,7 +80,7 @@ func (c *safeBrowsingChecker) Check(ctx context.Context, urls []string) ([]strin
 		return nil, fmt.Errorf("Safe Browsing リクエスト JSON 作成失敗: %w", err)
 	}
 
-	endpoint := safeBrowsingEndpoint + "?key=" + c.apiKey
+	endpoint := c.endpoint + "?key=" + c.apiKey
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("Safe Browsing HTTP リクエスト作成失敗: %w", err)

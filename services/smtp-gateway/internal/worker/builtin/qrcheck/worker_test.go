@@ -100,12 +100,13 @@ func buildTextOnlyEML() []byte {
 
 func newTestWorker(qr qrDecoder, ocr ocrScanner, rep reputationChecker, denyList []string, scores ScoresConfig) *Worker {
 	return &Worker{
-		maxImages:  10,
-		qrDecoder:  qr,
-		ocrClient:  ocr,
-		denyList:   denyList,
-		reputation: rep,
-		scores:     scores,
+		maxImages:      10,
+		maxImagePixels: 4096 * 4096,
+		qrDecoder:      qr,
+		ocrClient:      ocr,
+		denyList:       denyList,
+		reputation:     rep,
+		scores:         scores,
 	}
 }
 
@@ -225,9 +226,10 @@ func TestQRCheck_APIHit(t *testing.T) {
 func TestQRCheck_MaxImages(t *testing.T) {
 	var scanCount int
 	w := &Worker{
-		maxImages: 2,
-		qrDecoder: &countingQRDecoder{count: &scanCount},
-		scores:    defaultScores,
+		maxImages:      2,
+		maxImagePixels: 4096 * 4096,
+		qrDecoder:      &countingQRDecoder{count: &scanCount},
+		scores:         defaultScores,
 	}
 	r, err := w.Inspect(context.Background(), mail(buildMultiImageEML(make1x1PNG(), 3)))
 	if err != nil {

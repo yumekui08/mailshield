@@ -9,19 +9,27 @@ import (
 	"time"
 )
 
-const webRiskEndpoint = "https://webrisk.googleapis.com/v1/uris:search"
+const defaultWebRiskEndpoint = "https://webrisk.googleapis.com/v1/uris:search"
 
 // webRiskChecker は Google Web Risk API v1 を使う reputationChecker 実装。
 // 商用利用向け（Google Cloud 従量課金）。URL を1件ずつ GET で検査する。
 type webRiskChecker struct {
-	apiKey string
-	client *http.Client
+	apiKey   string
+	endpoint string
+	client   *http.Client
 }
 
-func newWebRiskChecker(apiKey string) *webRiskChecker {
+func newWebRiskChecker(apiKey, endpoint string, timeoutSeconds int) *webRiskChecker {
+	if endpoint == "" {
+		endpoint = defaultWebRiskEndpoint
+	}
+	if timeoutSeconds == 0 {
+		timeoutSeconds = 10
+	}
 	return &webRiskChecker{
-		apiKey: apiKey,
-		client: &http.Client{Timeout: 10 * time.Second},
+		apiKey:   apiKey,
+		endpoint: endpoint,
+		client:   &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
 	}
 }
 
@@ -49,7 +57,7 @@ func (c *webRiskChecker) checkOne(ctx context.Context, rawURL string) (bool, err
 		params.Add("threatTypes", t)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, webRiskEndpoint+"?"+params.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"?"+params.Encode(), nil)
 	if err != nil {
 		return false, fmt.Errorf("HTTP リクエスト作成失敗: %w", err)
 	}

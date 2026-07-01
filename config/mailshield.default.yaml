@@ -35,6 +35,22 @@ server:
   # SIGTERMを受けてから既存セッションの終了を待つ最大時間（秒）
   shutdown_timeout_seconds: 30
 
+  # HTTP ヘルスチェックサーバーのシャットダウンタイムアウト（秒）
+  http_shutdown_timeout_seconds: 5
+
+  # trusted_sources のホスト名を DNS 解決する際のタイムアウト（秒）
+  dns_resolve_timeout_seconds: 3
+
+  # 操作別タイムアウト（秒）
+  storage_save_timeout_seconds: 15   # EML 保存（MinIO/FS）
+  db_save_timeout_seconds: 5         # メタデータ DB 保存
+  queue_publish_timeout_seconds: 5   # RabbitMQ イベント発行
+  simulate_timeout_seconds: 30       # POST /simulate ハンドラ全体
+
+  # アーカイブリトライ設定
+  archive_max_retries: 3             # 最大リトライ回数
+  archive_retry_backoff_seconds: 2   # バックオフ基準秒数（線形: (attempt+1) × backoff）
+
   # smtp-gateway への SMTP 接続を許可するホスト/IP
   # CIDR 表記可（例: 172.17.0.0/16）。ホスト名は SMTP 接続ごとにオンデマンドで DNS 解決される。
   # Postfix 以外からの接続を受け付けないようにすること。
@@ -60,9 +76,15 @@ storage:
   # 分離した添付ファイルの保存バケット
   bucket_attachments: mailshield-attachments
 
+  # S3/MinIO リージョン（MinIO 単体では無視される。AWS S3 では必須）
+  region: us-east-1
+
   # filesystem モード専用
   local_dir: ./data/eml
   # public_base_url: http://localhost:8090    # GetPresignedURL が返すURLのベース
+  # filesystem モードで GetPresignedURL が生成する URL のパスセグメント。
+  # api-server のルーティングと合わせること。
+  public_path_prefix: /internal/files/
 
 # ─── データベース ────────────────────────────────────────────────────────────
 
@@ -79,6 +101,8 @@ database:
   max_open_conns: 10
   max_idle_conns: 5
   conn_max_lifetime_minutes: 5
+  # 起動時 DB 疎通確認タイムアウト（秒）
+  ping_timeout_seconds: 5
 
 # ─── メッセージキュー ────────────────────────────────────────────────────────
 
@@ -109,6 +133,10 @@ notification:
   smtp_host: localhost                  # ENV: MAILSHIELD_NOTIFICATION_SMTP_HOST
   smtp_port: 25                         # ENV: MAILSHIELD_NOTIFICATION_SMTP_PORT
   from_address: noreply@mailshield.internal
+  # 通知メール SMTP 接続タイムアウト（秒）
+  smtp_connect_timeout_seconds: 10
+  # 通知メール SMTP 操作全体のデッドライン（秒）
+  smtp_deadline_seconds: 30
 
 # ─── 再インジェクト ──────────────────────────────────────────────────────────
 

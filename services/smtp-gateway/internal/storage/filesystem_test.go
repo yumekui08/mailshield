@@ -11,7 +11,7 @@ import (
 
 func newTestFilesystem(t *testing.T) *storage.FilesystemStorage {
 	t.Helper()
-	s, err := storage.NewFilesystem(t.TempDir(), "https://example.com")
+	s, err := storage.NewFilesystem(t.TempDir(), "https://example.com", "")
 	if err != nil {
 		t.Fatalf("NewFilesystem() error = %v", err)
 	}
@@ -19,7 +19,7 @@ func newTestFilesystem(t *testing.T) *storage.FilesystemStorage {
 }
 
 func TestFilesystemStorage_NewFilesystem_EmptyBaseDir(t *testing.T) {
-	_, err := storage.NewFilesystem("", "")
+	_, err := storage.NewFilesystem("", "", "")
 	if err == nil {
 		t.Error("空の baseDir はエラーを返すべき")
 	}
@@ -44,7 +44,7 @@ func TestFilesystemStorage_SaveAttachment(t *testing.T) {
 
 func TestFilesystemStorage_SaveAndReadBack(t *testing.T) {
 	base := t.TempDir()
-	s, err := storage.NewFilesystem(base, "")
+	s, err := storage.NewFilesystem(base, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestFilesystemStorage_DeleteAttachment_NotExist(t *testing.T) {
 }
 
 func TestFilesystemStorage_GetPresignedURL(t *testing.T) {
-	s, err := storage.NewFilesystem(t.TempDir(), "https://cdn.example.com")
+	s, err := storage.NewFilesystem(t.TempDir(), "https://cdn.example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestFilesystemStorage_GetPresignedURL(t *testing.T) {
 }
 
 func TestFilesystemStorage_GetPresignedURL_NoBaseURL(t *testing.T) {
-	s, err := storage.NewFilesystem(t.TempDir(), "")
+	s, err := storage.NewFilesystem(t.TempDir(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

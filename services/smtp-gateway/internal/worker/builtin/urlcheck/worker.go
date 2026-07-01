@@ -34,6 +34,14 @@ type ReputationAPIConfig struct {
 	Backend string `yaml:"backend"`
 	// APIKey はバックエンドの API キー。環境変数 REPUTATION_API_KEY で上書き可能。
 	APIKey string `yaml:"api_key"`
+	// Endpoint はバックエンド API の URL。空の場合は各バックエンドのデフォルト値を使う。
+	Endpoint string `yaml:"endpoint"`
+	// TimeoutSeconds は HTTP クライアントのタイムアウト（秒）。
+	TimeoutSeconds int `yaml:"timeout_seconds"`
+	// ClientID は Safe Browsing API に送るアプリ識別子。
+	ClientID string `yaml:"client_id"`
+	// ClientVersion は Safe Browsing API に送るアプリバージョン。
+	ClientVersion string `yaml:"client_version"`
 }
 
 // ScoresConfig は各検知項目のスコアを保持する。
@@ -85,11 +93,11 @@ func New(workerConfigDir string) (*Worker, error) {
 	switch cfg.ReputationAPI.Backend {
 	case "safe_browsing":
 		if apiKey != "" {
-			checker = newSafeBrowsingChecker(apiKey)
+			checker = newSafeBrowsingChecker(apiKey, cfg.ReputationAPI.Endpoint, cfg.ReputationAPI.TimeoutSeconds, cfg.ReputationAPI.ClientID, cfg.ReputationAPI.ClientVersion)
 		}
 	case "web_risk":
 		if apiKey != "" {
-			checker = newWebRiskChecker(apiKey)
+			checker = newWebRiskChecker(apiKey, cfg.ReputationAPI.Endpoint, cfg.ReputationAPI.TimeoutSeconds)
 		}
 	}
 

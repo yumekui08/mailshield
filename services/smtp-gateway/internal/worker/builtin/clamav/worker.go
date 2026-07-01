@@ -18,15 +18,18 @@ const workerName = "av-worker"
 
 // Config は av-worker の設定を保持する。
 type Config struct {
-	Host           string `yaml:"host"`
-	Port           int    `yaml:"port"`
-	TimeoutSeconds int    `yaml:"timeout_seconds"`
+	Host                           string `yaml:"host"`
+	Port                           int    `yaml:"port"`
+	TimeoutSeconds                 int    `yaml:"timeout_seconds"`
+	// ChunkDeadlineExtensionSeconds はチャンク転送ごとのローリングデッドライン延長幅（秒）。
+	ChunkDeadlineExtensionSeconds  int    `yaml:"chunk_deadline_extension_seconds"`
 }
 
 // Worker は ClamAV を使った検査ワーカーである。
 type Worker struct {
-	addr    string
-	timeout time.Duration
+	addr                 string
+	timeout              time.Duration
+	chunkDeadlineExt     time.Duration
 }
 
 // New は av-worker を初期化する。
@@ -37,8 +40,9 @@ func New(workerConfigDir string) (*Worker, error) {
 		return nil, fmt.Errorf("av-worker 設定ロード失敗: %w", err)
 	}
 	return &Worker{
-		addr:    fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
-		timeout: time.Duration(cfg.TimeoutSeconds) * time.Second,
+		addr:             fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		timeout:          time.Duration(cfg.TimeoutSeconds) * time.Second,
+		chunkDeadlineExt: time.Duration(cfg.ChunkDeadlineExtensionSeconds) * time.Second,
 	}, nil
 }
 
@@ -47,7 +51,7 @@ func (w *Worker) Name() string { return workerName }
 // Inspect は EML（添付ファイルを含む）を ClamAV でスキャンする。
 // ctx のデッドラインが timeout より短い場合は ctx の期限でスキャンが中断される。
 func (w *Worker) Inspect(ctx context.Context, mail *domain.Mail) (*domain.InspectResult, error) {
-	result, err := scan(ctx, w.addr, w.timeout, mail.RawEML)
+	result, err := scan(ctx, w.addr, w.timeout, w.chunkDeadlineExt, mail.RawEML)
 	if err != nil {
 		return nil, fmt.Errorf("ClamAV スキャン失敗: %w", err)
 	}
@@ -69,7 +73,7 @@ func loadConfig(dir string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return &Config{Host: "clamav", Port: 3310, TimeoutSeconds: 30}, nil
+			return &Config{Host: "clamav", Port: 3310, TimeoutSeconds: 30, ChunkDeadlineExtensionSeconds: 10}, nil
 		}
 		return nil, fmt.Errorf("設定ファイル読み込み失敗 (%s): %w", path, err)
 	}
@@ -85,6 +89,9 @@ func loadConfig(dir string) (*Config, error) {
 	}
 	if cfg.TimeoutSeconds == 0 {
 		cfg.TimeoutSeconds = 30
+	}
+	if cfg.ChunkDeadlineExtensionSeconds == 0 {
+		cfg.ChunkDeadlineExtensionSeconds = 10
 	}
 	return &cfg, nil
 }

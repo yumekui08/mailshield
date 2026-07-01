@@ -28,7 +28,7 @@ type scanResult struct {
 //
 // コンテキストの期限とタイムアウトの短い方を接続のデッドラインに設定するため、
 // 親の handler_timeout_seconds に達した場合もスキャンが中断される。
-func scan(ctx context.Context, addr string, timeout time.Duration, data []byte) (*scanResult, error) {
+func scan(ctx context.Context, addr string, timeout, chunkDeadlineExt time.Duration, data []byte) (*scanResult, error) {
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("clamd 接続失敗 (%s): %w", addr, err)
@@ -38,7 +38,7 @@ func scan(ctx context.Context, addr string, timeout time.Duration, data []byte) 
 	// チャンク転送ごとにデッドラインを延長するローリングデッドライン。
 	// 固定デッドラインでは大きな EML の転送中に期限が切れ、ストリーム終端を送れない。
 	// コンテキスト期限との調整は setChunkDeadline 内で行う。
-	const chunkDeadlineExtension = 10 * time.Second
+	chunkDeadlineExtension := chunkDeadlineExt
 
 	// setChunkDeadline はコンテキスト期限と chunkDeadlineExtension の短い方をデッドラインに設定する。
 	setChunkDeadline := func() error {

@@ -21,7 +21,10 @@ type Storage struct {
 }
 
 // New は MinIO クライアントを初期化して Storage を返す。
-func New(endpoint, accessKey, secretKey, bucketEML, bucketAttachments string, useSSL bool) (*Storage, error) {
+func New(endpoint, accessKey, secretKey, bucketEML, bucketAttachments, region string, useSSL bool) (*Storage, error) {
+	if region == "" {
+		region = "us-east-1"
+	}
 	scheme := "http"
 	if useSSL {
 		scheme = "https"
@@ -29,7 +32,7 @@ func New(endpoint, accessKey, secretKey, bucketEML, bucketAttachments string, us
 	baseEndpoint := fmt.Sprintf("%s://%s", scheme, endpoint)
 
 	client := s3.New(s3.Options{
-		Region:       "us-east-1",
+		Region:       region,
 		Credentials:  aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
 		BaseEndpoint: aws.String(baseEndpoint),
 		UsePathStyle: true,

@@ -43,21 +43,29 @@ type PolicyRules struct {
 
 // Engine はポリシーエンジンの実装である。
 type Engine struct {
-	rules              []Rule
+	rules               []Rule
 	// defaultDestination は deliver アクションのルールに destination が指定されていない場合に使う宛先。
 	// mailshield.yaml の reinject.host:port から設定される。
-	defaultDestination string
+	defaultDestination  string
+	// defaultDeliverPort は destination にポートが含まれない場合に補完するデフォルトポート。
+	// mailshield.yaml の reinject.port から設定される。
+	defaultDeliverPort  int
 }
 
 // New は policy.yaml を読み込んで Engine を構築する。
 // defaultDestination は deliver アクション時のデフォルト再インジェクト先（host:port）。
+// defaultDeliverPort は policy の destination にポートが省略された場合に補完するポート番号。
 // ルールに destination が明示されている場合はそちらが優先される。
 // rulesFile が空の場合はポリシーファイル未指定として全メールをデフォルト宛先に配送する。
-func New(rulesFile, defaultDestination string) (*Engine, error) {
+func New(rulesFile, defaultDestination string, defaultDeliverPort int) (*Engine, error) {
+	if defaultDeliverPort == 0 {
+		defaultDeliverPort = 25
+	}
 	if rulesFile == "" {
 		return &Engine{
 			rules:              []Rule{{Name: "default", Condition: "true", Action: "deliver"}},
 			defaultDestination: defaultDestination,
+			defaultDeliverPort: defaultDeliverPort,
 		}, nil
 	}
 	data, err := os.ReadFile(rulesFile)
@@ -70,7 +78,7 @@ func New(rulesFile, defaultDestination string) (*Engine, error) {
 		return nil, fmt.Errorf("policy.yaml パース失敗: %w", err)
 	}
 
-	return &Engine{rules: pr.Rules, defaultDestination: defaultDestination}, nil
+	return &Engine{rules: pr.Rules, defaultDestination: defaultDestination, defaultDeliverPort: defaultDeliverPort}, nil
 }
 
 // Evaluate は検査結果を評価してアクション種別とマッチしたルール名を返す。
@@ -148,9 +156,9 @@ func (e *Engine) deliver(ctx context.Context, mail *domain.Mail, destination str
 		return fmt.Errorf("deliver アクションの宛先が未設定です（policy の destination または mailshield.yaml の reinject.host を設定してください）")
 	}
 
-	// 宛先アドレスが host:port 形式でない場合は :25 を付加
+	// 宛先アドレスが host:port 形式でない場合はデフォルトポートを付加
 	if !strings.Contains(destination, ":") {
-		destination = destination + ":25"
+		destination = fmt.Sprintf("%s:%d", destination, e.defaultDeliverPort)
 	}
 
 	host, _, err := net.SplitHostPort(destination)

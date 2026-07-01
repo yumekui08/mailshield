@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -42,14 +43,47 @@ import (
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/urlrewrite"
 )
 
+const version = "0.1.0"
+
+func resolveConfigDir(path string) string {
+	if path == "" {
+		path = os.Getenv("MAILSHIELD_CONFIG_DIR")
+	}
+	if path == "" {
+		path = "config"
+	}
+	return path
+}
+
 func main() {
-	// ログ初期化前なので設定読み込みエラーは stderr に出力
-	configFile := os.Getenv("CONFIG_FILE")
-	if configFile == "" {
-		configFile = "config/mailshield.yaml"
+	var (
+		configPath  string
+		showVersion bool
+	)
+	flag.StringVar(&configPath, "c", "", "設定ディレクトリのパス (デフォルト: config, 環境変数: MAILSHIELD_CONFIG_DIR)")
+	flag.StringVar(&configPath, "config", "", "設定ディレクトリのパス (デフォルト: config, 環境変数: MAILSHIELD_CONFIG_DIR)")
+	flag.BoolVar(&showVersion, "v", false, "バージョンを表示して終了")
+	flag.BoolVar(&showVersion, "version", false, "バージョンを表示して終了")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: smtp-gateway [options]\n\nOptions:\n")
+		fmt.Fprintf(os.Stderr, "  -c, -config <dir>   設定ディレクトリのパス\n")
+		fmt.Fprintf(os.Stderr, "                      <dir>/mailshield.default.yaml → <dir>/mailshield.yaml →\n")
+		fmt.Fprintf(os.Stderr, "                      <dir>/mailshield.d/*.yaml → <dir>/routes.d/ の順に読み込む\n")
+		fmt.Fprintf(os.Stderr, "                      (デフォルト: config, 環境変数: MAILSHIELD_CONFIG_DIR)\n")
+		fmt.Fprintf(os.Stderr, "  -v, -version        バージョンを表示して終了\n")
+		fmt.Fprintf(os.Stderr, "  -h, -help           このヘルプを表示して終了\n")
+	}
+	flag.Parse()
+
+	if showVersion {
+		fmt.Printf("mailshield smtp-gateway version %s\n", version)
+		os.Exit(0)
 	}
 
-	cfg, err := config.Load(configFile)
+	// ログ初期化前なので設定読み込みエラーは stderr に出力
+	configDir := resolveConfigDir(configPath)
+
+	cfg, err := config.Load(configDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "設定読み込み失敗: %v\n", err)
 		os.Exit(1)
@@ -61,8 +95,8 @@ func main() {
 	}
 
 	slog.Info("smtp-gateway 起動中",
-		"version", "0.1.0",
-		"config", configFile,
+		"version", version,
+		"config_dir", configDir,
 		"log_level", cfg.Log.Level,
 		"log_output", cfg.Log.Output,
 	)
@@ -75,7 +109,7 @@ func main() {
 	switch cfg.Storage.Backend {
 	case "filesystem":
 		slog.Debug("ローカルファイルシステムストレージ初期化", "dir", cfg.Storage.LocalDir)
-		fs, err := storage.NewFilesystem(cfg.Storage.LocalDir, cfg.Storage.PublicBaseURL)
+		fs, err := storage.NewFilesystem(cfg.Storage.LocalDir, cfg.Storage.PublicBaseURL, cfg.Storage.PublicPathPrefix)
 		if err != nil {
 			slog.Error("ローカルストレージ初期化失敗", "error", err)
 			os.Exit(1)
@@ -90,6 +124,7 @@ func main() {
 			cfg.Storage.SecretKey,
 			cfg.Storage.BucketEML,
 			cfg.Storage.BucketAttachments,
+			cfg.Storage.Region,
 			cfg.Storage.UseSSL,
 		)
 		if err != nil {
@@ -112,6 +147,7 @@ func main() {
 		MaxOpenConns:           cfg.Database.MaxOpenConns,
 		MaxIdleConns:           cfg.Database.MaxIdleConns,
 		ConnMaxLifetimeMinutes: cfg.Database.ConnMaxLifetimeMinutes,
+		PingTimeoutSeconds:     cfg.Database.PingTimeoutSeconds,
 	})
 	if err != nil {
 		slog.Error("MariaDB 初期化失敗", "error", err)
@@ -149,34 +185,34 @@ func main() {
 
 	// ワーカーインスタンスはステートレスなので全ルートで共有する。
 	// どのルートで有効化するかは各ルートの WorkersConfig で制御する。
-	configDir := cfg.Workers.WorkerConfigDir
+	workerConfigDir := cfg.Workers.WorkerConfigDir
 
-	avWorker, err := clamav.New(configDir)
+	avWorker, err := clamav.New(workerConfigDir)
 	if err != nil {
 		slog.Error("av-worker 初期化失敗", "error", err)
 		os.Exit(1)
 	}
-	dlpWorker, err := tika.New(configDir)
+	dlpWorker, err := tika.New(workerConfigDir)
 	if err != nil {
 		slog.Error("dlp-worker 初期化失敗", "error", err)
 		os.Exit(1)
 	}
-	headerWorker, err := header.New(configDir)
+	headerWorker, err := header.New(workerConfigDir)
 	if err != nil {
 		slog.Error("header-inspector 初期化失敗", "error", err)
 		os.Exit(1)
 	}
-	urlCheckWorker, err := urlcheck.New(configDir)
+	urlCheckWorker, err := urlcheck.New(workerConfigDir)
 	if err != nil {
 		slog.Error("url-worker 初期化失敗", "error", err)
 		os.Exit(1)
 	}
-	qrCheckWorker, err := qrcheck.New(configDir)
+	qrCheckWorker, err := qrcheck.New(workerConfigDir)
 	if err != nil {
 		slog.Error("qr-worker 初期化失敗", "error", err)
 		os.Exit(1)
 	}
-	sanitizeWorker, err := sanitize.New(configDir)
+	sanitizeWorker, err := sanitize.New(workerConfigDir)
 	if err != nil {
 		slog.Error("sanitize-worker 初期化失敗", "error", err)
 		os.Exit(1)
@@ -185,22 +221,22 @@ func main() {
 		mode, _ := cfg.AttachmentDownload.DownloadModeFor(string(dir))
 		return domain.DownloadMode(mode)
 	}
-	filesepWorker, err := filesep.New(configDir, attachStorage, repo, cfg.Notification.SMTPHost, cfg.Notification.SMTPPort, downloadModeFn)
+	filesepWorker, err := filesep.New(workerConfigDir, attachStorage, repo, cfg.Notification.SMTPHost, cfg.Notification.SMTPPort, downloadModeFn)
 	if err != nil {
 		slog.Error("filesep-worker 初期化失敗", "error", err)
 		os.Exit(1)
 	}
-	urlRewriteWorker, err := urlrewrite.New(configDir)
+	urlRewriteWorker, err := urlrewrite.New(workerConfigDir)
 	if err != nil {
 		slog.Error("url-rewrite-worker 初期化失敗", "error", err)
 		os.Exit(1)
 	}
-	disclaimerWorker, err := disclaimer.New(configDir)
+	disclaimerWorker, err := disclaimer.New(workerConfigDir)
 	if err != nil {
 		slog.Error("disclaimer-worker 初期化失敗", "error", err)
 		os.Exit(1)
 	}
-	arcSealerWorker, err := arcsealer.New(configDir)
+	arcSealerWorker, err := arcsealer.New(workerConfigDir)
 	if err != nil {
 		// 設定ファイルがない場合は警告のみ（オプション機能）
 		slog.Warn("arc-sealer 初期化スキップ（設定ファイルなし・ARC シールは無効）", "error", err)
@@ -246,7 +282,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		pe, err := policy.New(routeCfg.Policy.RulesFile, cfg.Reinject.Addr())
+		pe, err := policy.New(routeCfg.Policy.RulesFile, cfg.Reinject.Addr(), cfg.Reinject.Port)
 		if err != nil {
 			slog.Error("ポリシーエンジン初期化失敗", "route", routeCfg.Name, "error", err)
 			os.Exit(1)
@@ -275,6 +311,8 @@ func main() {
 			cfg.Notification.SMTPPort,
 			cfg.Notification.FromAddress,
 			cfg.QuarantineNotification.UIBaseURL,
+			cfg.Notification.SMTPConnectTimeoutSeconds,
+			cfg.Notification.SMTPDeadlineSeconds,
 		)
 		slog.Info("隔離即時通知: 有効",
 			"smtp_host", cfg.Notification.SMTPHost,
@@ -297,14 +335,15 @@ func main() {
 	}
 
 	smtpServer := smtp.New(smtp.Options{
-		Port:                  cfg.Server.SMTPPort,
-		Hostname:              cfg.Server.SMTPHostname,
-		TrustedSources:        cfg.Server.TrustedSources,
-		MaxMessageSizeMB:      cfg.Server.MaxMessageSizeMB,
-		MaxRecipients:         cfg.Server.MaxRecipients,
-		ReadTimeoutSeconds:    cfg.Server.ReadTimeoutSeconds,
-		WriteTimeoutSeconds:   cfg.Server.WriteTimeoutSeconds,
-		HandlerTimeoutSeconds: cfg.Server.HandlerTimeoutSeconds,
+		Port:                     cfg.Server.SMTPPort,
+		Hostname:                 cfg.Server.SMTPHostname,
+		TrustedSources:           cfg.Server.TrustedSources,
+		MaxMessageSizeMB:         cfg.Server.MaxMessageSizeMB,
+		MaxRecipients:            cfg.Server.MaxRecipients,
+		ReadTimeoutSeconds:       cfg.Server.ReadTimeoutSeconds,
+		WriteTimeoutSeconds:      cfg.Server.WriteTimeoutSeconds,
+		HandlerTimeoutSeconds:    cfg.Server.HandlerTimeoutSeconds,
+		DNSResolveTimeoutSeconds: cfg.Server.DNSResolveTimeoutSeconds,
 	}, handler)
 
 	healthAddr := fmt.Sprintf(":%d", cfg.Server.HealthPort)
@@ -360,7 +399,7 @@ func main() {
 	handler.archiveWg.Wait()
 
 	slog.Info("HTTPサーバー停止中")
-	httpCtx, httpCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	httpCtx, httpCancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.HTTPShutdownTimeoutSeconds)*time.Second)
 	defer httpCancel()
 	if err := httpServer.Shutdown(httpCtx); err != nil {
 		slog.Warn("HTTPサーバーのシャットダウンに時間がかかりました", "error", err)
@@ -420,7 +459,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	// 独立コンテキストを使い、ストレージ遅延がパイプライン（ステップ5-7）のタイムアウト予算を消費しないようにする
 	log.Debug("[2/7] MinIO へ原本 EML を保存中")
 	{
-		saveCtx, saveCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		saveCtx, saveCancel := context.WithTimeout(context.Background(), time.Duration(h.cfg.StorageSaveTimeoutSeconds)*time.Second)
 		path, err := h.storage.Save(saveCtx, mail.MessageID, mail.RawEML, mail.ReceivedAt)
 		saveCancel()
 		if err != nil {
@@ -434,7 +473,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	// 3. MariaDB にメタデータを記録（失敗してもログだけで続行）
 	log.Debug("[3/7] MariaDB へメタデータ記録中")
 	{
-		dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		dbCtx, dbCancel := context.WithTimeout(context.Background(), time.Duration(h.cfg.DBSaveTimeoutSeconds)*time.Second)
 		if err := h.repo.SaveMessage(dbCtx, mail); err != nil {
 			log.Warn("[3/7] DB メタデータ保存失敗（続行）", "error", err)
 		} else {
@@ -446,7 +485,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	// 4. RabbitMQ に mail.received を発行（失敗してもログだけで続行）
 	log.Debug("[4/7] RabbitMQ へ mail.received を発行中")
 	{
-		mqCtx, mqCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		mqCtx, mqCancel := context.WithTimeout(context.Background(), time.Duration(h.cfg.QueuePublishTimeoutSeconds)*time.Second)
 		event := toMailEvent(mail)
 		if err := h.publisher.PublishMailReceived(mqCtx, event); err != nil {
 			log.Warn("[4/7] mail.received 発行失敗（続行）", "error", err)
@@ -566,7 +605,14 @@ func (h *mailHandler) archiveAsync(messageID string, eml []byte, receivedAt time
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	const maxRetries = 3
+	maxRetries := h.cfg.ArchiveMaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	backoffSeconds := h.cfg.ArchiveRetryBackoffSeconds
+	if backoffSeconds <= 0 {
+		backoffSeconds = 2
+	}
 	var (
 		path string
 		err  error
@@ -585,7 +631,7 @@ func (h *mailHandler) archiveAsync(messageID string, eml []byte, receivedAt time
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(time.Duration(i+1) * 2 * time.Second):
+			case <-time.After(time.Duration(i+1) * time.Duration(backoffSeconds) * time.Second):
 			}
 		}
 	}
@@ -684,7 +730,7 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawEML, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
+	rawEML, err := io.ReadAll(io.LimitReader(r.Body, int64(h.cfg.MaxMessageSizeMB)*1024*1024))
 	if err != nil || len(rawEML) == 0 {
 		http.Error(w, "request body required (raw EML)", http.StatusBadRequest)
 		return
@@ -720,7 +766,7 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	rh := h.routeHandlers[route.Name]
 	m.Direction = domain.Direction(route.Direction)
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(h.cfg.SimulateTimeoutSeconds)*time.Second)
 	defer cancel()
 	// ドライランフラグを付与: 副作用を持つワーカー（filesep 等）は保存を省略する
 	ctx = context.WithValue(ctx, domain.CtxDryRun, true)

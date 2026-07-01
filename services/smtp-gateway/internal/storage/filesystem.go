@@ -13,20 +13,24 @@ import (
 // MinIO/S3 が不要な単一ノード構成向け。
 // EMLStorage, ArchiveStorage, AttachmentStorage を実装する。
 type FilesystemStorage struct {
-	baseDir       string
-	publicBaseURL string // GetPresignedURL 用ベース URL（空の場合はエラーを返す）
+	baseDir          string
+	publicBaseURL    string // GetPresignedURL 用ベース URL（空の場合はエラーを返す）
+	publicPathPrefix string // GetPresignedURL が生成する URL のパスセグメント
 }
 
 // NewFilesystem はローカルファイルシステムストレージを初期化する。
 // baseDir 配下に raw/processed/attachments サブディレクトリを作成して保存する。
-func NewFilesystem(baseDir, publicBaseURL string) (*FilesystemStorage, error) {
+func NewFilesystem(baseDir, publicBaseURL, publicPathPrefix string) (*FilesystemStorage, error) {
 	if baseDir == "" {
 		return nil, errors.New("storage.local_dir が設定されていません")
+	}
+	if publicPathPrefix == "" {
+		publicPathPrefix = "/internal/files/"
 	}
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		return nil, fmt.Errorf("ストレージディレクトリ作成失敗 (%s): %w", baseDir, err)
 	}
-	return &FilesystemStorage{baseDir: baseDir, publicBaseURL: publicBaseURL}, nil
+	return &FilesystemStorage{baseDir: baseDir, publicBaseURL: publicBaseURL, publicPathPrefix: publicPathPrefix}, nil
 }
 
 // Save は EML をローカル FS に保存してパスを返す。
@@ -85,7 +89,7 @@ func (s *FilesystemStorage) GetPresignedURL(_ context.Context, path string, _ in
 	if s.publicBaseURL == "" {
 		return "", errors.New("filesystem ストレージモードで署名付き URL を生成するには storage.public_base_url の設定が必要です")
 	}
-	return s.publicBaseURL + "/internal/files/" + path, nil
+	return s.publicBaseURL + s.publicPathPrefix + path, nil
 }
 
 func (s *FilesystemStorage) write(rel string, data []byte) (string, error) {

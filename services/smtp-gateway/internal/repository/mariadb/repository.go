@@ -19,6 +19,7 @@ type Config struct {
 	MaxOpenConns           int
 	MaxIdleConns           int
 	ConnMaxLifetimeMinutes int
+	PingTimeoutSeconds     int
 }
 
 // Repository は MariaDB を使った MailRepository 実装である。
@@ -51,7 +52,11 @@ func New(dsn string, cfg Config) (*Repository, error) {
 	db.SetMaxIdleConns(maxIdle)
 	db.SetConnMaxLifetime(time.Duration(maxLifetime) * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pingTimeout := cfg.PingTimeoutSeconds
+	if pingTimeout == 0 {
+		pingTimeout = 5
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(pingTimeout)*time.Second)
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {

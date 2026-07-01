@@ -14,19 +14,29 @@ import (
 
 // QuarantineNotifier は隔離即時通知メールを送信する。
 type QuarantineNotifier struct {
-	smtpHost    string
-	smtpPort    int
-	fromAddress string
-	uiBaseURL   string
+	smtpHost              string
+	smtpPort              int
+	fromAddress           string
+	uiBaseURL             string
+	connectTimeoutSeconds int
+	deadlineSeconds       int
 }
 
 // New は QuarantineNotifier を返す。
-func New(smtpHost string, smtpPort int, fromAddress, uiBaseURL string) *QuarantineNotifier {
+func New(smtpHost string, smtpPort int, fromAddress, uiBaseURL string, connectTimeoutSeconds, deadlineSeconds int) *QuarantineNotifier {
+	if connectTimeoutSeconds == 0 {
+		connectTimeoutSeconds = 10
+	}
+	if deadlineSeconds == 0 {
+		deadlineSeconds = 30
+	}
 	return &QuarantineNotifier{
-		smtpHost:    smtpHost,
-		smtpPort:    smtpPort,
-		fromAddress: fromAddress,
-		uiBaseURL:   strings.TrimRight(uiBaseURL, "/"),
+		smtpHost:              smtpHost,
+		smtpPort:              smtpPort,
+		fromAddress:           fromAddress,
+		uiBaseURL:             strings.TrimRight(uiBaseURL, "/"),
+		connectTimeoutSeconds: connectTimeoutSeconds,
+		deadlineSeconds:       deadlineSeconds,
 	}
 }
 
@@ -92,13 +102,11 @@ func (n *QuarantineNotifier) send(to, originalSubject, originalFrom, messageID s
 	}
 
 	addr := fmt.Sprintf("%s:%d", n.smtpHost, n.smtpPort)
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	conn, err := net.DialTimeout("tcp", addr, time.Duration(n.connectTimeoutSeconds)*time.Second)
 	if err != nil {
 		return fmt.Errorf("SMTP 接続失敗: %w", err)
 	}
-	// 接続全体のデッドライン: 30秒以内に全SMTP操作を完了する。
-	// これにより、リレーが途中で応答しなくなった場合でもゴルーチンが無期限にブロックされない。
-	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(time.Duration(n.deadlineSeconds) * time.Second)); err != nil {
 		conn.Close()
 		return fmt.Errorf("SMTP デッドライン設定失敗: %w", err)
 	}

@@ -69,6 +69,10 @@ type NotificationConfig struct {
 	SMTPHost    string `mapstructure:"smtp_host"`
 	SMTPPort    int    `mapstructure:"smtp_port"`
 	FromAddress string `mapstructure:"from_address"`
+	// SMTPConnectTimeoutSeconds は通知メール送信時の TCP 接続タイムアウト（秒）。
+	SMTPConnectTimeoutSeconds int `mapstructure:"smtp_connect_timeout_seconds"`
+	// SMTPDeadlineSeconds は通知メール送信全体のデッドライン（秒）。
+	SMTPDeadlineSeconds int `mapstructure:"smtp_deadline_seconds"`
 }
 
 type QuarantineNotificationConfig struct {
@@ -129,7 +133,18 @@ type ServerConfig struct {
 	// ヘルスチェック・シャットダウン
 	HealthPort             int `mapstructure:"health_port"`
 	ShutdownTimeoutSeconds int `mapstructure:"shutdown_timeout_seconds"`
+	HTTPShutdownTimeoutSeconds int `mapstructure:"http_shutdown_timeout_seconds"`
 	TrustedSources []string `mapstructure:"trusted_sources"`
+	// trusted_sources のホスト名を DNS 解決するタイムアウト（秒）
+	DNSResolveTimeoutSeconds int `mapstructure:"dns_resolve_timeout_seconds"`
+	// 操作別タイムアウト（秒）
+	StorageSaveTimeoutSeconds  int `mapstructure:"storage_save_timeout_seconds"`
+	DBSaveTimeoutSeconds       int `mapstructure:"db_save_timeout_seconds"`
+	QueuePublishTimeoutSeconds int `mapstructure:"queue_publish_timeout_seconds"`
+	SimulateTimeoutSeconds     int `mapstructure:"simulate_timeout_seconds"`
+	// アーカイブリトライ
+	ArchiveMaxRetries          int `mapstructure:"archive_max_retries"`
+	ArchiveRetryBackoffSeconds int `mapstructure:"archive_retry_backoff_seconds"`
 }
 
 type StorageConfig struct {
@@ -141,11 +156,16 @@ type StorageConfig struct {
 	BucketEML         string `mapstructure:"bucket_eml"`
 	BucketAttachments string `mapstructure:"bucket_attachments"`
 	UseSSL            bool   `mapstructure:"use_ssl"`
+	// Region は S3/MinIO のリージョン。MinIO 単体なら無視されるが AWS S3 では必須。
+	Region string `mapstructure:"region"`
 	// LocalDir はfallbackモード（backend: filesystem）でのEML保存先ディレクトリ。
 	LocalDir      string `mapstructure:"local_dir"`
 	// PublicBaseURL は filesystem モードで GetPresignedURL が返す URL のベース。
 	// 空の場合 GetPresignedURL はエラーを返す。
 	PublicBaseURL string `mapstructure:"public_base_url"`
+	// PublicPathPrefix は GetPresignedURL が生成する URL の固定パスセグメント。
+	// api-server のルーティングと合わせること。
+	PublicPathPrefix string `mapstructure:"public_path_prefix"`
 }
 
 type DatabaseConfig struct {
@@ -159,6 +179,8 @@ type DatabaseConfig struct {
 	MaxOpenConns           int `mapstructure:"max_open_conns"`
 	MaxIdleConns           int `mapstructure:"max_idle_conns"`
 	ConnMaxLifetimeMinutes int `mapstructure:"conn_max_lifetime_minutes"`
+	// PingTimeoutSeconds は起動時の DB 疎通確認タイムアウト（秒）。
+	PingTimeoutSeconds int `mapstructure:"ping_timeout_seconds"`
 }
 
 type QueueConfig struct {
@@ -225,7 +247,14 @@ type PolicyConfig struct {
 // configFile.default.yaml（例: config/mailshield.default.yaml）が存在する場合、
 // 先にデフォルト設定を読み込み、その後 configFile の値で上書きする。
 // 環境変数は YAML より優先される。
-func Load(configFile string) (*Config, error) {
+// Load は configDir（設定ディレクトリ）から設定を読み込む。
+// 読み込み順序:
+//  1. <configDir>/mailshield.default.yaml — 全パラメータのデフォルト値（任意）
+//  2. <configDir>/mailshield.yaml         — ユーザー設定（必須）
+//  3. <configDir>/mailshield.d/*.yaml     — フラグメント（任意、アルファベット順）
+//  4. 環境変数                             — 最優先
+//  5. <configDir>/routes.d/               — ルート定義（任意）
+func Load(configDir string) (*Config, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
@@ -260,30 +289,32 @@ func Load(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("env バインド失敗 MINIO_SECRET_KEY: %w", err)
 	}
 
-	// <base>.default.yaml が存在すれば先にロードし、configFile で上書きする
-	ext := filepath.Ext(configFile)
-	defaultFile := strings.TrimSuffix(configFile, ext) + ".default" + ext
+	defaultFile := filepath.Join(configDir, "mailshield.default.yaml")
+	userFile := filepath.Join(configDir, "mailshield.yaml")
+
+	// 1. mailshield.default.yaml が存在すれば先にロードする
 	if _, err := os.Stat(defaultFile); err == nil {
 		v.SetConfigFile(defaultFile)
 		if err := v.ReadInConfig(); err != nil {
 			return nil, fmt.Errorf("デフォルト設定ファイル読み込み失敗 (%s): %w", defaultFile, err)
 		}
-		if _, err := os.Stat(configFile); err == nil {
-			v.SetConfigFile(configFile)
+		// 2. mailshield.yaml で上書き（任意: ない場合はデフォルトのみで動く）
+		if _, err := os.Stat(userFile); err == nil {
+			v.SetConfigFile(userFile)
 			if err := v.MergeInConfig(); err != nil {
-				return nil, fmt.Errorf("設定ファイルのマージ失敗 (%s): %w", configFile, err)
+				return nil, fmt.Errorf("設定ファイルのマージ失敗 (%s): %w", userFile, err)
 			}
 		}
 	} else {
-		v.SetConfigFile(configFile)
+		// mailshield.default.yaml がない場合は mailshield.yaml を直接読む（必須）
+		v.SetConfigFile(userFile)
 		if err := v.ReadInConfig(); err != nil {
-			return nil, fmt.Errorf("設定ファイル読み込み失敗: %w", err)
+			return nil, fmt.Errorf("設定ファイル読み込み失敗 (%s): %w", userFile, err)
 		}
 	}
 
-	// mailshield.d/ 配下の *.yaml をアルファベット順にマージ（任意・存在しなければスキップ）
-	// LDAP / SCIM などの追加統合設定をここに置く。
-	fragmentsDir := filepath.Join(filepath.Dir(configFile), "mailshield.d")
+	// 3. mailshield.d/*.yaml をアルファベット順にマージ（任意）
+	fragmentsDir := filepath.Join(configDir, "mailshield.d")
 	if fragEntries, err := os.ReadDir(fragmentsDir); err == nil {
 		for _, entry := range fragEntries {
 			if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
@@ -297,15 +328,14 @@ func Load(configFile string) (*Config, error) {
 			slog.Info("mailshield.d フラグメント読み込み完了", "file", entry.Name())
 		}
 	}
-	v.SetConfigFile(configFile) // フラグメントループ後にメイン設定ファイルに戻す
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("設定のデシリアライズ失敗: %w", err)
 	}
 
-	routesDir := filepath.Join(filepath.Dir(configFile), "routes.d")
-	routes, err := loadRoutes(routesDir)
+	// 5. routes.d/ をロード
+	routes, err := loadRoutes(filepath.Join(configDir, "routes.d"))
 	if err != nil {
 		return nil, err
 	}

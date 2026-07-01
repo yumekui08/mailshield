@@ -116,7 +116,7 @@ func buildPipeline(
 func buildPolicy(t *testing.T, rulesYAML string) *policy.Engine {
 	t.Helper()
 	if rulesYAML == "" {
-		pe, err := policy.New("", "localhost:25")
+		pe, err := policy.New("", "localhost:25", 0)
 		if err != nil {
 			t.Fatalf("policy.New(empty): %v", err)
 		}
@@ -130,7 +130,7 @@ func buildPolicy(t *testing.T, rulesYAML string) *policy.Engine {
 		t.Fatal(err)
 	}
 	f.Close()
-	pe, err := policy.New(f.Name(), "localhost:25")
+	pe, err := policy.New(f.Name(), "localhost:25", 0)
 	if err != nil {
 		t.Fatalf("policy.New(%s): %v", f.Name(), err)
 	}

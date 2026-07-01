@@ -36,6 +36,7 @@ type Options struct {
 	ReadTimeoutSeconds    int
 	WriteTimeoutSeconds   int
 	HandlerTimeoutSeconds int
+	DNSResolveTimeoutSeconds int
 }
 
 // Server は SMTP サーバーのラッパーである。
@@ -67,14 +68,18 @@ func New(opts Options, handler Handler) *Server {
 		opts.HandlerTimeoutSeconds = 30
 	}
 
+	if opts.DNSResolveTimeoutSeconds == 0 {
+		opts.DNSResolveTimeoutSeconds = 3
+	}
 	staticIPs, staticNets, hostnames := parseTrustedSources(opts.TrustedSources)
 	backend := &smtpBackend{
-		staticIPs:      staticIPs,
-		staticNets:     staticNets,
-		hostnames:      hostnames,
-		maxMsgSize:     maxSize,
-		handler:        handler,
-		handlerTimeout: time.Duration(opts.HandlerTimeoutSeconds) * time.Second,
+		staticIPs:         staticIPs,
+		staticNets:        staticNets,
+		hostnames:         hostnames,
+		maxMsgSize:        maxSize,
+		handler:           handler,
+		handlerTimeout:    time.Duration(opts.HandlerTimeoutSeconds) * time.Second,
+		dnsResolveTimeout: time.Duration(opts.DNSResolveTimeoutSeconds) * time.Second,
 	}
 
 	s := gosmtp.NewServer(backend)
@@ -121,10 +126,11 @@ type smtpBackend struct {
 	staticNets []*net.IPNet    // CIDRサブネット
 	hostnames  []string        // DNS解決が必要なホスト名
 
-	maxMsgSize     int64
-	handler        Handler
-	handlerTimeout time.Duration
-	wg             sync.WaitGroup
+	maxMsgSize       int64
+	handler          Handler
+	handlerTimeout   time.Duration
+	dnsResolveTimeout time.Duration
+	wg               sync.WaitGroup
 }
 
 // NewSession は接続ごとにセッションを作成する。
@@ -177,7 +183,7 @@ func (b *smtpBackend) isTrusted(remoteIP string) bool {
 	if len(b.hostnames) == 0 {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), b.dnsResolveTimeout)
 	defer cancel()
 	for _, host := range b.hostnames {
 		addrs, err := net.DefaultResolver.LookupHost(ctx, host)
