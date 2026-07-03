@@ -1,6 +1,6 @@
 # ストレージ仕様
 
-最終更新: 2026-06-30
+最終更新: 2026-07-03
 
 ---
 
@@ -37,15 +37,19 @@
   processed/{YYYY}/{MM}/{DD}/{message_uuid}.eml
 
 分離済み添付ファイル:
-  attachments/{message_uuid}/{original_filename}
+  minio / s3    : {message_uuid}/{sanitized_filename}          ※ mailshield-attachments バケット直下
+  filesystem    : attachments/{message_uuid}/{sanitized_filename}  ※ local_dir 配下
 ```
+
+添付ファイル名は filesep-worker が保存前にサニタイズする（パス区切りの置換・制御文字の除去）。詳細は [ワーカー仕様](./workers.md) を参照。
 
 ### 例
 
 ```
 raw/2026/06/03/550e8400-e29b-41d4-a716-446655440000.eml
 processed/2026/06/03/550e8400-e29b-41d4-a716-446655440000.eml
-attachments/550e8400-e29b-41d4-a716-446655440000/report.pdf
+550e8400-e29b-41d4-a716-446655440000/report.pdf          （minio / s3）
+attachments/550e8400-e29b-41d4-a716-446655440000/report.pdf  （filesystem）
 ```
 
 パスに `tenant_id` プレフィックスは含まない。
@@ -69,6 +73,10 @@ storage:
 |---------|------|
 | `storage.local_dir` | EML ファイルを保存するルートディレクトリ |
 | `storage.public_base_url` | 署名付き URL の代わりに返す URL のベース |
+
+### パス検証
+
+filesystem バックエンドは読み書き・削除のすべてで相対パスを正規化し、`local_dir` の外を指すパス（`../` を含む等）を拒否する。外部入力由来のファイル名によるパストラバーサルへの防御層として機能する。
 
 ### 署名付き URL の代替
 
@@ -102,7 +110,7 @@ http://localhost:8080/internal/files/raw/2026/06/03/550e8400-e29b-41d4-a716-4466
 | deliver アクション後（非同期） | archiveAsync | `mailshield-eml` | `processed/YYYY/MM/DD/{uuid}.eml` |
 | quarantine アクション実行時 | [7/7] | `mailshield-eml` | `processed/YYYY/MM/DD/{uuid}.eml` |
 | 変換パイプライン失敗時（隔離） | [6/7] | `mailshield-eml` | `processed/YYYY/MM/DD/{uuid}.eml` |
-| filesep-worker が実行された場合 | [6/7] | `mailshield-attachments` | `attachments/{message_uuid}/{filename}` |
+| filesep-worker が実行された場合 | [6/7] | `mailshield-attachments` | `{message_uuid}/{filename}`（filesystem では `attachments/{message_uuid}/{filename}`） |
 | 隔離解放後の再配送時 | api-server が読み取り | `mailshield-eml` | `processed/YYYY/MM/DD/{uuid}.eml`（読み取りのみ） |
 
 ---

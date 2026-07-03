@@ -116,7 +116,7 @@ builtinInspect := []domain.InspectWorker{
 
 ## 設定ファイルの読み込み
 
-ワーカー設定を `config/workers/conf/{name}.yaml` から読み込む場合は、
+ワーカー設定を `config/workers/{name}.yaml` から読み込む場合は、
 マネージャーが渡す `rawConfig map[string]any` を自前でデシリアライズします。
 
 ```go

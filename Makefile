@@ -115,7 +115,7 @@ PROFILES_FULL     = storage,queue,dev,scanners,api
 
 ## smtp-gateway + インフラ + Mailpit（開発標準）
 dev-up:
-	$(DCENV)=$(PROFILES_DEV) $(DC) up -d
+	$(DCENV)=$(PROFILES_DEV) $(DC) up -d --build
 
 dev-down:
 	$(DCENV)=$(PROFILES_DEV) $(DC) down
@@ -125,35 +125,35 @@ dev-logs:
 
 ## smtp-gateway + MariaDB のみ（最小構成）
 core-up:
-	$(DCENV)=$(PROFILES_CORE) $(DC) up -d
+	$(DCENV)=$(PROFILES_CORE) $(DC) up -d --build
 
 core-down:
 	$(DCENV)=$(PROFILES_CORE) $(DC) down
 
 ## 受信GW + 送信GW + Mailpit
 outbound-up:
-	$(DCENV)=$(PROFILES_OUTBOUND) $(DC) up -d
+	$(DCENV)=$(PROFILES_OUTBOUND) $(DC) up -d --build
 
 outbound-down:
 	$(DCENV)=$(PROFILES_OUTBOUND) $(DC) down
 
 ## 全ワーカー有効（スキャナー含む）
 scanners-up:
-	$(DCENV)=$(PROFILES_SCANNERS) $(DC) up -d
+	$(DCENV)=$(PROFILES_SCANNERS) $(DC) up -d --build
 
 scanners-down:
 	$(DCENV)=$(PROFILES_SCANNERS) $(DC) down
 
 ## api-server + 開発標準構成
 api-up:
-	$(DCENV)=$(PROFILES_API) $(DC) up -d
+	$(DCENV)=$(PROFILES_API) $(DC) up -d --build
 
 api-down:
 	$(DCENV)=$(PROFILES_API) $(DC) down
 
 ## 全サービス
 full-up:
-	$(DCENV)=$(PROFILES_FULL) $(DC) up -d
+	$(DCENV)=$(PROFILES_FULL) $(DC) up -d --build
 
 full-down:
 	$(DCENV)=$(PROFILES_FULL) $(DC) down

@@ -13,15 +13,15 @@ import (
 // ─── スタブ実装 ──────────────────────────────────────────────────────────────
 
 type stubRepository struct {
-	expireApprovalsFunc          func(ctx context.Context) ([]string, error)
-	updateMessageStatusFunc      func(ctx context.Context, id string, status domain.MessageStatus) error
-	listPendingUnnotifiedFunc    func(ctx context.Context) ([]domain.ApprovalRequest, error)
-	listResultUnnotifiedFunc     func(ctx context.Context) ([]domain.ApprovalRequest, error)
-	markNotificationSentFunc     func(ctx context.Context, id string) error
-	markResultNotifiedFunc       func(ctx context.Context, id string) error
-	getMessageFunc               func(ctx context.Context, id string) (*domain.MessageDetail, error)
-	getUserFunc                  func(ctx context.Context, id string) (*repository.User, error)
-	findUserByEmailInternalFunc  func(ctx context.Context, email string) (*repository.User, error)
+	expireApprovalsFunc         func(ctx context.Context) ([]string, error)
+	updateMessageStatusFunc     func(ctx context.Context, id string, status domain.MessageStatus) error
+	listPendingUnnotifiedFunc   func(ctx context.Context) ([]domain.ApprovalRequest, error)
+	listResultUnnotifiedFunc    func(ctx context.Context) ([]domain.ApprovalRequest, error)
+	markNotificationSentFunc    func(ctx context.Context, id string) error
+	markResultNotifiedFunc      func(ctx context.Context, id string) error
+	getMessageFunc              func(ctx context.Context, id string) (*domain.MessageDetail, error)
+	getUserFunc                 func(ctx context.Context, id string) (*repository.User, error)
+	findUserByEmailInternalFunc func(ctx context.Context, email string) (*repository.User, error)
 }
 
 func (s *stubRepository) ExpireApprovals(ctx context.Context) ([]string, error) {
@@ -108,10 +108,10 @@ func (s *serviceRepository) BulkUpdateMessageStatus(_ context.Context, _ []strin
 func (s *serviceRepository) FindUserByEmail(_ context.Context, _ string) (*repository.User, error) {
 	return nil, nil
 }
-func (s *serviceRepository) CreateUser(_ context.Context, _ *repository.User) error   { return nil }
-func (s *serviceRepository) CountUsers(_ context.Context) (int, error)                 { return 0, nil }
-func (s *serviceRepository) ListUsers(_ context.Context) ([]repository.User, error)    { return nil, nil }
-func (s *serviceRepository) UpdateUserPassword(_ context.Context, _, _ string) error   { return nil }
+func (s *serviceRepository) CreateUser(_ context.Context, _ *repository.User) error  { return nil }
+func (s *serviceRepository) CountUsers(_ context.Context) (int, error)               { return 0, nil }
+func (s *serviceRepository) ListUsers(_ context.Context) ([]repository.User, error)  { return nil, nil }
+func (s *serviceRepository) UpdateUserPassword(_ context.Context, _, _ string) error { return nil }
 func (s *serviceRepository) UpdateUserRole(_ context.Context, _ string, _ domain.Role) error {
 	return nil
 }
@@ -162,7 +162,7 @@ func (s *serviceRepository) GetAttachmentToAddressesByToken(_ context.Context, _
 }
 func (s *serviceRepository) DisableAttachment(_ context.Context, _ string, _ bool) error { return nil }
 func (s *serviceRepository) DeleteAttachment(_ context.Context, _ string) error          { return nil }
-func (s *serviceRepository) CreateAuditLog(_ context.Context, _ *domain.AuditLog) error { return nil }
+func (s *serviceRepository) CreateAuditLog(_ context.Context, _ *domain.AuditLog) error  { return nil }
 func (s *serviceRepository) ListAuditLogs(_ context.Context, _ domain.AuditLogQuery) ([]domain.AuditLog, int, error) {
 	return nil, 0, nil
 }
@@ -173,8 +173,8 @@ func (s *serviceRepository) ListAPIKeys(_ context.Context) ([]domain.APIKey, err
 func (s *serviceRepository) FindAPIKeyByHash(_ context.Context, _ string) (*domain.APIKey, error) {
 	return nil, nil
 }
-func (s *serviceRepository) RevokeAPIKey(_ context.Context, _ string) error           { return nil }
-func (s *serviceRepository) UpdateAPIKeyLastUsed(_ context.Context, _ string) error   { return nil }
+func (s *serviceRepository) RevokeAPIKey(_ context.Context, _ string) error         { return nil }
+func (s *serviceRepository) UpdateAPIKeyLastUsed(_ context.Context, _ string) error { return nil }
 func (s *serviceRepository) ListApprovalRequests(_ context.Context, _ string) ([]domain.ApprovalRequest, error) {
 	return nil, nil
 }

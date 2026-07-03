@@ -78,11 +78,12 @@ type InspectEntry struct {
 ```yaml
 host: clamav
 port: 3310
-timeout_seconds: 25
-max_size_mb: 25
-scores:
-  virus_detected: 100
+timeout_seconds: 30
+# チャンク転送ごとのローリングデッドライン延長幅（秒・省略時 10）
+chunk_deadline_extension_seconds: 10
 ```
+
+ウイルス検知時は `score: 100` / `detected: true` / `details.virus_name` を返す（スコアは固定値）。
 
 ---
 
@@ -95,16 +96,22 @@ scores:
 
 **設定** (`config/workers/dlp-worker.yaml`):
 ```yaml
-endpoint: "http://tika:9998"
-timeout_seconds: 55
+tika_url: "http://tika:9998"
+timeout_seconds: 30
+# Tika レスポンスの読み取り上限（バイト・省略時 10MB）
+max_response_bytes: 10485760
+# score が 0 以下のパターンに適用するデフォルトスコア（省略時 50）
+default_pattern_score: 50
 patterns:
   - name: credit_card
-    regex: '\b(?:\d{4}[\s-]?){3}\d{4}\b'
+    regex: '\b(?:\d{4}[- ]?){3}\d{4}\b'
     score: 80
-  - name: personal_number
-    regex: '\b\d{3}-\d{4}-\d{4}\b'
-    score: 60
+  - name: my_number_jp
+    regex: '\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'
+    score: 80
 ```
+
+本文（text / HTML）は Tika を経由せず直接パターン検査する。添付ファイルのみ Tika でテキスト抽出してから検査する。スコアはパターンごとの最大値を合算し、100 で頭打ちになる。
 
 ---
 
@@ -214,6 +221,8 @@ skip_domains: [internal.test, localhost]
 
 添付ファイルを MinIO に保存し、EML 本体のパートをダウンロードリンクに差し替える。ルートの `attachment_download.flows` 設定に応じた認証モード（OTP / auth）で通知メールを送信する。
 
+保存時のファイル名はサニタイズされる: パス区切り（`/`・`\`）は `_` に置換、制御文字は除去され、`..` のような名前は `attachment-<timestamp>` に置き換えられる。ストレージパス（`{message_id}/{filename}`）へのパストラバーサルを防ぐため。
+
 ---
 
 ### disclaimer-worker（フッター付与）
@@ -246,7 +255,7 @@ html_footer: |
 
 ---
 
-### arcsealer-worker（ARC 署名）
+### arc-sealer（ARC 署名）
 
 - **パッケージ**: `internal/worker/builtin/arcsealer/`
 - **種別**: transform
@@ -255,25 +264,33 @@ html_footer: |
 
 処理済みメールに ARC（Authenticated Received Chain）署名ヘッダー（`ARC-Seal`, `ARC-Message-Signature`, `ARC-Authentication-Results`）を付与する。他の変換ワーカーよりも後ろの order を指定すること。
 
-**初期化の条件付きスキップ**: 設定ファイル（`config/workers/arcsealer-worker.yaml`）が存在しない場合、初期化エラーは致命的エラーとして扱われない。起動時に WARN ログを出力してワーカーをスキップし、ARC 署名なしで動作する。
+**初期化の条件付きスキップ**: 設定ファイル（`config/workers/arc-sealer.yaml`）が存在しない場合、初期化エラーは致命的エラーとして扱われない。起動時に WARN ログを出力してワーカーをスキップし、ARC 署名なしで動作する。
 
 ```
 WARN arc-sealer 初期化スキップ（設定ファイルなし・ARC シールは無効） error=...
 ```
 
-**設定ファイル** `config/workers/arcsealer-worker.yaml`:
+**設定ファイル** `config/workers/arc-sealer.yaml`:
 
 ```yaml
 selector: mailshield
 signing_domain: example.com
 private_key_path: /app/config/arc/private.pem
+# AMS で署名するヘッダー一覧（省略時デフォルト:
+#   from, to, subject, date, message-id, content-type, arc-authentication-results）
+# header_keys:
+#   - from
+#   - to
 ```
 
 | 設定項目 | 説明 |
 |---------|------|
 | `selector` | DKIM/ARC セレクター。DNS TXT レコード名は `<selector>._domainkey.<signing_domain>` |
 | `signing_domain` | ARC 署名に使用するドメイン |
-| `private_key_path` | RSA 秘密鍵ファイルのパス。`config/arc/generate-key.sh` で生成する |
+| `private_key_path` | **RSA** 秘密鍵ファイルのパス（PEM・PKCS1 / PKCS8）。`config/arc/generate-key.sh` で生成する |
+| `header_keys` | ARC-Message-Signature で署名するヘッダーフィールドの一覧（省略可） |
+
+> **注意:** 署名アルゴリズムは `a=rsa-sha256` 固定のため、RSA 以外の鍵（Ed25519 等）は起動時にエラーになる。
 
 Exchange Online と Google Workspace への登録手順は [ARC 署名統合ガイド](../setup/arc-integration.md) を参照。
 
@@ -305,14 +322,22 @@ return M
 
 | フィールド | 型 | 説明 |
 |-----------|-----|------|
-| `mail.subject` | string | 件名 |
-| `mail.from` | string | 送信者アドレス |
-| `mail.to` | []string | 宛先アドレスリスト |
-| `mail.text_body` | string | テキスト本文 |
-| `mail.html_body` | string | HTML 本文 |
+| `mail.message_id` | string | メッセージ ID（UUID） |
+| `mail.subject` | string | 件名（RFC 2047 デコード済み） |
+| `mail.from` | string | エンベロープ送信者アドレス（MAIL FROM） |
+| `mail.to` | table | エンベロープ宛先アドレスの配列（RCPT TO） |
+| `mail.size_bytes` | number | EML サイズ（バイト） |
+| `mail.has_attachment` | boolean | 添付ファイルの有無 |
+| `mail.rspamd_score` | number | Rspamd スコア（未連携時は 0） |
 | `mail.auth_results.spf` | string | `"pass"` / `"fail"` / `"none"` |
 | `mail.auth_results.dkim` | string | `"pass"` / `"fail"` / `"none"` |
 | `mail.auth_results.dmarc` | string | `"pass"` / `"fail"` / `"none"` |
+
+> 本文（テキスト / HTML）は現時点で Lua ワーカーへ公開していない。本文の検査・変換が必要な場合は Go 組み込みワーカーとして実装する。
+
+### transform の戻り値の反映
+
+`transform(mail, config)` が返したテーブルのうち、現在反映されるのは `subject` フィールドのみ。件名が変更された場合は `RawEML` の Subject ヘッダーも書き換えられる。非 ASCII 文字を含む件名は RFC 2047（B エンコーディング・UTF-8）でエンコードして書き込まれる。
 
 ### 同梱 Lua ワーカー（開発・テスト用）
 

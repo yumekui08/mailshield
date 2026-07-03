@@ -18,18 +18,18 @@ const workerName = "av-worker"
 
 // Config は av-worker の設定を保持する。
 type Config struct {
-	Host                           string `yaml:"host"`
-	Port                           int    `yaml:"port"`
-	TimeoutSeconds                 int    `yaml:"timeout_seconds"`
+	Host           string `yaml:"host"`
+	Port           int    `yaml:"port"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
 	// ChunkDeadlineExtensionSeconds はチャンク転送ごとのローリングデッドライン延長幅（秒）。
-	ChunkDeadlineExtensionSeconds  int    `yaml:"chunk_deadline_extension_seconds"`
+	ChunkDeadlineExtensionSeconds int `yaml:"chunk_deadline_extension_seconds"`
 }
 
 // Worker は ClamAV を使った検査ワーカーである。
 type Worker struct {
-	addr                 string
-	timeout              time.Duration
-	chunkDeadlineExt     time.Duration
+	addr             string
+	timeout          time.Duration
+	chunkDeadlineExt time.Duration
 }
 
 // New は av-worker を初期化する。

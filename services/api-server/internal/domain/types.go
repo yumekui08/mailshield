@@ -46,21 +46,21 @@ const (
 
 // Message はメールのメタデータを表す。
 type Message struct {
-	ID            string        `json:"id"`
-	EMLPath       string        `json:"eml_path"`
-	FromAddress   string        `json:"from_address"`
-	ToAddresses   []string      `json:"to_addresses"`
-	Subject       string        `json:"subject"`
-	SizeBytes     int64         `json:"size_bytes"`
-	HasAttachment bool          `json:"has_attachment"`
-	RspamdScore   float64       `json:"rspamd_score"`
-	SPFResult     string        `json:"spf_result"`
-	DKIMResult    string        `json:"dkim_result"`
-	DMARCResult   string        `json:"dmarc_result"`
-	Status             MessageStatus `json:"status"`
-	ProcessedEMLPath   *string       `json:"processed_eml_path,omitempty"` // archive 完了後に記録
-	ReceivedAt         time.Time     `json:"received_at"`
-	UpdatedAt          time.Time     `json:"updated_at"`
+	ID               string        `json:"id"`
+	EMLPath          string        `json:"eml_path"`
+	FromAddress      string        `json:"from_address"`
+	ToAddresses      []string      `json:"to_addresses"`
+	Subject          string        `json:"subject"`
+	SizeBytes        int64         `json:"size_bytes"`
+	HasAttachment    bool          `json:"has_attachment"`
+	RspamdScore      float64       `json:"rspamd_score"`
+	SPFResult        string        `json:"spf_result"`
+	DKIMResult       string        `json:"dkim_result"`
+	DMARCResult      string        `json:"dmarc_result"`
+	Status           MessageStatus `json:"status"`
+	ProcessedEMLPath *string       `json:"processed_eml_path,omitempty"` // archive 完了後に記録
+	ReceivedAt       time.Time     `json:"received_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
 }
 
 // InspectResult は検査ワーカーの結果を表す。

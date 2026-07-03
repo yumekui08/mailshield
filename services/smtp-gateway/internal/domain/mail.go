@@ -39,10 +39,13 @@ const (
 	StatusExpired         MessageStatus = "expired"
 )
 
+// AuthResults は SPF/DKIM/DMARC の検証結果を保持する。
+// JSON タグは mail.received イベント（docs/specs/queues.md）の
+// ワイヤーフォーマット（小文字キー）に合わせている。
 type AuthResults struct {
-	SPF   AuthResult
-	DKIM  AuthResult
-	DMARC AuthResult
+	SPF   AuthResult `json:"spf"`
+	DKIM  AuthResult `json:"dkim"`
+	DMARC AuthResult `json:"dmarc"`
 }
 
 // DefaultAuthResults はすべて "none" のデフォルト認証結果を返す。
@@ -56,8 +59,8 @@ func DefaultAuthResults() AuthResults {
 
 type Mail struct {
 	MessageID     string
-	EMLPath       string    // MinIO上のパス（保存後に設定される）
-	RawEML        []byte    // 原本EMLバイト列
+	EMLPath       string // MinIO上のパス（保存後に設定される）
+	RawEML        []byte // 原本EMLバイト列
 	ReceivedAt    time.Time
 	FromAddress   string
 	ToAddresses   []string

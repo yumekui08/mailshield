@@ -129,3 +129,41 @@ func TestFilesystemStorage_SaveAttachment_MultipleFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestFilesystemStorage_SaveAttachment_PathTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := storage.NewFilesystem(dir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// "../" を含むファイル名で baseDir 外への書き込みが拒否されること
+	_, err = fs.SaveAttachment(context.Background(), "../../escape", "../../../evil.txt", []byte("x"))
+	if err == nil {
+		t.Fatal("パストラバーサルを含むパスが拒否されませんでした")
+	}
+}
+
+func TestFilesystemStorage_Get_PathTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := storage.NewFilesystem(dir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fs.Get(context.Background(), "../outside.eml"); err == nil {
+		t.Fatal("パストラバーサルを含む読み取りパスが拒否されませんでした")
+	}
+}
+
+func TestFilesystemStorage_DeleteAttachment_PathTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := storage.NewFilesystem(dir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fs.DeleteAttachment(context.Background(), "../../outside.txt"); err == nil {
+		t.Fatal("パストラバーサルを含む削除パスが拒否されませんでした")
+	}
+}

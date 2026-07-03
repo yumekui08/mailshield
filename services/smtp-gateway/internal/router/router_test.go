@@ -94,7 +94,7 @@ func TestResolve_FallsBackToDefault(t *testing.T) {
 func TestResolve_NoMatchWithoutDefault(t *testing.T) {
 	routes := []config.RouteConfig{
 		{
-			Name: "inbound",
+			Name:  "inbound",
 			Match: config.RouteMatchConfig{To: "@internal\\.test$"},
 		},
 	}

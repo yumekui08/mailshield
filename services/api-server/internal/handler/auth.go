@@ -28,15 +28,15 @@ import (
 // AuthHandler は認証フローを処理するハンドラーである。
 // standalone と oidc は有効な場合のみ非 nil になる。
 type AuthHandler struct {
-	standalone  *auth.StandaloneProvider
-	oidc        *auth.OIDCProvider
-	store       auth.SessionStore
-	sessionCfg  *config.SessionConfig
-	frontendURL string
-	repo        repository.Repository
+	standalone   *auth.StandaloneProvider
+	oidc         *auth.OIDCProvider
+	store        auth.SessionStore
+	sessionCfg   *config.SessionConfig
+	frontendURL  string
+	repo         repository.Repository
 	pwResetStore pwreset.Store
-	notifCfg    config.NotificationConfig
-	auditLogger *audit.Logger
+	notifCfg     config.NotificationConfig
+	auditLogger  *audit.Logger
 }
 
 // NewAuthHandler はAuthHandlerを返す。

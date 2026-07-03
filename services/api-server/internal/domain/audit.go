@@ -43,11 +43,11 @@ const (
 	EventUserRoleChanged     = "user.role_changed"
 	EventUserPasswordChanged = "user.password_changed"
 
-	EventMailboxCreated            = "mailbox.created"
-	EventMailboxUpdated            = "mailbox.updated"
-	EventMailboxDeleted            = "mailbox.deleted"
-	EventMailboxAssignmentAdded    = "mailbox.assignment_added"
-	EventMailboxAssignmentRemoved  = "mailbox.assignment_removed"
+	EventMailboxCreated           = "mailbox.created"
+	EventMailboxUpdated           = "mailbox.updated"
+	EventMailboxDeleted           = "mailbox.deleted"
+	EventMailboxAssignmentAdded   = "mailbox.assignment_added"
+	EventMailboxAssignmentRemoved = "mailbox.assignment_removed"
 
 	EventAPIKeyCreated = "apikey.created"
 	EventAPIKeyRevoked = "apikey.revoked"

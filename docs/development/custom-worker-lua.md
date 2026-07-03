@@ -114,10 +114,10 @@ mail.auth_results    -- table:
 
 ## `config` テーブル
 
-`config/workers/conf/{name}.yaml` の内容が Lua テーブルとして渡されます。
+`config/workers/{name}.yaml` の内容が Lua テーブルとして渡されます。
 
 ```yaml
-# config/workers/conf/my-worker.yaml
+# config/workers/my-worker.yaml
 prefix: "[NOTICE] "
 keywords:
   - confidential
@@ -171,7 +171,7 @@ return M
 ```
 
 ```yaml
-# config/workers/conf/spf-fail-inspector.yaml
+# config/workers/spf-fail-inspector.yaml
 score: 50
 ```
 

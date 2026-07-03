@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/eml"
 )
 
 const workerName = "sanitize-worker"
@@ -73,58 +74,21 @@ func (w *Worker) Transform(_ context.Context, mail *domain.Mail) (*domain.Mail, 
 		return mail, nil // 変更なし
 	}
 
-	// HTML 本文を置き換えて EML を再構築
-	b := enmime.Builder().
-		From("", mail.FromAddress).
-		Subject(mail.Subject).
-		Date(mail.ReceivedAt)
-	for _, to := range mail.ToAddresses {
-		b = b.To("", to)
-	}
-	if env.Text != "" {
-		b = b.Text([]byte(env.Text))
-	}
-	b = b.HTML([]byte(sanitized))
-
-	for _, att := range env.Attachments {
-		b = b.AddAttachment(att.Content, att.ContentType, att.FileName)
-	}
-	for _, inline := range env.Inlines {
-		b = b.AddInline(inline.Content, inline.ContentType, inline.FileName, inline.ContentID)
-	}
-
-	root, err := b.Build()
+	// HTML 本文を置き換えて EML を再構築（元ヘッダーは eml.Rebuild が保持する）
+	newEML, err := eml.Rebuild(env, eml.RebuildInput{
+		From:    mail.FromAddress,
+		To:      mail.ToAddresses,
+		Subject: mail.Subject,
+		Date:    mail.ReceivedAt,
+		Text:    env.Text,
+		HTML:    sanitized,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("EML 再構築失敗: %w", err)
-	}
-
-	// Builder が管理する基本ヘッダー以外のすべての元ヘッダーを保持する。
-	// Authentication-Results, Received, DKIM-Signature, X-Spam-* 等の
-	// セキュリティ・監査用ヘッダーを失わないようにするために必要。
-	builderManagedHeaders := map[string]bool{
-		"From":         true,
-		"To":           true,
-		"Subject":      true,
-		"Date":         true,
-		"Mime-Version": true,
-		"Content-Type": true,
-	}
-	for _, key := range env.GetHeaderKeys() {
-		if builderManagedHeaders[key] {
-			continue
-		}
-		for _, val := range env.GetHeaderValues(key) {
-			root.Header.Add(key, val)
-		}
-	}
-
-	var buf bytes.Buffer
-	if err := root.Encode(&buf); err != nil {
-		return nil, fmt.Errorf("EML エンコード失敗: %w", err)
+		return nil, err
 	}
 
 	modified := *mail
-	modified.RawEML = buf.Bytes()
+	modified.RawEML = newEML
 	return &modified, nil
 }
 

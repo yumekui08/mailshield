@@ -5,6 +5,7 @@ package lua
 import (
 	"bytes"
 	"fmt"
+	"mime"
 	"strings"
 
 	glua "github.com/yuin/gopher-lua"
@@ -46,11 +47,23 @@ func applyTransformResult(original *domain.Mail, result *glua.LTable) *domain.Ma
 		newSubject := string(s)
 		if newSubject != original.Subject {
 			modified.Subject = newSubject
-			modified.RawEML = rewriteSubjectInEML(original.RawEML, newSubject)
+			modified.RawEML = rewriteSubjectInEML(original.RawEML, encodeSubjectIfNeeded(newSubject))
 		}
 	}
 
 	return &modified
+}
+
+// encodeSubjectIfNeeded は非 ASCII 文字を含む件名を RFC 2047（B エンコーディング・UTF-8）
+// でエンコードする。ASCII のみの件名はそのまま返す。
+// ヘッダーに生の UTF-8 を書き込むと SMTPUTF8 非対応の MTA で問題を起こすため必要。
+func encodeSubjectIfNeeded(s string) string {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return mime.BEncoding.Encode("UTF-8", s)
+		}
+	}
+	return s
 }
 
 // rewriteSubjectInEML は EML バイト列の Subject ヘッダーを新しい値に置き換える。

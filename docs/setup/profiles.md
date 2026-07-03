@@ -1,111 +1,101 @@
 # Docker Compose プロファイル
 
-MailShield は単一の `docker-compose.yml` に全コンポーネントを定義し、
-`COMPOSE_PROFILES` 環境変数で起動するコンポーネントを選択する構成です。
+MailShield は単一の `docker/docker-compose.yml` に全コンポーネントを定義し、`COMPOSE_PROFILES` 環境変数で起動するコンポーネントを選択する。本ページではプロファイルの構成と典型的な起動パターンを説明する。
 
----
+| 項目 | 内容 |
+|------|------|
+| 対象読者 | Docker Compose 構成で起動コンポーネントを調整したい管理者 |
+| 前提 | [クイックスタート](./quick-start.md) または [MailShield 設定ガイド](./mailshield-config.md) の初期設定が完了していること |
 
 ## プロファイル一覧
 
-| プロファイル | 含むサービス | 用途 |
-|------------|------------|------|
-| _(なし)_ | smtp-gateway + MariaDB | 常時起動。MariaDB は唯一の必須サービス |
-| `queue` | RabbitMQ | `mail.received` を外部システムへ通知する場合 |
-| `storage` | MinIO | EML をオブジェクトストレージに保存する場合 |
+| プロファイル | 含まれるサービス | 用途 |
+|------------|----------------|------|
+| _(なし・常時起動)_ | smtp-gateway + MariaDB | MariaDB は唯一の必須サービス |
+| `storage` | MinIO + minio-init | EML をオブジェクトストレージに保存する場合 |
+| `queue` | RabbitMQ + rabbitmq-init | `mail.received` を外部システムへ通知する場合 |
+| `scanners` | ClamAV + Apache Tika + Tesseract | ウイルス検査・DLP・QR コード検査 |
 | `dev` | Mailpit | 処理後メールをキャッチして確認する場合 |
-| `scanners` | ClamAV, Apache Tika, Tesseract | ウイルス検査・DLP・QRコード検査 |
 | `api` | api-server + Web UI + Redis | 管理画面・REST API |
 
-> **MTA は自前で用意してください。** MailShield は MTA を同梱しません。
-> 詳細は [MTA との連携](./mta-self-managed.md) を参照。
+> [!NOTE]
+> `storage` / `queue` プロファイルは省略できる。その場合は `config/mailshield.yaml` で
+> `storage.backend: filesystem`（MinIO 不要）、`queue.backend: none`（RabbitMQ 不要）を設定すること。
 
-> **queue / storage の省略について**: `queue.backend = none`（RabbitMQ 不要）、
-> `storage.backend = filesystem`（MinIO 不要）に設定することで、それぞれのプロファイルを
-> 省略した最小構成で起動できます。
+> [!IMPORTANT]
+> **MTA は同梱されない。** 受信 MTA は自前で用意し、content_filter を `smtp-gateway:10024` に向けること。詳細は [MTA との連携](./mta-self-managed.md) を参照。
 
----
+## Makefile ターゲット
 
-## 典型的な起動パターン
+| ターゲット | プロファイル | 起動されるサービス |
+|-----------|-------------|------------------|
+| `make core-up` | _(なし)_ | smtp-gateway + MariaDB のみ（最小構成） |
+| `make dev-up` | `storage,queue,dev` | + MinIO + RabbitMQ + Mailpit（開発標準） |
+| `make scanners-up` | `storage,queue,dev,scanners` | + ClamAV / Tika / Tesseract |
+| `make api-up` | `storage,queue,dev,api` | + api-server + Web UI + Redis |
+| `make full-up` | `storage,queue,dev,scanners,api` | 全サービス |
+| `make dev-down` ほか `*-down` | — | 対応する構成の停止 |
+| `make docker-clean` | — | 全ボリューム削除（初期化のやり直し） |
 
-### 開発環境
-
-```bash
-make dev-up
-# = COMPOSE_PROFILES=storage,queue,dev docker compose -f docker/docker-compose.yml up -d
-# smtp-gateway + MariaDB + MinIO + RabbitMQ + Mailpit
-# ※ MTA は自前で用意すること
-```
-
-### 開発環境（スキャナーあり）
-
-```bash
-COMPOSE_PROFILES=storage,queue,dev,scanners docker compose -f docker/docker-compose.yml up -d
-```
-
-ClamAV, Apache Tika, Tesseract も起動します。av-worker / dlp-worker / qr-worker が実際に動作します。
-
-### コアのみ
+Makefile を使わない場合は `COMPOSE_PROFILES` を直接指定する。
 
 ```bash
-make core-up
-# = docker compose -f docker/docker-compose.yml up -d（追加プロファイルなし）
-# smtp-gateway + MariaDB のみ
-# mailshield.yaml で storage.backend=filesystem, queue.backend=none に設定すること
-# 自前の MTA から port 10024 に転送するよう設定すること
+COMPOSE_PROFILES=storage,queue,dev,scanners \
+  docker compose -f docker/docker-compose.yml up -d
 ```
 
-### API・Web UI 込み
+> [!NOTE]
+> ClamAV は初回起動時にウイルス定義 DB（約 300MB）をダウンロードするため、healthy になるまで数分かかる（`start_period: 180s`）。
 
-```bash
-make api-up
-# = COMPOSE_PROFILES=storage,queue,dev,api docker compose -f docker/docker-compose.yml up -d
-# smtp-gateway + MariaDB + MinIO + RabbitMQ + Mailpit + api-server + Web UI + Redis
-```
+## 起動パターンの選び方
 
----
-
-## Makefile ショートカット
-
-```bash
-make core-up       # COMPOSE_PROFILES=（なし）  smtp-gateway + MariaDB のみ
-make dev-up        # COMPOSE_PROFILES=storage,queue,dev
-make scanners-up   # COMPOSE_PROFILES=storage,queue,dev,scanners
-make api-up        # COMPOSE_PROFILES=storage,queue,dev,api
-make dev-down      # 停止
-```
-
----
+| 状況 | 推奨ターゲット |
+|------|--------------|
+| 最小リソースで本番運用（filesystem + キューなし） | `make core-up` |
+| 開発・評価（処理後メールを Mailpit で確認） | `make dev-up` |
+| ウイルス検査・DLP を含めて検証 | `make scanners-up` |
+| 管理 Web UI・隔離管理を使う | `make api-up` |
+| 全機能 | `make full-up` |
 
 ## 外部サービスへの切り替え
 
-`.env` の接続先を変更するだけでよい。コードの変更は不要。
+同梱インフラの代わりに外部サービスを使う場合は、`.env` の接続先を変更して該当プロファイルを外すだけでよい。コードの変更は不要。
 
 ```dotenv
-# 外部 MariaDB を使う（同梱の MariaDB の代わり）
+# 外部 MariaDB（同梱 mariadb コンテナの代わり）
 DB_HOST=your-mariadb-host.example.com
 DB_PORT=3306
 
-# 外部 S3 を使う（storage プロファイルの MinIO の代わり）
-STORAGE_BACKEND=s3
-MINIO_ENDPOINT=https://s3.amazonaws.com
-AWS_REGION=ap-northeast-1
+# 外部 S3（storage プロファイルの MinIO の代わり）
+MINIO_ENDPOINT=s3.amazonaws.com
+MINIO_ACCESS_KEY=AKIAXXXXXXXXXXXXXXXX
+MINIO_SECRET_KEY=your-secret-key
+MINIO_USE_SSL=true
 
-# 外部 RabbitMQ を使う（queue プロファイルの RabbitMQ の代わり）
+# 外部 RabbitMQ（queue プロファイルの代わり）
 RABBITMQ_HOST=your-rabbitmq.example.com
 RABBITMQ_PORT=5672
+
+# 外部 Redis（api プロファイルの redis コンテナの代わり）
+REDIS_HOST=your-redis.example.com
+REDIS_PORT=6379
 ```
 
----
+対応する設定キーの詳細は [設定リファレンス](../specs/configuration.md) を参照。
 
 ## ポート一覧
 
-| ポート | サービス | 説明 |
-|-------|---------|------|
-| 10024 | smtp-gateway | コンテンツフィルター SMTP（自前 MTA の content_filter 送信先） |
-| 8080 | smtp-gateway | ヘルスチェック |
-| 8090 | api-server（api profile） | REST API |
-| 3000 | web（api profile） | Web UI |
-| 8025 | mailpit（dev profile） | Web UI（開発用メール確認） |
-| 9000 | minio（storage profile） | MinIO S3 API |
-| 9001 | minio（storage profile） | MinIO コンソール（開発時） |
-| 15672 | rabbitmq（queue profile） | RabbitMQ 管理UI（開発時） |
+| ポート | サービス | プロファイル | 説明 |
+|-------|---------|-------------|------|
+| 10024 | smtp-gateway | _(常時)_ | コンテンツフィルター SMTP（受信 MTA の content_filter 送信先） |
+| 8080 | smtp-gateway | _(常時)_ | ヘルスチェック・`/simulate` |
+| 8090 | api-server | `api` | REST API |
+| 3000 | web | `api` | 管理 Web UI |
+| 8025 | mailpit | `dev` | 開発用メール確認 UI |
+| 9000 / 9001 | minio | `storage` | S3 API / 管理コンソール |
+| 15672 | rabbitmq | `queue` | RabbitMQ 管理 UI |
+
+## 関連ドキュメント
+
+- [MailShield 設定ガイド](./mailshield-config.md) — 初期設定の全手順
+- [設定リファレンス](../specs/configuration.md) — 全設定キーと環境変数

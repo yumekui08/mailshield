@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	keyPrefix  = "pwreset:"
-	TokenTTL   = 30 * time.Minute
+	keyPrefix = "pwreset:"
+	TokenTTL  = 30 * time.Minute
 )
 
 var ErrTokenNotFound = errors.New("リセットトークンが見つかりません（期限切れか無効）")

@@ -284,8 +284,8 @@ rules:
 `)
 
 	mail := &domain.Mail{
-		MessageID: "test-3",
-		Subject:   "virus detected",
+		MessageID:   "test-3",
+		Subject:     "virus detected",
 		AuthResults: domain.DefaultAuthResults(),
 	}
 
@@ -338,8 +338,8 @@ rules:
 		Subject:     "Urgent: your account",
 		// SPF fail (30) + DKIM fail (40) = score 70, threshold 60 → detected=true
 		AuthResults: domain.AuthResults{
-			SPF:  domain.AuthFail,
-			DKIM: domain.AuthFail,
+			SPF:   domain.AuthFail,
+			DKIM:  domain.AuthFail,
 			DMARC: domain.AuthNone,
 		},
 	}
@@ -404,8 +404,8 @@ rules:
 		ToAddresses: []string{"user@internal.test"},
 		Subject:     "Hello",
 		AuthResults: domain.AuthResults{
-			SPF:  domain.AuthPass,
-			DKIM: domain.AuthPass,
+			SPF:   domain.AuthPass,
+			DKIM:  domain.AuthPass,
 			DMARC: domain.AuthPass,
 		},
 	}
@@ -463,8 +463,8 @@ rules:
 		ToAddresses: []string{"victim@internal.test"},
 		Subject:     "virus detected",
 		AuthResults: domain.AuthResults{
-			SPF:  domain.AuthFail,
-			DKIM: domain.AuthFail,
+			SPF:   domain.AuthFail,
+			DKIM:  domain.AuthFail,
 			DMARC: domain.AuthFail,
 		},
 	}
@@ -596,8 +596,8 @@ func TestPipeline_DisabledWorkerSkipped(t *testing.T) {
 	inspP, _ := buildPipeline(t, workersDir, configDir, wCfg, nil, nil)
 
 	mail := &domain.Mail{
-		MessageID: "test-disabled",
-		Subject:   "virus test mail", // 検知されるはずだが disabled なので実行されない
+		MessageID:   "test-disabled",
+		Subject:     "virus test mail", // 検知されるはずだが disabled なので実行されない
 		AuthResults: domain.DefaultAuthResults(),
 	}
 

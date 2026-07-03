@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -46,7 +47,8 @@ type Config struct {
 	SigningDomain string `yaml:"signing_domain"`
 	// Selector は DKIM セレクタ（例: mailshield）。
 	Selector string `yaml:"selector"`
-	// PrivateKeyPath は RSA または Ed25519 秘密鍵ファイルのパス（PEM 形式）。
+	// PrivateKeyPath は RSA 秘密鍵ファイルのパス（PEM 形式・PKCS1 / PKCS8）。
+	// 署名アルゴリズムが a=rsa-sha256 固定のため RSA 以外の鍵は使用できない。
 	PrivateKeyPath string `yaml:"private_key_path"`
 	// HeaderKeys は AMS で署名するヘッダーフィールドの一覧（省略可・デフォルトあり）。
 	HeaderKeys []string `yaml:"header_keys"`
@@ -439,21 +441,23 @@ func loadConfig(dir string) (*Config, error) {
 	return &cfg, nil
 }
 
-// PKCS8（RSA / Ed25519）と PKCS1（RSA のみ）に対応
+// PKCS8 と PKCS1 の RSA 鍵に対応する。
+// 署名アルゴリズムは a=rsa-sha256 固定のため、RSA 以外の鍵（Ed25519 等）は
+// 実行時の署名失敗を避けるためロード時点で明確に拒否する。
 func parsePrivateKey(data []byte) (crypto.Signer, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, errors.New("PEM デコード失敗")
 	}
 
-	// PKCS8 を先に試みる（RSA・Ed25519 両対応）
+	// PKCS8 を先に試みる
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err == nil {
-		signer, ok := key.(crypto.Signer)
+		rsaKey, ok := key.(*rsa.PrivateKey)
 		if !ok {
-			return nil, errors.New("PKCS8 鍵が crypto.Signer を実装していません")
+			return nil, fmt.Errorf("arc-sealer は RSA 鍵のみ対応しています（a=rsa-sha256 で署名するため）: 検出された鍵型 %T", key)
 		}
-		return signer, nil
+		return rsaKey, nil
 	}
 
 	// PKCS1（RSA のみ）にフォールバック

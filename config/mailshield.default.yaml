@@ -29,7 +29,7 @@ server:
   # 最も遅いワーカーの timeout_seconds よりも大きくすること。
   handler_timeout_seconds: 60
 
-  # ヘルスチェックエンドポイントのポート（GET /health）
+  # ヘルスチェックエンドポイントのポート（GET /healthz、POST /simulate）
   health_port: 8080
 
   # SIGTERMを受けてから既存セッションの終了を待つ最大時間（秒）

@@ -1,7 +1,12 @@
 # MailShield 設定ガイド
 
-MTA（Postfix + Rspamd）のセットアップが完了している前提で進めます。
-まだの場合は先に [MTA セットアップガイド](./mta-self-managed.md) を参照してください。
+本番導入時の MailShield 本体（Docker Compose 構成）の設定手順。環境変数・ルート定義・ポリシー・通知・api-server の設定を順に行う。
+
+| 項目 | 内容 |
+|------|------|
+| 対象読者 | MailShield を本番導入する管理者 |
+| 前提 | 受信 MTA（Postfix + Rspamd）のセットアップが完了していること（→ [MTA との連携](./mta-self-managed.md)） |
+| 所要時間 | 1〜2 時間 |
 
 ---
 
@@ -71,7 +76,8 @@ MINIO_SECRET_KEY=（8文字以上の任意の文字列）
 RABBITMQ_PASSWORD=（任意のパスワード）
 ```
 
-> **重要**: `make dev-up` より前に `.env` を設定してください。
+> [!WARNING]
+> `make dev-up` より前に `.env` を設定してください。
 > 先に起動すると MariaDB がデフォルトパスワードで初期化され、
 > 後から `.env` を変更してもパスワード不一致で起動しません。
 > 間違えた場合は `make docker-clean` でボリュームを削除してやり直してください。
@@ -94,7 +100,8 @@ MAILSHIELD_NOTIFICATION_SMTP_HOST=${NOTIFY_SMTP_HOST}
 MAILSHIELD_NOTIFICATION_SMTP_PORT=${NOTIFY_SMTP_PORT}
 ```
 
-> **ループに注意**: どちらも MTA の `content_filter` が設定されたポートに送ると
+> [!WARNING]
+> どちらも MTA の `content_filter` が設定されたポートに送ると
 > smtp-gateway → MTA → smtp-gateway のループが発生します。
 > 再インジェクトには content_filter なしのポート（通常 10025）を使い、
 > 通知メールには別ポートまたは別の SMTP リレーを使ってください。
@@ -120,7 +127,7 @@ server:
     # - 192.168.0.0/16
 ```
 
-CIDR 表記も使用できます。ホスト名は起動時と 30 秒ごとに DNS 解決されます。
+CIDR 表記も使用できます。ホスト名を指定した場合は SMTP 接続ごとにオンデマンドで DNS 解決されます（タイムアウトは `server.dns_resolve_timeout_seconds`・デフォルト 3 秒）。
 
 ### 3-2. ルート定義（受信・送信ドメイン）
 
@@ -342,7 +349,8 @@ COMPOSE_PROFILES=storage,queue,dev,api docker compose -f docker/docker-compose.y
 make api-up
 ```
 
-> ClamAV は初回起動時にウイルスDB（約300MB）をダウンロードするため
+> [!NOTE]
+> ClamAV は初回起動時にウイルス定義 DB（約 300MB）をダウンロードするため
 > `start_period: 180s` が設定されています。最初は数分待ってください。
 
 ### 停止
@@ -495,7 +503,7 @@ open ${WEB_UI_URL}
 ## Step 8: filesep-worker の設定（添付ファイル分離機能を使う場合）
 
 `filesep-worker` は添付ファイルを MinIO に分離保存し、ダウンロードリンクをメール本文に挿入します。
-設定ファイルは `config/workers/conf/filesep-worker.yaml` です。
+設定ファイルは `config/workers/filesep-worker/config.yaml` です（テンプレートファイルも同ディレクトリに置きます）。
 
 ```yaml
 # ダウンロードリンクのベース URL

@@ -20,6 +20,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/eml"
 )
 
 const workerName = "url-rewrite-worker"
@@ -107,43 +108,21 @@ func (w *Worker) Transform(_ context.Context, m *domain.Mail) (*domain.Mail, err
 		return m, nil
 	}
 
-	b := enmime.Builder().
-		From("", m.FromAddress).
-		Subject(m.Subject).
-		Date(m.ReceivedAt)
-	for _, to := range m.ToAddresses {
-		b = b.To("", to)
-	}
-	if newText != "" {
-		b = b.Text([]byte(newText))
-	}
-	if newHTML != "" {
-		b = b.HTML([]byte(newHTML))
-	}
-	for _, att := range env.Attachments {
-		b = b.AddAttachment(att.Content, att.ContentType, att.FileName)
-	}
-	for _, inline := range env.Inlines {
-		b = b.AddInline(inline.Content, inline.ContentType, inline.FileName, inline.ContentID)
-	}
-
-	root, err := b.Build()
+	// 元ヘッダー（Received・Authentication-Results・X-* 等）は eml.Rebuild が保持する
+	newEML, err := eml.Rebuild(env, eml.RebuildInput{
+		From:    m.FromAddress,
+		To:      m.ToAddresses,
+		Subject: m.Subject,
+		Date:    m.ReceivedAt,
+		Text:    newText,
+		HTML:    newHTML,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("EML 再構築失敗: %w", err)
-	}
-	for _, h := range []string{"Message-ID", "CC", "Reply-To", "In-Reply-To", "References"} {
-		if v := env.GetHeader(h); v != "" {
-			root.Header.Set(h, v)
-		}
-	}
-
-	var buf bytes.Buffer
-	if err := root.Encode(&buf); err != nil {
-		return nil, fmt.Errorf("EML エンコード失敗: %w", err)
+		return nil, err
 	}
 
 	modified := *m
-	modified.RawEML = buf.Bytes()
+	modified.RawEML = newEML
 	return &modified, nil
 }
 

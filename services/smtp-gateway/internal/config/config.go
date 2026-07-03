@@ -15,22 +15,22 @@ import (
 )
 
 type Config struct {
-	Server                  ServerConfig
-	Storage                 StorageConfig
-	Database                DatabaseConfig
-	Queue                   QueueConfig
+	Server   ServerConfig
+	Storage  StorageConfig
+	Database DatabaseConfig
+	Queue    QueueConfig
 	// Workers は全ルートで共有するワーカーのグローバル設定（Lua ディレクトリ等）。
 	// ルートごとの有効・無効・順序は routes[].workers.inspect / transform で制御する。
-	Workers                 WorkersGlobal
-	Routes                  []RouteConfig
-	Log                     LogConfig
-	AttachmentDownload      AttachmentDownloadConfig      `mapstructure:"attachment_download"`
-	Notification            NotificationConfig            `mapstructure:"notification"`
-	QuarantineNotification  QuarantineNotificationConfig  `mapstructure:"quarantine_notification"`
-	Approval                ApprovalConfig                `mapstructure:"approval"`
+	Workers                WorkersGlobal
+	Routes                 []RouteConfig
+	Log                    LogConfig
+	AttachmentDownload     AttachmentDownloadConfig     `mapstructure:"attachment_download"`
+	Notification           NotificationConfig           `mapstructure:"notification"`
+	QuarantineNotification QuarantineNotificationConfig `mapstructure:"quarantine_notification"`
+	Approval               ApprovalConfig               `mapstructure:"approval"`
 	// Reinject は deliver アクション時のデフォルト再インジェクト先。
 	// policy ファイルに destination が明示されている場合はそちらが優先される。
-	Reinject                ReinjectConfig                `mapstructure:"reinject"`
+	Reinject ReinjectConfig `mapstructure:"reinject"`
 }
 
 // ReinjectConfig は処理済みメールを MTA に戻す再インジェクト先の設定。
@@ -77,7 +77,7 @@ type NotificationConfig struct {
 
 type QuarantineNotificationConfig struct {
 	// Enabled を false にすると通知メールを送信しない。
-	Enabled   bool   `mapstructure:"enabled"`
+	Enabled bool `mapstructure:"enabled"`
 	// UIBaseURL は通知メール内の「確認はこちら」リンクのベース URL。
 	UIBaseURL string `mapstructure:"ui_base_url"`
 }
@@ -123,18 +123,18 @@ type LogConfig struct {
 
 type ServerConfig struct {
 	// SMTP サーバー設定
-	SMTPPort              int      `mapstructure:"smtp_port"`
-	SMTPHostname          string   `mapstructure:"smtp_hostname"`
-	MaxMessageSizeMB      int      `mapstructure:"max_message_size_mb"`
-	MaxRecipients         int      `mapstructure:"smtp_max_recipients"`
-	ReadTimeoutSeconds    int      `mapstructure:"smtp_read_timeout_seconds"`
-	WriteTimeoutSeconds   int      `mapstructure:"smtp_write_timeout_seconds"`
-	HandlerTimeoutSeconds int      `mapstructure:"handler_timeout_seconds"`
+	SMTPPort              int    `mapstructure:"smtp_port"`
+	SMTPHostname          string `mapstructure:"smtp_hostname"`
+	MaxMessageSizeMB      int    `mapstructure:"max_message_size_mb"`
+	MaxRecipients         int    `mapstructure:"smtp_max_recipients"`
+	ReadTimeoutSeconds    int    `mapstructure:"smtp_read_timeout_seconds"`
+	WriteTimeoutSeconds   int    `mapstructure:"smtp_write_timeout_seconds"`
+	HandlerTimeoutSeconds int    `mapstructure:"handler_timeout_seconds"`
 	// ヘルスチェック・シャットダウン
-	HealthPort             int `mapstructure:"health_port"`
-	ShutdownTimeoutSeconds int `mapstructure:"shutdown_timeout_seconds"`
-	HTTPShutdownTimeoutSeconds int `mapstructure:"http_shutdown_timeout_seconds"`
-	TrustedSources []string `mapstructure:"trusted_sources"`
+	HealthPort                 int      `mapstructure:"health_port"`
+	ShutdownTimeoutSeconds     int      `mapstructure:"shutdown_timeout_seconds"`
+	HTTPShutdownTimeoutSeconds int      `mapstructure:"http_shutdown_timeout_seconds"`
+	TrustedSources             []string `mapstructure:"trusted_sources"`
 	// trusted_sources のホスト名を DNS 解決するタイムアウト（秒）
 	DNSResolveTimeoutSeconds int `mapstructure:"dns_resolve_timeout_seconds"`
 	// 操作別タイムアウト（秒）
@@ -159,7 +159,7 @@ type StorageConfig struct {
 	// Region は S3/MinIO のリージョン。MinIO 単体なら無視されるが AWS S3 では必須。
 	Region string `mapstructure:"region"`
 	// LocalDir はfallbackモード（backend: filesystem）でのEML保存先ディレクトリ。
-	LocalDir      string `mapstructure:"local_dir"`
+	LocalDir string `mapstructure:"local_dir"`
 	// PublicBaseURL は filesystem モードで GetPresignedURL が返す URL のベース。
 	// 空の場合 GetPresignedURL はエラーを返す。
 	PublicBaseURL string `mapstructure:"public_base_url"`
@@ -195,7 +195,7 @@ type QueueConfig struct {
 // MAIL FROM / RCPT TO に対して正規表現マッチを行い、最初にマッチしたルートが適用される。
 // routes.d/<name>/route.yaml から yaml.v3 でデシリアライズされるため yaml タグが必要。
 type RouteConfig struct {
-	Name      string           `mapstructure:"name"      yaml:"name"`
+	Name string `mapstructure:"name"      yaml:"name"`
 	// Direction はこのルートで処理するメールの方向（inbound / outbound / internal）。
 	Direction string           `mapstructure:"direction" yaml:"direction"`
 	Match     RouteMatchConfig `mapstructure:"match"     yaml:"match"`

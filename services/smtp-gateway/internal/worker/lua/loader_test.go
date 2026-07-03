@@ -3,6 +3,8 @@ package lua_test
 import (
 	"bytes"
 	"context"
+	"mime"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strings"
@@ -319,22 +321,24 @@ func TestTransformWorker_Transform(t *testing.T) {
 	w := tra["subject-virus-transformer"]
 
 	tests := []struct {
-		subject        string
-		rawEML         string
-		wantSubject    string
-		wantEMLContain string
+		subject     string
+		rawEML      string
+		wantSubject string
+		// wantEMLSubject は RawEML の Subject ヘッダー値（デコード後）の期待値。
+		// 非 ASCII の件名は RFC 2047 エンコードされて書き込まれる。
+		wantEMLSubject string
 	}{
 		{
 			subject:        "virus test mail",
 			rawEML:         "Subject: virus test mail\r\nFrom: a@b.com\r\n\r\nBody",
 			wantSubject:    "[迷惑メール注意] virus test mail",
-			wantEMLContain: "Subject: [迷惑メール注意] virus test mail",
+			wantEMLSubject: "[迷惑メール注意] virus test mail",
 		},
 		{
 			subject:        "Hello World",
 			rawEML:         "Subject: Hello World\r\nFrom: a@b.com\r\n\r\nBody",
 			wantSubject:    "Hello World",
-			wantEMLContain: "Subject: Hello World",
+			wantEMLSubject: "Hello World",
 		},
 	}
 	for _, tt := range tests {
@@ -347,8 +351,9 @@ func TestTransformWorker_Transform(t *testing.T) {
 			if result.Subject != tt.wantSubject {
 				t.Errorf("Subject = %q, want %q", result.Subject, tt.wantSubject)
 			}
-			if !bytes.Contains(result.RawEML, []byte(tt.wantEMLContain)) {
-				t.Errorf("RawEML に %q が含まれていない", tt.wantEMLContain)
+			gotEMLSubject := decodeSubjectHeader(t, result.RawEML)
+			if gotEMLSubject != tt.wantEMLSubject {
+				t.Errorf("RawEML の Subject = %q, want %q", gotEMLSubject, tt.wantEMLSubject)
 			}
 			if !strings.Contains(string(result.RawEML), "Body") {
 				t.Error("RawEML のボディが消えた")
@@ -358,6 +363,22 @@ func TestTransformWorker_Transform(t *testing.T) {
 			}
 		})
 	}
+}
+
+// decodeSubjectHeader は EML の Subject ヘッダーを取り出して RFC 2047 デコードする。
+func decodeSubjectHeader(t *testing.T, rawEML []byte) string {
+	t.Helper()
+	msg, err := mail.ReadMessage(bytes.NewReader(rawEML))
+	if err != nil {
+		t.Fatalf("EML パース失敗: %v", err)
+	}
+	raw := msg.Header.Get("Subject")
+	dec := new(mime.WordDecoder)
+	decoded, err := dec.DecodeHeader(raw)
+	if err != nil {
+		return raw
+	}
+	return decoded
 }
 
 func TestTransformWorker_CustomConfig(t *testing.T) {

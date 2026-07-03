@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -47,7 +48,11 @@ func (s *FilesystemStorage) Save(_ context.Context, messageID string, eml []byte
 
 // Get は指定パスの EML を返す。
 func (s *FilesystemStorage) Get(_ context.Context, path string) ([]byte, error) {
-	data, err := os.ReadFile(filepath.Join(s.baseDir, path))
+	cleaned, err := s.safeRelPath(path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(s.baseDir, cleaned))
 	if err != nil {
 		return nil, fmt.Errorf("EML 読み込み失敗 (%s): %w", path, err)
 	}
@@ -75,7 +80,11 @@ func (s *FilesystemStorage) SaveAttachment(_ context.Context, messageID, filenam
 
 // DeleteAttachment は保存済み添付ファイルを削除する。ファイルが存在しない場合は成功とする。
 func (s *FilesystemStorage) DeleteAttachment(_ context.Context, path string) error {
-	full := filepath.Join(s.baseDir, path)
+	cleaned, err := s.safeRelPath(path)
+	if err != nil {
+		return err
+	}
+	full := filepath.Join(s.baseDir, cleaned)
 	if err := os.Remove(full); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("添付ファイル削除失敗 (%s): %w", path, err)
 	}
@@ -93,12 +102,26 @@ func (s *FilesystemStorage) GetPresignedURL(_ context.Context, path string, _ in
 }
 
 func (s *FilesystemStorage) write(rel string, data []byte) (string, error) {
-	full := filepath.Join(s.baseDir, rel)
+	cleaned, err := s.safeRelPath(rel)
+	if err != nil {
+		return "", err
+	}
+	full := filepath.Join(s.baseDir, cleaned)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return "", fmt.Errorf("ディレクトリ作成失敗: %w", err)
 	}
 	if err := os.WriteFile(full, data, 0o644); err != nil {
-		return "", fmt.Errorf("ファイル書き込み失敗 (%s): %w", rel, err)
+		return "", fmt.Errorf("ファイル書き込み失敗 (%s): %w", cleaned, err)
 	}
-	return rel, nil
+	return cleaned, nil
+}
+
+// safeRelPath は相対パスが baseDir の外を指していないことを検証して正規化済みパスを返す。
+// 添付ファイル名など外部入力由来のパスセグメントによるパストラバーサルを防ぐ。
+func (s *FilesystemStorage) safeRelPath(rel string) (string, error) {
+	cleaned := filepath.Clean(rel)
+	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("不正なストレージパス (%s): ベースディレクトリ外を指しています", rel)
+	}
+	return cleaned, nil
 }

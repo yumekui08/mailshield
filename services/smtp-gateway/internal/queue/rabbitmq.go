@@ -132,9 +132,9 @@ func (p *rabbitMQPublisher) PublishMailReceived(ctx context.Context, event *doma
 	}
 
 	// まず現在のチャネルで発行を試みる（mu は RLock のみ）
-	ch := p.currentChannel()
-	if ch != nil {
-		if err := p.publish(ctx, ch, body); err == nil {
+	failedCh := p.currentChannel()
+	if failedCh != nil {
+		if err := p.publish(ctx, failedCh, body); err == nil {
 			return nil
 		}
 	}
@@ -142,9 +142,10 @@ func (p *rabbitMQPublisher) PublishMailReceived(ctx context.Context, event *doma
 	// 発行失敗 or チャネルなし → reconnectMu を取得して再接続
 	// reconnectMu により複数 goroutine が同時に Dial しない
 	p.reconnectMu.Lock()
-	// ダブルチェック: 他の goroutine がすでに再接続済みの場合は skip
-	ch = p.currentChannel()
-	if ch == nil {
+	// ダブルチェック: 発行に失敗したチャネルのまま変わっていない場合のみ再接続する。
+	// 他の goroutine がすでに再接続済み（チャネルが入れ替わっている）なら skip。
+	ch := p.currentChannel()
+	if ch == nil || ch == failedCh {
 		if reconnErr := p.reconnect(); reconnErr != nil {
 			p.reconnectMu.Unlock()
 			return fmt.Errorf("mail.received 発行失敗 (message_id=%s): 再接続失敗: %w",

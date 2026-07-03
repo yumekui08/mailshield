@@ -1,6 +1,6 @@
 # メール処理フロー
 
-最終更新: 2026-06-30
+最終更新: 2026-07-03
 
 ---
 
@@ -20,6 +20,8 @@
 ## HandleMail の 7 ステップ
 
 smtp-gateway が Postfix から SMTP セッションを受け取ると、以下の順序で処理する。
+
+DATA 受信時に EML から件名（Subject）と認証結果（Authentication-Results）を抽出する。RFC 2047 でエンコードされた件名（`=?UTF-8?B?...?=` 等）はデコードした値を `Mail.Subject` に格納するため、DB・検査ワーカー・ポリシーはデコード済みの件名を扱う。
 
 ```mermaid
 flowchart TD
@@ -142,7 +144,7 @@ flowchart LR
 |------|---------|------|
 | 原本 EML | `mailshield-eml` | `raw/YYYY/MM/DD/{uuid}.eml` |
 | 処理済み EML（deliver・quarantine 共通） | `mailshield-eml` | `processed/YYYY/MM/DD/{uuid}.eml` |
-| 分離済み添付ファイル | `mailshield-attachments` | `attachments/{message_uuid}/{filename}` |
+| 分離済み添付ファイル | `mailshield-attachments` | `{message_uuid}/{filename}`（filesystem では `attachments/{message_uuid}/{filename}`） |
 
 ストレージバックエンドは `minio`（デフォルト）・`s3`・`filesystem` から設定で選択できる。
 
@@ -152,13 +154,14 @@ flowchart LR
 
 | ステップ | エラー時の動作 |
 |---------|-------------|
-| [1/7] ルート解決失敗 | `550` を返す |
+| [1/7] ルート解決失敗 | `550 5.7.0 No route matched` を返す |
 | [2/7] ストレージ保存失敗 | `451` を返して Postfix にリトライさせる |
 | [3/7] DB 記録失敗 | WARN ログを出力して続行 |
 | [4/7] RabbitMQ 発行失敗 | WARN ログを出力して続行（メールフローに影響しない） |
 | [5/7] 検査ワーカーエラー | そのワーカーをスキップして続行 |
 | [6/7] 変換ワーカーエラー | メールを隔離・アーカイブ・通知して `nil` を返す（250 OK） |
 | [7/7] ポリシー実行失敗 | `451` を返して Postfix にリトライさせる |
+| [7/7] マッチするルールなし | `550 5.7.0 No policy rule matched` を返す（policy.yaml にデフォルトルールを追加すること） |
 | archiveAsync 失敗 | 最大3回リトライ（2s/4s バックオフ）。全失敗時は ERROR ログで手動対応を促す |
 | 隔離即時通知送信失敗 | WARN ログに記録して無視（best-effort） |
 | 隔離解放: ストレージ取得失敗 | `rollbackToQuarantined` で DB を元に戻す。409 NOT_READY を返す |

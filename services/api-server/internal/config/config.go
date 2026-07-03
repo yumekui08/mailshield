@@ -48,11 +48,11 @@ type ApprovalNotificationConfig struct {
 	RequestBodyTemplate    string `mapstructure:"request_body_template"`
 
 	// 承認結果通知（送信者向け・内部ユーザーのみ）
-	ResultEnabled            bool   `mapstructure:"result_enabled"`
-	ApprovedSubjectTemplate  string `mapstructure:"approved_subject_template"`
-	ApprovedBodyTemplate     string `mapstructure:"approved_body_template"`
-	RejectedSubjectTemplate  string `mapstructure:"rejected_subject_template"`
-	RejectedBodyTemplate     string `mapstructure:"rejected_body_template"`
+	ResultEnabled           bool   `mapstructure:"result_enabled"`
+	ApprovedSubjectTemplate string `mapstructure:"approved_subject_template"`
+	ApprovedBodyTemplate    string `mapstructure:"approved_body_template"`
+	RejectedSubjectTemplate string `mapstructure:"rejected_subject_template"`
+	RejectedBodyTemplate    string `mapstructure:"rejected_body_template"`
 }
 
 // GatewayConfig は smtp-gateway への内部接続設定を保持する。
@@ -90,12 +90,12 @@ func (c *AuthModeConfig) AllowedRoleSet() map[string]bool {
 // NotificationConfig はシステムが送信するメール（通知・OTP・隔離解放）の共通 SMTP 設定を保持する。
 type NotificationConfig struct {
 	// FromAddress はシステムメールの送信元アドレス。
-	FromAddress  string `mapstructure:"from_address"`
-	SMTPHost     string `mapstructure:"smtp_host"`
-	SMTPPort     int    `mapstructure:"smtp_port"`
-	StartTLS     bool   `mapstructure:"starttls"`
-	AuthUser     string `mapstructure:"auth_user"`
-	AuthPass     string `mapstructure:"auth_pass"`
+	FromAddress string `mapstructure:"from_address"`
+	SMTPHost    string `mapstructure:"smtp_host"`
+	SMTPPort    int    `mapstructure:"smtp_port"`
+	StartTLS    bool   `mapstructure:"starttls"`
+	AuthUser    string `mapstructure:"auth_user"`
+	AuthPass    string `mapstructure:"auth_pass"`
 	// ReinjectHost / ReinjectPort は隔離解放時に処理済み EML を再インジェクトする Postfix の接続先。
 	// api-server.yaml に未設定の場合は settings.smtp_gateway_config_file の reinject 設定を継承する。
 	ReinjectHost string `mapstructure:"reinject_host"`
@@ -114,13 +114,13 @@ type SettingsConfig struct {
 // StorageConfig はオブジェクトストレージ（MinIO/S3）の接続設定を保持する。
 type StorageConfig struct {
 	Endpoint            string `mapstructure:"endpoint"`
-	PublicEndpoint      string `mapstructure:"public_endpoint"`       // ブラウザからアクセスする際のFQDN（空の場合はEndpointを使用）
+	PublicEndpoint      string `mapstructure:"public_endpoint"` // ブラウザからアクセスする際のFQDN（空の場合はEndpointを使用）
 	AccessKey           string `mapstructure:"access_key"`
 	SecretKey           string `mapstructure:"secret_key"`
 	BucketEML           string `mapstructure:"bucket_eml"`
 	BucketAttachments   string `mapstructure:"bucket_attachments"`
 	UseSSL              bool   `mapstructure:"use_ssl"`
-	PublicUseSSL        bool   `mapstructure:"public_use_ssl"`        // public_endpoint へのアクセスに SSL を使うか
+	PublicUseSSL        bool   `mapstructure:"public_use_ssl"` // public_endpoint へのアクセスに SSL を使うか
 	PresignedURLExpiryH int    `mapstructure:"presigned_url_expiry_hours"`
 }
 
@@ -230,18 +230,18 @@ func Load(configFile string) (*Config, error) {
 
 	// 環境変数のマッピング
 	bindEnvs := map[string]string{
-		"database.host":     "DB_HOST",
-		"database.port":     "DB_PORT",
-		"database.name":     "DB_NAME",
-		"database.user":     "DB_USER",
-		"database.password": "DB_PASSWORD",
-		"redis.host":        "REDIS_HOST",
-		"redis.port":        "REDIS_PORT",
-		"storage.endpoint":   "MINIO_ENDPOINT",
-		"storage.access_key": "MINIO_ACCESS_KEY",
-		"storage.secret_key": "MINIO_SECRET_KEY",
-		"storage.use_ssl":    "MINIO_USE_SSL",
-		"notification.auth_pass": "NOTIFICATION_AUTH_PASS",
+		"database.host":                     "DB_HOST",
+		"database.port":                     "DB_PORT",
+		"database.name":                     "DB_NAME",
+		"database.user":                     "DB_USER",
+		"database.password":                 "DB_PASSWORD",
+		"redis.host":                        "REDIS_HOST",
+		"redis.port":                        "REDIS_PORT",
+		"storage.endpoint":                  "MINIO_ENDPOINT",
+		"storage.access_key":                "MINIO_ACCESS_KEY",
+		"storage.secret_key":                "MINIO_SECRET_KEY",
+		"storage.use_ssl":                   "MINIO_USE_SSL",
+		"notification.auth_pass":            "NOTIFICATION_AUTH_PASS",
 		"auth.providers.oidc.client_secret": "OIDC_CLIENT_SECRET",
 	}
 	for yamlKey, envKey := range bindEnvs {

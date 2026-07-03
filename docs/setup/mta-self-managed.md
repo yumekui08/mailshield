@@ -1,6 +1,12 @@
-# 自前 MTA（Postfix + Rspamd）の接続設定
+# MTA との連携（Postfix + Rspamd）
 
-Postfix + Rspamd を自前で用意して MailShield と連携させる場合の手順です。
+Postfix + Rspamd を自前で用意して MailShield と連携させる手順。Postfix の content_filter 設定・Rspamd の認証検証設定・DKIM 署名・DNS 設定までを扱う。
+
+| 項目 | 内容 |
+|------|------|
+| 対象読者 | 受信 MTA を構築・運用する管理者 |
+| 前提知識 | Postfix の基本設定・DNS レコードの管理 |
+| 所要時間 | 2〜4 時間（DNS 反映待ちを除く） |
 
 ---
 
@@ -128,8 +134,8 @@ internal_mail_filter_classes = bounce,notify
   -o syslog_name=postfix-out
 ```
 
-> **なぜ `receive_override_options=no_header_body_checks` が必要か**
->
+> [!IMPORTANT]
+> **なぜ `receive_override_options=no_header_body_checks` が必要か** —
 > 再インジェクトポートで受け取ったメールは smtp-gateway が変換済みのため、
 > ヘッダ/ボディチェック（milter 含む）を再適用すると二重処理になります。
 > このオプションでスキップします。
@@ -214,7 +220,8 @@ SPF/DKIM/DMARC チェックをスキップします。
 local_addrs = [10.0.0.0/8, 172.16.0.0/12, fd00::/8, 169.254.0.0/16, fe80::/10];
 ```
 
-> **本番環境では通常このファイルの変更は不要です。**  
+> [!NOTE]
+> **本番環境では通常このファイルの変更は不要です。**
 > 外部から届くメール（パブリック IP を持つ送信者）は自動的に SPF/DKIM の検証対象になります。
 
 ### 2-2. milter_headers.conf
@@ -508,9 +515,10 @@ dkim._domainkey.example.com.  IN  TXT  (
 )
 ```
 
-> **DNS TXT レコードの長さ制限について**  
-> 2048 bit 以上の RSA 鍵を使うと TXT レコードが 255 文字を超えます。  
-> BIND では `( "部分1" "部分2" )` のように文字列を分割して記述します。  
+> [!NOTE]
+> **DNS TXT レコードの長さ制限について** —
+> 2048 bit 以上の RSA 鍵を使うと TXT レコードが 255 文字を超えます。
+> BIND では `( "部分1" "部分2" )` のように文字列を分割して記述します。
 > `rspamadm dkim_keygen` の出力はすでに分割済みの形式です。
 
 登録後の確認:

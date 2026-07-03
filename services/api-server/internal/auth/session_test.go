@@ -24,8 +24,8 @@ func newTestStore(t *testing.T) (*RedisSessionStore, *miniredis.Miniredis) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	cfg := &config.SessionConfig{
-		TTLMinutes:  60,
-		CookieName:  "mailshield_session",
+		TTLMinutes:   60,
+		CookieName:   "mailshield_session",
 		CookieSecure: false,
 	}
 	return NewSessionStore(client, cfg), mr

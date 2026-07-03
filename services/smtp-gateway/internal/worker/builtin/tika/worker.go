@@ -31,10 +31,10 @@ type PatternConfig struct {
 
 // Config は dlp-worker の設定を保持する。
 type Config struct {
-	TikaURL             string          `yaml:"tika_url"`
-	TimeoutSeconds      int             `yaml:"timeout_seconds"`
+	TikaURL        string `yaml:"tika_url"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
 	// MaxResponseBytes は Tika からのレスポンス読み取りサイズ上限（OOM防止）。
-	MaxResponseBytes    int             `yaml:"max_response_bytes"`
+	MaxResponseBytes int `yaml:"max_response_bytes"`
 	// DefaultPatternScore はパターンの score が 0 以下のとき適用されるデフォルトスコア。
 	DefaultPatternScore int             `yaml:"default_pattern_score"`
 	Patterns            []PatternConfig `yaml:"patterns"`

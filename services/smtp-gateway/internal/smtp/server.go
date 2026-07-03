@@ -1,12 +1,14 @@
 package smtp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/mail"
 	"strings"
@@ -28,14 +30,14 @@ type Handler interface {
 // Options は SMTP サーバーの設定を保持する。
 // ゼロ値は安全なデフォルト値として扱われる。
 type Options struct {
-	Port                  int
-	Hostname              string
-	TrustedSources        []string
-	MaxMessageSizeMB      int
-	MaxRecipients         int
-	ReadTimeoutSeconds    int
-	WriteTimeoutSeconds   int
-	HandlerTimeoutSeconds int
+	Port                     int
+	Hostname                 string
+	TrustedSources           []string
+	MaxMessageSizeMB         int
+	MaxRecipients            int
+	ReadTimeoutSeconds       int
+	WriteTimeoutSeconds      int
+	HandlerTimeoutSeconds    int
 	DNSResolveTimeoutSeconds int
 }
 
@@ -88,7 +90,7 @@ func New(opts Options, handler Handler) *Server {
 	s.MaxMessageBytes = maxSize
 	s.MaxRecipients = opts.MaxRecipients
 	s.AllowInsecureAuth = true // 内部ネットワーク専用・TLS不要
-	s.EnableSMTPUTF8 = true   // SMTPUTF8 を広告しないと UTF8 アドレスを含むバウンスが届かない
+	s.EnableSMTPUTF8 = true    // SMTPUTF8 を広告しないと UTF8 アドレスを含むバウンスが届かない
 	s.ReadTimeout = time.Duration(opts.ReadTimeoutSeconds) * time.Second
 	s.WriteTimeout = time.Duration(opts.WriteTimeoutSeconds) * time.Second
 
@@ -126,11 +128,11 @@ type smtpBackend struct {
 	staticNets []*net.IPNet    // CIDRサブネット
 	hostnames  []string        // DNS解決が必要なホスト名
 
-	maxMsgSize       int64
-	handler          Handler
-	handlerTimeout   time.Duration
+	maxMsgSize        int64
+	handler           Handler
+	handlerTimeout    time.Duration
 	dnsResolveTimeout time.Duration
-	wg               sync.WaitGroup
+	wg                sync.WaitGroup
 }
 
 // NewSession は接続ごとにセッションを作成する。
@@ -294,6 +296,14 @@ func (s *smtpSession) Data(r io.Reader) error {
 				Message:      "No policy rule matched",
 			}
 		}
+		// マッチするルートがない → 設定エラーとして 550 を返す
+		if errors.Is(err, domain.ErrNoRouteMatched) {
+			return &gosmtp.SMTPError{
+				Code:         550,
+				EnhancedCode: gosmtp.EnhancedCode{5, 7, 0},
+				Message:      "No route matched",
+			}
+		}
 		// MinIO 保存失敗などの一時的なエラーは 451 でリトライさせる
 		return &gosmtp.SMTPError{
 			Code:         451,
@@ -314,21 +324,23 @@ func (s *smtpSession) Logout() error {
 	return nil
 }
 
-// extractSubject は生のEMLバイト列から Subject ヘッダーを取り出す（簡易実装）。
-// RFC 2822 の折り畳みヘッダー（先頭が空白の継続行）を結合する。
-// 正式なパースは handler 内で go-message を使って行う。
+// extractSubject は生のEMLバイト列から Subject ヘッダーを取り出す。
+// RFC 2822 の折り畳みヘッダー（先頭が空白の継続行）を結合し、
+// RFC 2047 エンコード語（=?UTF-8?B?...?= 等）はデコードして返す。
+// ヘッダー部のみを走査するため本文サイズの影響を受けない。
 func extractSubject(eml []byte) string {
-	lines := strings.Split(string(eml), "\n")
 	var parts []string
 	inSubject := false
 
-	for _, line := range lines {
-		stripped := strings.TrimRight(line, "\r")
+	scanner := bufio.NewScanner(bytes.NewReader(eml))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 長大なヘッダー行に対応
+	for scanner.Scan() {
+		stripped := strings.TrimRight(scanner.Text(), "\r")
 		if strings.TrimSpace(stripped) == "" {
-			break
+			break // ヘッダー部終了
 		}
 		if inSubject {
-			if len(stripped) > 0 && (stripped[0] == ' ' || stripped[0] == '\t') {
+			if stripped[0] == ' ' || stripped[0] == '\t' {
 				// 折り畳みヘッダーの継続行
 				parts = append(parts, strings.TrimSpace(stripped))
 				continue
@@ -341,7 +353,18 @@ func extractSubject(eml []byte) string {
 			inSubject = true
 		}
 	}
-	return strings.Join(parts, " ")
+	return decodeRFC2047(strings.Join(parts, " "))
+}
+
+// decodeRFC2047 は RFC 2047 エンコード語を含むヘッダー値をデコードする。
+// デコードできない場合（未対応の文字セット等）は元の値をそのまま返す。
+func decodeRFC2047(s string) string {
+	dec := new(mime.WordDecoder)
+	decoded, err := dec.DecodeHeader(s)
+	if err != nil {
+		return s
+	}
+	return decoded
 }
 
 // extractAuthResults は生のEMLから Authentication-Results ヘッダーを読み取り、

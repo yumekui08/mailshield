@@ -1,138 +1,186 @@
 # クイックスタート
 
-MailShield を Docker Compose で起動する最短手順です。
-詳細な設定は [MailShield 設定ガイド](./mailshield-config.md) を参照してください。
+外部 MTA を用意せずに、単一マシン上で MailShield の受信パイプライン（検査 → 変換 → ポリシー評価 → 配送）を一通り動かして評価する手順。処理後のメールは同梱の [Mailpit](https://mailpit.axllent.org/) で確認する。
 
----
+| 項目 | 内容 |
+|------|------|
+| 対象読者 | MailShield を初めて触る開発者・評価者 |
+| 所要時間 | 約 15 分 |
+| 構築されるもの | smtp-gateway + MariaDB + MinIO + RabbitMQ + Mailpit（Docker Compose） |
+
+> [!IMPORTANT]
+> この手順は**評価専用**の構成です。テストメールを SMTP クライアントから smtp-gateway（`:10024`）へ直接投入し、配送先を Mailpit に向けます。本番導入では受信 MTA（Postfix 等）を前段に置く必要があります。[MailShield 設定ガイド](./mailshield-config.md) と [MTA との連携](./mta-self-managed.md) を参照してください。
 
 ## 前提条件
 
-- Docker Engine 24.0 以上
-- Docker Compose v2.20 以上
-- `make` コマンド
-- 受信 MTA（Postfix + Rspamd 等）がすでにセットアップ済みであること  
-  → まだの場合は [MTA セットアップガイド](./mta-self-managed.md) を先に参照
+| ソフトウェア | バージョン | 確認コマンド |
+|------------|-----------|-------------|
+| Docker Engine | 24.0 以上 | `docker --version` |
+| Docker Compose | v2.20 以上 | `docker compose version` |
+| GNU Make | — | `make --version` |
+| Git | — | `git --version` |
+| swaks（テストメール送信用） | — | `swaks --version` |
 
----
+swaks が未インストールの場合:
+
+```bash
+# Debian / Ubuntu
+sudo apt install swaks
+
+# RHEL 系
+sudo dnf install swaks
+```
 
 ## 手順
 
-### 1. リポジトリをクローン
+### 1. リポジトリをクローンする
 
 ```bash
 git clone https://github.com/koizumib/mailshield.git
 cd mailshield
 ```
 
-### 2. `.env` を作成してパスワードを設定
+### 2. 環境変数ファイルを作成する
 
 ```bash
 cp .env.example .env
 ```
 
-`.env` を開いて `CHANGE_ME_` の箇所を実際の値に変更します。
+`.env` を開き、以下のとおり編集する。
+
+**(a) パスワード類** — `CHANGE_ME_` で始まる 5 箇所を任意の値に変更する。
 
 ```dotenv
-MARIADB_ROOT_PASSWORD=（任意のパスワード）
-DB_PASSWORD=（任意のパスワード）
-MINIO_ACCESS_KEY=（8文字以上の任意の文字列）
-MINIO_SECRET_KEY=（8文字以上の任意の文字列）
-RABBITMQ_PASSWORD=（任意のパスワード）
-
-# 自前 MTA の接続先
-MAILSHIELD_REINJECT_HOST=（MTA のホスト名 or IP）
-MAILSHIELD_REINJECT_PORT=10025
-
-# 通知メールの送信に使う SMTP リレー
-MAILSHIELD_NOTIFICATION_SMTP_HOST=（SMTP リレーのホスト名）
-MAILSHIELD_NOTIFICATION_SMTP_PORT=25
+MARIADB_ROOT_PASSWORD=<任意のパスワード>
+DB_PASSWORD=<任意のパスワード>
+MINIO_ACCESS_KEY=<8文字以上の任意の文字列>
+MINIO_SECRET_KEY=<8文字以上の任意の文字列>
+RABBITMQ_PASSWORD=<任意のパスワード>
 ```
 
-> **先に `.env` を設定してから起動してください。**
-> 起動後に変更してもパスワードが反映されません（`make docker-clean` でやり直し）。
+**(b) 配送先・通知先** — 評価環境では両方とも Mailpit に向ける。
 
-### 3. `config/mailshield.yaml` を編集
+```dotenv
+# 処理済みメールの配送先（評価環境では Mailpit）
+MAILSHIELD_REINJECT_HOST=mailpit
+MAILSHIELD_REINJECT_PORT=1025
 
-最低限変更が必要な箇所は `trusted_sources`（MTA からの接続許可）です。
+# 隔離通知等システムメールの送信先（評価環境では Mailpit）
+MAILSHIELD_NOTIFICATION_SMTP_HOST=mailpit
+MAILSHIELD_NOTIFICATION_SMTP_PORT=1025
+```
+
+> [!WARNING]
+> `.env` は**初回起動より前に**設定してください。MariaDB は初回起動時のパスワードでボリュームを初期化するため、起動後に `.env` を変更すると認証エラーになります。間違えた場合は `make docker-clean`（全ボリューム削除）でやり直せます。
+
+### 3. ホストからの SMTP 接続を許可する
+
+smtp-gateway は `trusted_sources` に列挙した接続元以外からの SMTP を拒否する。ホストマシンから公開ポート `10024` に接続すると、接続元は Docker ブリッジネットワークのゲートウェイ IP（`172.x.x.1`）になるため、プライベートサブネットを許可しておく。
+
+`config/mailshield.yaml` に以下を追記する。
 
 ```yaml
 server:
   trusted_sources:
-    - （MTA のホスト名 or IP）  # 受信 MTA からの接続を許可
+    - 127.0.0.1
+    - 172.16.0.0/12    # Docker ブリッジネットワーク（評価環境用）
 ```
 
-### 4. ルート定義のドメインを変更
-
-受信・送信ルートはそれぞれ `config/routes.d/` 配下のディレクトリで定義します。
+### 4. 起動する
 
 ```bash
-# 受信ルート
-vi config/routes.d/10-inbound/route.yaml
-```
-
-```yaml
-# config/routes.d/10-inbound/route.yaml
-match:
-  to: "@example\\.com$"   # ← 自組織の受信ドメインに変更
-```
-
-```bash
-# 送信ルート
-vi config/routes.d/20-outbound/route.yaml
-```
-
-```yaml
-# config/routes.d/20-outbound/route.yaml
-match:
-  from: "@example\\.com$"  # ← 自組織の送信ドメインに変更
-```
-
-### 5. ポリシーの配送先を設定
-
-`config/routes.d/10-inbound/policy.yaml` を開いて再インジェクト先 MTA を設定します。
-
-```yaml
-rules:
-  - name: default_deliver
-    condition: "true"
-    action: deliver
-    destination: "（MTA のホスト名）:10025"   # ← 再インジェクト先に変更
-```
-
-### 6. 起動
-
-```bash
-# 標準構成（MinIO + RabbitMQ + Mailpit）
 make dev-up
-
-# 最小構成（MariaDB のみ・filesystem モード）
-# ※ config/mailshield.yaml で storage.backend=filesystem, queue.backend=none を設定すること
-docker compose -f docker/docker-compose.yml up -d
 ```
 
-### 6. 動作確認
+初回はイメージのビルドが走るため数分かかる。完了後、全サービスが `running` / `healthy` になっていることを確認する。
 
 ```bash
-# ヘルスチェック
-curl http://localhost:8080/healthz   # → "ok"
-
-# テストメール送信（MTA 経由）
-swaks --to test@example.com \
-      --from sender@external.example \
-      --server （MTA のホスト名） --port 25 \
-      --header "Subject: MailShield テスト"
-
-# smtp-gateway のログ確認
-docker compose -f docker/docker-compose.yml logs -f smtp-gateway
+docker compose -f docker/docker-compose.yml ps
 ```
 
----
+期待される出力（抜粋）:
+
+```
+NAME                        STATUS
+mailshield-smtp-gateway-1   Up (healthy)
+mailshield-mariadb-1        Up (healthy)
+mailshield-minio-1          Up (healthy)
+mailshield-rabbitmq-1       Up (healthy)
+mailshield-mailpit-1        Up (healthy)
+```
+
+ヘルスチェックエンドポイントで smtp-gateway の起動を確認する。
+
+```bash
+curl http://localhost:8080/healthz
+```
+
+期待される出力:
+
+```
+ok
+```
+
+### 5. テストメールを送信する
+
+デフォルトの受信ルート（`config/routes.d/10-inbound/`）は宛先ドメイン `internal.test` にマッチするよう設定されている。まずは通常のメールを送る。
+
+```bash
+swaks --to test@internal.test \
+      --from sender@external.test \
+      --server localhost --port 10024 \
+      --header "Subject: Hello MailShield" \
+      --body "This is a test."
+```
+
+期待される出力（最終行）:
+
+```
+<-  250 2.0.0 OK: queued
+```
+
+ブラウザで Mailpit（<http://localhost:8025>）を開き、件名 **Hello MailShield** のメールが届いていることを確認する。
+
+### 6. 変換パイプラインの動作を確認する
+
+同梱の開発用 Lua ワーカー（`subject-virus-transformer`）は、件名に `virus` を含むメールの件名冒頭にプレフィックスを付加する。
+
+```bash
+swaks --to test@internal.test \
+      --from sender@external.test \
+      --server localhost --port 10024 \
+      --header "Subject: virus test mail" \
+      --body "This mail contains virus in subject."
+```
+
+Mailpit で件名が **`[迷惑メール注意] virus test mail`** に書き換わっていれば、検査ワーカー（検知）→ 変換ワーカー（件名書き換え）→ ポリシーエンジン（配送決定）のパイプラインが機能している。
+
+### 7. 処理ログを確認する
+
+```bash
+docker compose -f docker/docker-compose.yml logs smtp-gateway --tail=30
+```
+
+メール 1 通につき `[1/7]`〜`[7/7]` のステップログが出力される。詳細は [ログ仕様](../specs/logging.md) を参照。
+
+> [!NOTE]
+> `av-worker`（ClamAV）は `scanners` プロファイルを有効にしていないため接続エラーの WARN ログが出るが、エラーのワーカーはスキップされ処理は続行される。ClamAV 込みで試す場合は `make scanners-up` で起動し直す（初回はウイルス定義 DB 約 300MB のダウンロードで数分かかる）。
+
+## 環境の削除
+
+```bash
+# コンテナの停止・削除（データボリュームは保持）
+make dev-down
+
+# データボリュームも含めて完全に削除
+make docker-clean
+```
 
 ## 次のステップ
 
-設定の詳細と全パラメータは以下のドキュメントを参照してください。
-
-- [MailShield 設定ガイド](./mailshield-config.md) — 全設定項目のステップバイステップ解説
-- [Docker プロファイル](./profiles.md) — 起動するコンポーネントの選択方法
-- [ワーカー設定](../guide/workers.md) — av-worker / dlp-worker 等を有効化する
-- [ポリシー設定](../guide/policy.md) — 配送・隔離・拒否のルールを定義する
+| 目的 | ドキュメント |
+|------|------------|
+| 本番導入（受信 MTA との連携） | [MTA との連携](./mta-self-managed.md) → [MailShield 設定ガイド](./mailshield-config.md) |
+| 管理 Web UI・REST API を試す | `make api-up` で起動し、[プロファイルガイド](./profiles.md) を参照 |
+| ClamAV / Tika 等の検査ワーカーを有効化する | [ワーカー設定](../guide/workers.md) |
+| 配送・隔離・拒否のルールを書く | [ポリシー設定](../guide/policy.md) |

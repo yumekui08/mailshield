@@ -18,7 +18,7 @@ import (
 // mockEMLStorage は storage.EMLStorage のテスト用モックである。
 type mockEMLStorage struct {
 	getPresignedURLFunc func(ctx context.Context, path string, expiryHours int) (string, error)
-	getEMLFunc         func(ctx context.Context, path string) ([]byte, error)
+	getEMLFunc          func(ctx context.Context, path string) ([]byte, error)
 }
 
 func (m *mockEMLStorage) GetPresignedURL(ctx context.Context, path string, expiryHours int) (string, error) {

@@ -39,13 +39,13 @@ flowchart LR
 | `inbound` | 10024 | 受信フィルタリング（RCPT TO が内部ドメイン宛て） |
 | `outbound` | 10024 | 送信 DLP・コンテンツフィルタ（MAIL FROM が内部ドメイン） |
 
-**direction による テナント解決の分岐:**
-- `direction: inbound` → `To:` ドメインでテナントを解決
-- `direction: outbound` → `From:` ドメインでテナントを解決
+**direction の用途:**
+- ルート定義の `direction`（inbound / outbound / internal）はメールの流通方向を表し、
+  添付ファイルダウンロードの認証モード解決（`attachment_download.flows`）等に使われる
 
 **処理ステップ（7ステップ）:**
 1. メール受信・接続元ホワイトリスト検証
-2. MinIO に原本 EML 保存（`{tenant}/raw/YYYY/MM/DD/{uuid}.eml`）
+2. ストレージに原本 EML 保存（`raw/YYYY/MM/DD/{uuid}.eml`）
 3. MariaDB にメタデータ記録
 4. RabbitMQ に `mail.received` 発行
 5. 検査パイプライン（並列）
@@ -146,18 +146,15 @@ mailshield/
 │   │   └── 20-outbound/             # 送信ルート
 │   │       ├── route.yaml
 │   │       └── policy.yaml
-│   └── workers/
-│       └── conf/                    # ワーカー固有設定ファイル
+│   └── workers/                     # ワーカー固有設定ファイル（<worker名>.yaml）
 ├── docs/                            # ドキュメント
 │   ├── architecture.md
 │   ├── decisions/                   # ADR
 │   └── specs/                       # 技術仕様
-├── infra/                           # インフラ設定（コードなし）
-│   ├── minio/
-│   └── rabbitmq/
-├── schema/mariadb/                      # 初期スキーマ・マイグレーション SQL
-├── docker/                              # Docker Compose ファイル
-│   └── docker-compose.yml               # 全サービス（profiles で組み合わせ）
+├── schema/mariadb/                  # 初期スキーマ・マイグレーション SQL
+├── docker/                          # Docker Compose ファイル
+│   ├── docker-compose.yml           # 全サービス（profiles で組み合わせ）
+│   └── infra/                       # インフラ設定（minio / rabbitmq / rspamd）
 ├── Makefile
 ├── services/
 │   ├── smtp-gateway/                # Go サービス（受信・送信共通）
@@ -165,15 +162,19 @@ mailshield/
 │   │   └── internal/
 │   │       ├── config/
 │   │       ├── domain/              # 型・インターフェース定義（外部依存ゼロ）
+│   │       ├── eml/                 # EML 再構築ユーティリティ（変換ワーカー共通）
+│   │       ├── logging/             # slog 初期化（JSON / syslog）
 │   │       ├── notify/              # 隔離通知メール送信
 │   │       ├── pipeline/            # 検査・変換パイプライン
 │   │       ├── policy/              # ポリシーエンジン
 │   │       ├── queue/               # RabbitMQ アダプター
 │   │       ├── repository/          # DB アダプター
+│   │       ├── router/              # ルート解決（正規表現マッチ）
 │   │       ├── smtp/                # SMTP サーバー
-│   │       ├── storage/             # MinIO アダプター
+│   │       ├── storage/             # MinIO / filesystem アダプター
 │   │       └── worker/              # ワーカー登録・管理
-│   │           └── builtin/         # 組み込みワーカー
+│   │           ├── builtin/         # 組み込みワーカー
+│   │           └── lua/             # Lua ワーカーローダー
 │   └── api-server/                  # Go サービス（REST API・管理 Web UI バックエンド）
 │       ├── cmd/server/
 │       └── internal/

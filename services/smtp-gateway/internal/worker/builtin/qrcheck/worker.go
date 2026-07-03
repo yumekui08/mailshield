@@ -58,12 +58,12 @@ type OCRConfig struct {
 
 // ReputationAPIConfig は外部レピュテーション API の設定を保持する。
 type ReputationAPIConfig struct {
-	Backend       string `yaml:"backend"` // none | safe_browsing | web_risk
-	APIKey        string `yaml:"api_key"`
-	Endpoint      string `yaml:"endpoint"`
-	TimeoutSeconds int   `yaml:"timeout_seconds"`
-	ClientID      string `yaml:"client_id"`
-	ClientVersion string `yaml:"client_version"`
+	Backend        string `yaml:"backend"` // none | safe_browsing | web_risk
+	APIKey         string `yaml:"api_key"`
+	Endpoint       string `yaml:"endpoint"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
+	ClientID       string `yaml:"client_id"`
+	ClientVersion  string `yaml:"client_version"`
 }
 
 // ScoresConfig は各検知項目のスコアを保持する。
@@ -75,7 +75,7 @@ type ScoresConfig struct {
 // Config は qr-worker の設定を保持する。
 type Config struct {
 	// MaxImages はメール1通で検査する画像の上限。
-	MaxImages      int                 `yaml:"max_images"`
+	MaxImages int `yaml:"max_images"`
 	// MaxImagePixels は OOM 防止のための画像ピクセル数上限（幅×高さ）。
 	MaxImagePixels int                 `yaml:"max_image_pixels"`
 	QRDecode       QRDecodeConfig      `yaml:"qr_decode"`
@@ -91,9 +91,9 @@ type Worker struct {
 	maxImagePixels int
 	qrDecoder      qrDecoder  // nil のとき QR デコード無効
 	ocrClient      ocrScanner // nil のとき OCR 無効
-	denyList   []string     // 小文字に正規化済み
-	reputation reputationChecker
-	scores     ScoresConfig
+	denyList       []string   // 小文字に正規化済み
+	reputation     reputationChecker
+	scores         ScoresConfig
 }
 
 // urlInImagePattern は QR コード／OCR テキストから URL を抽出するパターン。

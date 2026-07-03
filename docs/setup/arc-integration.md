@@ -1,6 +1,15 @@
 # ARC 署名統合ガイド
 
-`arcsealer-worker` を有効にすると、処理済みメールに ARC（Authenticated Received Chain）署名を付与できます。
+`arc-sealer` を有効にすると、処理済みメールに ARC（Authenticated Received Chain・RFC 8617）署名を付与できます。鍵の生成・DNS 登録から Exchange Online / Google Workspace の信頼リスト登録までを扱います。
+
+| 項目 | 内容 |
+|------|------|
+| 対象読者 | Exchange Online / Google Workspace 配下に MailShield を導入する管理者 |
+| 前提 | MailShield 本体のセットアップが完了していること |
+| 所要時間 | 1〜2 時間（DNS 反映待ちを含む） |
+
+> [!NOTE]
+> 署名アルゴリズムは `rsa-sha256` 固定のため、鍵は **RSA のみ**対応です（Ed25519 等は起動時にエラーになります）。
 
 ---
 
@@ -78,12 +87,12 @@ dig TXT mailshield._domainkey.example.com +short
 ```yaml
 workers:
   transform:
-    - name: arcsealer-worker
+    - name: arc-sealer
       enabled: true
       order: 6          # 他の変換ワーカーより後ろに配置する
 ```
 
-`config/workers/conf/arcsealer-worker.yaml` を作成します。
+`config/workers/arc-sealer.yaml` を作成します。
 
 ```yaml
 # ARC セレクターと署名ドメイン
@@ -197,7 +206,7 @@ ARC-Authentication-Results: i=2; mx.google.com;
 1. 新しいセレクター（例: `mailshield-2025`）で `generate-key.sh` を実行する
 2. 新しいセレクターの DNS TXT レコードを追加する（古いレコードはまだ削除しない）
 3. DNS の TTL 時間（通常 1〜24 時間）待つ
-4. `arcsealer-worker.yaml` の `selector` を新しい値に更新する
+4. `arc-sealer.yaml` の `selector` を新しい値に更新する
 5. smtp-gateway を再起動する（`docker compose -f docker/docker-compose.yml restart smtp-gateway`）
 6. 48 時間後に古い TXT レコードを削除する
 
@@ -207,7 +216,7 @@ ARC-Authentication-Results: i=2; mx.google.com;
 
 | 症状 | 確認事項 |
 |-----|---------|
-| ARC ヘッダーがメールに追加されない | `arcsealer-worker` が `enabled: true` になっているか確認 |
+| ARC ヘッダーがメールに追加されない | `arc-sealer` が `enabled: true` になっているか確認 |
 | `arc=fail` になる | DNS TXT レコードが正しく登録されているか `dig` で確認 |
 | Exchange Online が ARC を無視する | `Get-ArcConfig` で Trusted ARC Sealers にドメインが含まれているか確認 |
 | 秘密鍵が読めないエラー | `private_key_path` のファイルが存在し、コンテナ内で読み取れるか確認 |
@@ -215,7 +224,7 @@ ARC-Authentication-Results: i=2; mx.google.com;
 ログでのデバッグ:
 
 ```bash
-docker compose -f docker/docker-compose.yml logs smtp-gateway | grep arcsealer
+docker compose -f docker/docker-compose.yml logs smtp-gateway | grep arc-sealer
 ```
 
 ---

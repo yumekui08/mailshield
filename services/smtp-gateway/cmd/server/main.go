@@ -346,13 +346,15 @@ func main() {
 		DNSResolveTimeoutSeconds: cfg.Server.DNSResolveTimeoutSeconds,
 	}, handler)
 
-	healthAddr := fmt.Sprintf(":%d", cfg.Server.HealthPort)
-	httpServer := &http.Server{Addr: healthAddr}
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	// DefaultServeMux は使わない（他パッケージが登録したデバッグハンドラー等の意図しない公開を防ぐ）
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
-	http.HandleFunc("/simulate", handler.handleSimulate)
+	healthMux.HandleFunc("/simulate", handler.handleSimulate)
+	healthAddr := fmt.Sprintf(":%d", cfg.Server.HealthPort)
+	httpServer := &http.Server{Addr: healthAddr, Handler: healthMux}
 	go func() {
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("ヘルスチェックサーバーエラー", "error", err)
@@ -444,7 +446,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 			"from", mail.FromAddress,
 			"to", mail.ToAddresses,
 		)
-		return fmt.Errorf("マッチするルートなし: from=%s to=%v: %w", mail.FromAddress, mail.ToAddresses, domain.ErrNoRuleMatched)
+		return fmt.Errorf("マッチするルートなし: from=%s to=%v: %w", mail.FromAddress, mail.ToAddresses, domain.ErrNoRouteMatched)
 	}
 	rh := h.routeHandlers[route.Name]
 	mail.Direction = domain.Direction(route.Direction)

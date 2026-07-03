@@ -16,6 +16,7 @@ import (
 	"github.com/jhillyerd/enmime"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/eml"
 )
 
 // DownloadModeFn はメールの方向からダウンロードモードを解決する関数型。
@@ -144,7 +145,7 @@ func (w *Worker) saveAndRecord(ctx context.Context, mail *domain.Mail, parts []*
 	var savedPaths []string // 保存済みオブジェクトのパス（失敗時のロールバック用）
 
 	for _, part := range parts {
-		filename := part.FileName
+		filename := sanitizeFilename(part.FileName)
 		if filename == "" {
 			filename = fmt.Sprintf("attachment-%d", time.Now().UnixNano())
 		}
@@ -184,6 +185,26 @@ func (w *Worker) saveAndRecord(ctx context.Context, mail *domain.Mail, parts []*
 	return infos, nil
 }
 
+// sanitizeFilename はメール由来の添付ファイル名からパス区切り・制御文字を除去する。
+// ストレージパスは "{message_id}/{filename}" 形式で構築されるため、
+// ".." やパス区切りを含むファイル名によるパストラバーサル・キー汚染を防ぐ。
+func sanitizeFilename(name string) string {
+	// バックスラッシュは Linux の filepath.Base では区切りとして扱われないため先に置換する
+	name = strings.ReplaceAll(name, "\\", "_")
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(name)
+	if name == "." || name == ".." {
+		return ""
+	}
+	return name
+}
+
 // cleanupAttachments は MinIO 保存済みオブジェクトを削除する。
 // DB 記録失敗時のロールバックに使う。削除失敗はログに記録するのみ（ベストエフォート）。
 func (w *Worker) cleanupAttachments(ctx context.Context, paths []string) {
@@ -199,6 +220,7 @@ func (w *Worker) cleanupAttachments(ctx context.Context, paths []string) {
 }
 
 // rebuildEML は分離対象を除いた新しい EML バイト列を構築する。
+// 元ヘッダー（Received トレース・X-*・認証結果等）は eml.Rebuild が保持する。
 func (w *Worker) rebuildEML(env *enmime.Envelope, separated map[*enmime.Part]bool, inlineText string, mail *domain.Mail) ([]byte, error) {
 	// テキスト本文の先頭にテンプレートを挿入
 	textBody := env.Text
@@ -215,66 +237,15 @@ func (w *Worker) rebuildEML(env *enmime.Envelope, separated map[*enmime.Part]boo
 			escaped + "</pre><br>" + htmlBody
 	}
 
-	b := enmime.Builder().
-		From("", mail.FromAddress).
-		Subject(mail.Subject).
-		Date(mail.ReceivedAt)
-
-	for _, to := range mail.ToAddresses {
-		b = b.To("", to)
-	}
-	if textBody != "" {
-		b = b.Text([]byte(textBody))
-	}
-	if htmlBody != "" {
-		b = b.HTML([]byte(htmlBody))
-	}
-
-	// 分離しない添付ファイルは残す
-	for _, att := range env.Attachments {
-		if !separated[att] {
-			b = b.AddAttachment(att.Content, att.ContentType, att.FileName)
-		}
-	}
-	// インライン画像も保持
-	for _, inline := range env.Inlines {
-		if !separated[inline] {
-			b = b.AddInline(inline.Content, inline.ContentType, inline.FileName, inline.ContentID)
-		}
-	}
-
-	root, err := b.Build()
-	if err != nil {
-		return nil, fmt.Errorf("EML再構築失敗: %w", err)
-	}
-
-	// 元のヘッダーを引き継ぐ。
-	// Builder が管理する封筒ヘッダーと MIME 構造ヘッダーは除き、それ以外を全コピーする。
-	// これにより Received トレース・X-* ヘッダー・認証結果などが保持される。
-	if env.Root != nil {
-		skipHeaders := map[string]bool{
-			"From": true, "To": true, "Subject": true, "Date": true,
-			"Mime-Version":              true,
-			"Content-Type":              true,
-			"Content-Transfer-Encoding": true,
-			"Content-Disposition":       true,
-		}
-		for key, values := range env.Root.Header {
-			if skipHeaders[key] {
-				continue
-			}
-			root.Header.Del(key)
-			for _, v := range values {
-				root.Header.Add(key, v)
-			}
-		}
-	}
-
-	var buf bytes.Buffer
-	if err := root.Encode(&buf); err != nil {
-		return nil, fmt.Errorf("EMLエンコード失敗: %w", err)
-	}
-	return buf.Bytes(), nil
+	return eml.Rebuild(env, eml.RebuildInput{
+		From:     mail.FromAddress,
+		To:       mail.ToAddresses,
+		Subject:  mail.Subject,
+		Date:     mail.ReceivedAt,
+		Text:     textBody,
+		HTML:     htmlBody,
+		SkipPart: func(p *enmime.Part) bool { return separated[p] },
+	})
 }
 
 // sendNotification は separate モード用の通知メールを reinject SMTP 経由で送信する。

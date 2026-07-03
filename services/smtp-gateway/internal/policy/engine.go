@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/smtp"
 	"os"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -43,13 +44,13 @@ type PolicyRules struct {
 
 // Engine はポリシーエンジンの実装である。
 type Engine struct {
-	rules               []Rule
+	rules []Rule
 	// defaultDestination は deliver アクションのルールに destination が指定されていない場合に使う宛先。
 	// mailshield.yaml の reinject.host:port から設定される。
-	defaultDestination  string
+	defaultDestination string
 	// defaultDeliverPort は destination にポートが含まれない場合に補完するデフォルトポート。
 	// mailshield.yaml の reinject.port から設定される。
-	defaultDeliverPort  int
+	defaultDeliverPort int
 }
 
 // New は policy.yaml を読み込んで Engine を構築する。
@@ -156,14 +157,15 @@ func (e *Engine) deliver(ctx context.Context, mail *domain.Mail, destination str
 		return fmt.Errorf("deliver アクションの宛先が未設定です（policy の destination または mailshield.yaml の reinject.host を設定してください）")
 	}
 
-	// 宛先アドレスが host:port 形式でない場合はデフォルトポートを付加
-	if !strings.Contains(destination, ":") {
-		destination = fmt.Sprintf("%s:%d", destination, e.defaultDeliverPort)
-	}
-
+	// 宛先アドレスが host:port 形式でない場合はデフォルトポートを付加する。
+	// net.JoinHostPort を使うことでベア IPv6 アドレス（例: ::1）も正しく扱える。
 	host, _, err := net.SplitHostPort(destination)
 	if err != nil {
-		return fmt.Errorf("宛先アドレスのパース失敗 (%s): %w", destination, err)
+		destination = net.JoinHostPort(destination, strconv.Itoa(e.defaultDeliverPort))
+		host, _, err = net.SplitHostPort(destination)
+		if err != nil {
+			return fmt.Errorf("宛先アドレスのパース失敗 (%s): %w", destination, err)
+		}
 	}
 
 	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", destination)

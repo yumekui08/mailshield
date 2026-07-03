@@ -29,7 +29,7 @@ type InspectEntry struct {
 // InspectResult は検査ワーカーの結果を表す。
 type InspectResult struct {
 	WorkerName string
-	Score      int            // 0-100
+	Score      int // 0-100
 	Detected   bool
 	Details    map[string]any
 }

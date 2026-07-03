@@ -49,18 +49,27 @@ swaks --to test@internal.test --from sender@external.test \
 
 ### Docker Compose で動かす
 
+外部 MTA なしで評価する詳細な手順は [クイックスタート](docs/setup/quick-start.md) を参照してください。
+
 ```bash
-# 1. クローン・.env 作成（パスワードを変更）
+# 1. クローン・.env 作成（パスワード・配送先を設定）
 git clone https://github.com/koizumib/mailshield.git
 cd mailshield
 cp .env.example .env
+# .env のパスワード類を変更し、評価環境では配送先を Mailpit に向ける:
+#   MAILSHIELD_REINJECT_HOST=mailpit
+#   MAILSHIELD_REINJECT_PORT=1025
 
-# 2. 起動（MariaDB + MinIO + RabbitMQ + Postfix + Mailpit）
+# 2. ホストからの SMTP 接続を許可（config/mailshield.yaml）
+#   server:
+#     trusted_sources: [127.0.0.1, 172.16.0.0/12]
+
+# 3. 起動（MariaDB + MinIO + RabbitMQ + Mailpit）
 make dev-up
 
-# 3. テストメール送信
+# 4. テストメール送信（smtp-gateway に直接投入）
 swaks --to test@internal.test --from sender@external.test \
-      --server localhost --port 25 \
+      --server localhost --port 10024 \
       --header "Subject: Hello MailShield"
 
 # Mailpit でメールを確認
@@ -73,11 +82,13 @@ open http://localhost:8025
 
 ## ドキュメント
 
+全ドキュメントの索引は [docs/README.md](docs/README.md) を参照。
+
 ### セットアップ
 | ドキュメント | 内容 |
 |------------|------|
 | [システム概要と前提アーキテクチャ](docs/setup/overview.md) | **まず読む** — 必要な MTA・インフラ要件 |
-| [クイックスタート](docs/setup/quick-start.md) | Docker Compose で最速起動 |
+| [クイックスタート](docs/setup/quick-start.md) | 外部 MTA なしで評価環境を構築（約 15 分） |
 | [プロファイルガイド](docs/setup/profiles.md) | Docker Compose プロファイルの組み合わせ |
 | [自前 MTA との連携](docs/setup/mta-self-managed.md) | Postfix 等の既存 MTA への組み込み方法 |
 | [バイナリインストール](docs/setup/binary-install.md) | Docker を使わないセットアップ |

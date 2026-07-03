@@ -43,6 +43,16 @@ func TestExtractSubject(t *testing.T) {
 			eml:  "Subject:   spaces around   \n\nBody",
 			want: "spaces around",
 		},
+		{
+			name: "RFC 2047 Bエンコードの日本語件名をデコードする",
+			eml:  "Subject: =?UTF-8?B?44OG44K544OI44Oh44O844Or?=\n\nBody",
+			want: "テストメール",
+		},
+		{
+			name: "RFC 2047 Qエンコードの件名をデコードする",
+			eml:  "Subject: =?UTF-8?Q?Hello_=E4=B8=96=E7=95=8C?=\n\nBody",
+			want: "Hello 世界",
+		},
 	}
 
 	for _, tt := range tests {
@@ -57,15 +67,15 @@ func TestExtractSubject(t *testing.T) {
 
 func TestExtractAuthResults(t *testing.T) {
 	tests := []struct {
-		name     string
-		eml      string
-		wantSPF  domain.AuthResult
-		wantDKIM domain.AuthResult
+		name      string
+		eml       string
+		wantSPF   domain.AuthResult
+		wantDKIM  domain.AuthResult
 		wantDMARC domain.AuthResult
 	}{
 		{
-			name: "Authentication-Resultsヘッダーがない場合はすべてnone",
-			eml:  "From: sender@example.com\nSubject: test\n\nBody",
+			name:    "Authentication-Resultsヘッダーがない場合はすべてnone",
+			eml:     "From: sender@example.com\nSubject: test\n\nBody",
 			wantSPF: domain.AuthNone, wantDKIM: domain.AuthNone, wantDMARC: domain.AuthNone,
 		},
 		{
