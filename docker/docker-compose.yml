@@ -1,3 +1,7 @@
+# プロジェクト名を明示する（コンテナ名・ボリューム名の接頭辞になる）。
+# 未指定だとディレクトリ名 "docker" が使われ、ドキュメントのコンテナ名と食い違う。
+name: mailshield
+
 services:
 
   # ═══════════════════════════════════════════════════════════════
@@ -13,7 +17,7 @@ services:
       - "8080:8080"     # ヘルスチェック
       - "10024:10024"     #リッスンポート
     environment:
-      CONFIG_FILE: /app/config/mailshield.yaml
+      MAILSHIELD_CONFIG_DIR: /app/config
       DB_HOST:     ${DB_HOST:-mariadb}
       DB_PORT:     ${DB_PORT:-3306}
       DB_NAME:     ${DB_NAME:-mailshield}
@@ -27,6 +31,11 @@ services:
       RABBITMQ_PORT:     ${RABBITMQ_PORT:-5672}
       RABBITMQ_USER:     ${RABBITMQ_USER:-mailshield}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-mailshield}
+      # 再インジェクト先・通知 SMTP（.env の STEP 2 を参照。未設定時は開発用 Mailpit）
+      MAILSHIELD_REINJECT_HOST: ${MAILSHIELD_REINJECT_HOST:-mailpit}
+      MAILSHIELD_REINJECT_PORT: ${MAILSHIELD_REINJECT_PORT:-1025}
+      MAILSHIELD_NOTIFICATION_SMTP_HOST: ${MAILSHIELD_NOTIFICATION_SMTP_HOST:-mailpit}
+      MAILSHIELD_NOTIFICATION_SMTP_PORT: ${MAILSHIELD_NOTIFICATION_SMTP_PORT:-1025}
     volumes:
       - ../config:/app/config:ro
       - ../workers:/app/workers:ro
