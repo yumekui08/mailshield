@@ -205,7 +205,8 @@ services:
     image: apache/tika:latest
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9998/version || exit 1"]
+      # apache/tika イメージには wget / curl が無いため bash の /dev/tcp で TCP 接続を確認する
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9998"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -217,7 +218,9 @@ services:
     environment:
       - PORT=8884
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8884/healthz || exit 1"]
+      # /healthz エンドポイントは存在しない（ルート / が 200 を返す）。
+      # localhost はコンテナ内で ::1 に解決されるがサーバーは IPv4 のみ listen するため 127.0.0.1 を使う。
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8884/"]
       interval: 10s
       timeout: 5s
       retries: 5

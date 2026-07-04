@@ -54,8 +54,8 @@ func TestAPI_Login_Standalone(t *testing.T) {
 	}
 }
 
-// TestAPI_Messages_List はメッセージ一覧が items フィールドを持って返ることを確認する。
-// メールが 0 件でも items が空配列として含まれる必要がある。
+// TestAPI_Messages_List はメッセージ一覧が PagedResult 形式（data / meta）で
+// 返ることを確認する。メールが 0 件でも data が空配列として含まれる必要がある。
 func TestAPI_Messages_List(t *testing.T) {
 	requireAPI(t)
 	cookie := apiLogin(t)
@@ -66,18 +66,24 @@ func TestAPI_Messages_List(t *testing.T) {
 	}
 
 	var result struct {
-		Items []json.RawMessage `json:"items"`
-		Total int               `json:"total"`
+		Data []json.RawMessage `json:"data"`
+		Meta struct {
+			Total int `json:"total"`
+		} `json:"meta"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		t.Fatalf("レスポンスのデコード失敗: %v", err)
 	}
-	if result.Items == nil {
-		t.Error("items フィールドが null です（空配列が期待されます）")
+	if result.Data == nil {
+		t.Error("data フィールドが null です（空配列が期待されます）")
+	}
+	if result.Meta.Total < len(result.Data) {
+		t.Errorf("meta.total (%d) が data の件数 (%d) より小さいです", result.Meta.Total, len(result.Data))
 	}
 }
 
-// TestAPI_Quarantine_List は隔離メール一覧が items フィールドを持って返ることを確認する。
+// TestAPI_Quarantine_List は隔離メール一覧が PagedResult 形式（data / meta）で
+// 返ることを確認する。
 func TestAPI_Quarantine_List(t *testing.T) {
 	requireAPI(t)
 	cookie := apiLogin(t)
@@ -88,13 +94,13 @@ func TestAPI_Quarantine_List(t *testing.T) {
 	}
 
 	var result struct {
-		Items []json.RawMessage `json:"items"`
+		Data []json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		t.Fatalf("レスポンスのデコード失敗: %v", err)
 	}
-	if result.Items == nil {
-		t.Error("items フィールドが null です（空配列が期待されます）")
+	if result.Data == nil {
+		t.Error("data フィールドが null です（空配列が期待されます）")
 	}
 }
 
@@ -107,7 +113,7 @@ func TestAPI_Simulate_ProxiesToGateway(t *testing.T) {
 
 	eml, err := io.ReadAll(bytes.NewBufferString(
 		"From: sender@external.test\r\n" +
-			"To: user@example.com\r\n" +
+			"To: user@internal.test\r\n" +
 			"Subject: API proxy test\r\n" +
 			"\r\n" +
 			"Test body.\r\n",

@@ -77,7 +77,7 @@ open http://localhost:8025
 ```
 
 デフォルトの管理者アカウント（`schema/mariadb/002_seed.sql` で設定）:
-- メールアドレス: `admin@example.com`
+- メールアドレス: `admin@internal.test`
 - パスワード: `password`
 
 ## ドキュメント

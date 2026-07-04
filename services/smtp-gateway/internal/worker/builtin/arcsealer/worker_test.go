@@ -118,6 +118,89 @@ func TestSealARC_OriginalMessagePreserved(t *testing.T) {
 	}
 }
 
+// LF のみの EML（/simulate への直接投入や、件名のみ書き換える Lua 変換ワーカーを
+// 経由した場合は元の改行コードが保持される）でもシールできることを確認する。
+func TestSealARC_LFOnlyEML(t *testing.T) {
+	w := newTestWorker(t)
+	lfEML := strings.ReplaceAll(testEML, "\r\n", "\n")
+
+	result, err := w.sealARC([]byte(lfEML))
+	if err != nil {
+		t.Fatalf("LF のみの EML で sealARC 失敗: %v", err)
+	}
+
+	out := string(result)
+	for _, header := range []string{
+		"ARC-Seal:",
+		"ARC-Message-Signature:",
+		"ARC-Authentication-Results:",
+	} {
+		if !strings.Contains(out, header) {
+			t.Errorf("ヘッダーが見つかりません: %s", header)
+		}
+	}
+	if !strings.Contains(out, "Hello, World!") {
+		t.Error("元のメールボディが保持されていません")
+	}
+}
+
+// LF のみの EML と CRLF の EML で AMS のボディハッシュ（bh=）が一致することを確認する。
+// relaxed 正規化は改行コードに依存しないため、署名は同一になるべき。
+func TestSealARC_LFAndCRLFSameBodyHash(t *testing.T) {
+	lfBody := []byte("Hello, World!\n")
+	crlfBody := []byte("Hello, World!\r\n")
+	if bodyHash(lfBody) != bodyHash(crlfBody) {
+		t.Error("LF と CRLF のボディで bodyHash が一致しません")
+	}
+}
+
+func TestSplitHeaderBody(t *testing.T) {
+	tests := []struct {
+		name       string
+		raw        string
+		wantHeader string
+		wantBody   string
+		wantOK     bool
+	}{
+		{
+			name:       "CRLF",
+			raw:        "From: a@b.com\r\nSubject: x\r\n\r\nbody\r\n",
+			wantHeader: "From: a@b.com\r\nSubject: x\r\n",
+			wantBody:   "body\r\n",
+			wantOK:     true,
+		},
+		{
+			name:       "LF",
+			raw:        "From: a@b.com\nSubject: x\n\nbody\n",
+			wantHeader: "From: a@b.com\nSubject: x\n",
+			wantBody:   "body\n",
+			wantOK:     true,
+		},
+		{
+			name:   "区切りなし",
+			raw:    "From: a@b.com\r\n",
+			wantOK: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			header, body, ok := splitHeaderBody([]byte(tc.raw))
+			if ok != tc.wantOK {
+				t.Fatalf("ok: got %v, want %v", ok, tc.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if string(header) != tc.wantHeader {
+				t.Errorf("header: got %q, want %q", header, tc.wantHeader)
+			}
+			if string(body) != tc.wantBody {
+				t.Errorf("body: got %q, want %q", body, tc.wantBody)
+			}
+		})
+	}
+}
+
 func TestRelaxedHeader(t *testing.T) {
 	tests := []struct {
 		input string

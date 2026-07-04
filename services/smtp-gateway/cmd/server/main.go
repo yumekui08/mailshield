@@ -778,19 +778,23 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 
 	// 変換パイプライン（ドライラン: storage 保存なし）
 	transformed, transformErr := rh.transform.Run(ctx, m)
+
+	// 変換失敗時は実配送経路（[6/7]）と同じセマンティクスで隔離として報告する。
+	// ポリシー評価をスキップして quarantine を返し、「変換なしで配送される」という
+	// 実際の動作と食い違う結果を返さない。
+	var (
+		action          policy.ActionType
+		matchedRule     string
+		transformErrMsg string
+	)
 	if transformErr != nil {
-		slog.Warn("simulate: 変換パイプラインエラー（元のメールで続行）",
+		slog.Warn("simulate: 変換パイプライン失敗（実配送経路では隔離される）",
 			"message_id", m.MessageID, "error", transformErr)
-	}
-	if transformed == nil {
 		transformed = m
-	}
-
-	action, matchedRule := rh.policy.Evaluate(inspectResults)
-
-	var transformErrMsg string
-	if transformErr != nil {
 		transformErrMsg = transformErr.Error()
+		action = policy.ActionQuarantine
+	} else {
+		action, matchedRule = rh.policy.Evaluate(inspectResults)
 	}
 	out := SimulateResult{
 		RouteName:          route.Name,

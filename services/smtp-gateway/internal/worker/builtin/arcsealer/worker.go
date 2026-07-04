@@ -97,17 +97,33 @@ func (w *Worker) Transform(_ context.Context, m *domain.Mail) (*domain.Mail, err
 	return &out, nil
 }
 
+// splitHeaderBody は EML をヘッダー部とボディ部に分割する。
+// SMTP 経由の EML は CRLF 区切りだが、/simulate には LF のみの EML も
+// 直接投入されるため両方の区切りに対応する。CRLF と LF が混在する場合は
+// 先に現れた方を区切りとして扱う。
+// header には末尾の行終端 1 つを含む（parseHeaders が最終ヘッダーを認識するため）。
+func splitHeaderBody(raw []byte) (header, body []byte, ok bool) {
+	sep := bytes.Index(raw, []byte("\r\n\r\n"))
+	termLen := 2 // 区切り直前の行終端の長さ（CRLF）
+	if lf := bytes.Index(raw, []byte("\n\n")); lf != -1 && (sep == -1 || lf < sep) {
+		sep, termLen = lf, 1
+	}
+	if sep == -1 {
+		return nil, nil, false
+	}
+	return raw[:sep+termLen], raw[sep+termLen*2:], true
+}
+
 // 追加するヘッダーは AAR・AMS・AS の順（RFC 8617 §5.1）
 func (w *Worker) sealARC(rawEML []byte) ([]byte, error) {
 	// ヘッダー / ボディを分割
-	sep := bytes.Index(rawEML, []byte("\r\n\r\n"))
-	if sep == -1 {
+	headerPart, body, ok := splitHeaderBody(rawEML)
+	if !ok {
 		return nil, errors.New("ヘッダー/ボディ区切りが見つかりません")
 	}
-	body := rawEML[sep+4:]
 
 	// 元のヘッダーを解析
-	originalHeaders := parseHeaders(rawEML[:sep+2])
+	originalHeaders := parseHeaders(headerPart)
 
 	// Authentication-Results ヘッダーを探して AAR の値にする
 	arValue := "none"
@@ -160,12 +176,11 @@ func (w *Worker) sealARC(rawEML []byte) ([]byte, error) {
 // AMS は DKIM-Signature と同じアルゴリズムだが、ヘッダー名が "ARC-Message-Signature:" で
 // "v=" タグがなく "i=" タグを持つ。
 func (w *Worker) createAMS(msgWithAAR, body []byte, instance int) (line, fieldValue string, err error) {
-	sep := bytes.Index(msgWithAAR, []byte("\r\n\r\n"))
 	var headers []string
-	if sep == -1 {
-		headers = parseHeaders(msgWithAAR)
+	if headerPart, _, ok := splitHeaderBody(msgWithAAR); ok {
+		headers = parseHeaders(headerPart)
 	} else {
-		headers = parseHeaders(msgWithAAR[:sep+2])
+		headers = parseHeaders(msgWithAAR)
 	}
 
 	// ボディハッシュ（relaxed 正規化 → SHA256 → base64）
