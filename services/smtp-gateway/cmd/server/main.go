@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/deliver"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/logging"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/notify"
@@ -266,6 +267,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 配送レジストリ: 名前付き deliverer（deliverers セクション）+ reinject 後方互換。
+	// 全ルートのポリシーエンジンで共有する。
+	deliverReg, err := deliver.NewRegistry(cfg.Deliverers, cfg.Reinject.Host, cfg.Reinject.Port)
+	if err != nil {
+		slog.Error("deliverer 初期化失敗", "error", err)
+		os.Exit(1)
+	}
+
 	routeHandlers := make(map[string]*routeHandler, len(cfg.Routes))
 	for i := range cfg.Routes {
 		routeCfg := &cfg.Routes[i]
@@ -282,7 +291,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		pe, err := policy.New(routeCfg.Policy.RulesFile, cfg.Reinject.Addr(), cfg.Reinject.Port)
+		pe, err := policy.New(routeCfg.Policy.RulesFile, deliverReg)
 		if err != nil {
 			slog.Error("ポリシーエンジン初期化失敗", "route", routeCfg.Name, "error", err)
 			os.Exit(1)

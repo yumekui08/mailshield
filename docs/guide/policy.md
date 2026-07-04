@@ -68,13 +68,34 @@ rules:
 
 ### `deliver` の `destination`
 
+`destination` には **deliverer 名**（`mailshield.yaml` の `deliverers` で定義）または **host:port** を指定できる。名前が優先して解決される。
+
 ```yaml
 action: deliver
-destination: "postfix:10025"     # ホスト:ポート
+destination: "sendgrid"          # deliverer 名（deliverers.sendgrid を使用。STARTTLS + AUTH 可）
+destination: "postfix:10025"     # ホスト:ポート（平文 SMTP）
 destination: "mailpit:1025"      # 開発環境（Mailpit）
 destination: "10.0.0.1:25"       # IP 指定
-destination: "postfix"           # ポート省略時は :25
+destination: "postfix"           # ポート省略時は :25（同名の deliverer があればそちらが優先）
 ```
+
+`destination` を省略した場合は `deliverers.default` が使われる。`deliverers.default` が未定義なら `reinject.host:port` にフォールバックする。
+
+ルールごとに deliverer を分けられるため、「outbound ルートの通常メールは SendGrid、社内向けは Postfix」のような振り分けができる:
+
+```yaml
+rules:
+  - name: internal_relay
+    condition: "header-worker.internal == true"
+    action: deliver
+    destination: "postfix"        # deliverers.postfix
+  - name: default_send
+    condition: "true"
+    action: deliver
+    destination: "sendgrid"       # deliverers.sendgrid（STARTTLS + SMTP AUTH）
+```
+
+SendGrid / Amazon SES 等の外部 SMTP エンドポイントの定義方法は [設定リファレンスの deliverers](../specs/configuration.md#deliverers) を参照。
 
 ---
 

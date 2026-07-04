@@ -32,19 +32,21 @@ storage:
   public_use_ssl: false
   presigned_url_expiry_hours: 1
 
+# 認証は2つの独立した軸で決まる:
+#   directory.source : ユーザー情報の真実の源 = ローカルログイン手段の選択（none | ldap | scim）
+#   auth.sso_mode    : OIDC（SSO）の扱い（disabled | optional | required）
+# 詳細・組み合わせの表は docs/specs/configuration.md の auth / directory.ldap を参照。
 auth:
+  sso_mode: disabled                    # disabled | optional | required
   providers:
-    standalone:
-      enabled: true
-    oidc:
-      enabled: false
-      # OIDC を有効にする場合は以下を設定して enabled: true にする
+    oidc: {}
+      # OIDC を使う場合（sso_mode: optional か required にすること）
       # issuer: "https://your-idp.example.com/application/o/mailshield/"
       # client_id: "mailshield-api"
       # client_secret: ""   # 環境変数 OIDC_CLIENT_SECRET で設定
       # redirect_uri: "http://localhost:8090/api/v1/auth/callback"
       # scopes: [openid, email, profile, groups]
-  group_mappings:
+  group_mappings:                       # OIDC の groups claim → ロールのマッピング
     admin: "mailshield-admins"
     operator: "mailshield-operators"
     viewer: "mailshield-viewers"
@@ -52,6 +54,32 @@ auth:
     ttl_minutes: 480
     cookie_name: "mailshield_session"
     cookie_secure: false
+
+# ユーザー情報の真実の源（directory.source）。role・display_name をどこが管理するかを決める。
+#   none : 手動管理。ローカルログインは standalone（メール + bcrypt パスワード）
+#   ldap : LDAP ディレクトリが真実の源。ローカルログインは LDAP bind 認証に切り替わる
+#   scim : SCIM 同期が真実の源（未実装）。SCIM はパスワード検証の仕組みを持たないため
+#          auth.sso_mode を optional/required にすることが必須
+directory:
+  source: none                          # none | ldap | scim
+  ldap:
+    # host: ldap.corp.local
+    # port: 389
+    # tls: none                    # none | starttls | ldaps
+    # bind_dn: "cn=svc-mailshield,ou=Service Accounts,dc=corp,dc=local"
+    # bind_password: ""            # 環境変数 LDAP_BIND_PASSWORD で設定すること
+    # base_dn: "ou=Users,dc=corp,dc=local"
+    # user_filter: "(objectClass=person)"
+    # attributes:
+    #   email: mail
+    #   display_name: displayName
+    #   groups: memberOf           # Active Directory 標準。OpenLDAP は memberof overlay が必要
+    # group_mappings:
+    #   admin: "cn=MailShield-Admins,ou=Groups,dc=corp,dc=local"
+    #   operator: "cn=MailShield-Operators,ou=Groups,dc=corp,dc=local"
+    #   viewer: "cn=MailShield-Viewers,ou=Groups,dc=corp,dc=local"
+    # sync_interval_minutes: 60
+    # deactivate_missing_users: true  # 同期結果に含まれなくなった ldap ユーザーを無効化する
 
 mailbox_policy:
   inbound_quarantine:

@@ -30,7 +30,12 @@ export function LoginPage() {
     if (providers?.setup_required) navigate("/setup", { replace: true });
   }, [providers, navigate]);
 
+  // ローカルログイン（email + password フォーム）の実体は standalone か LDAP bind 認証。
+  // directory.source によってどちらか一方だけが有効になるが、フロントエンドから見た
+  // フォーム・エンドポイントは同一なので区別せず扱う。
   const hasStandalone = providers?.providers.some((p) => p.id === "standalone");
+  const hasLdap = providers?.providers.some((p) => p.id === "ldap");
+  const hasLocalLogin = hasStandalone || hasLdap;
   const hasOIDC = providers?.providers.some((p) => p.id === "oidc");
 
   function handleStandaloneLogin(e: React.FormEvent) {
@@ -66,7 +71,7 @@ export function LoginPage() {
             <p className="text-sm text-gray-400">読み込み中...</p>
           ) : (
             <div className="w-full flex flex-col gap-4">
-              {hasStandalone && (
+              {hasLocalLogin && (
                 <form onSubmit={handleStandaloneLogin} className="flex flex-col gap-3">
                   <Input
                     type="email"
@@ -91,18 +96,22 @@ export function LoginPage() {
                   >
                     {loginMutation.isPending ? "サインイン中..." : "サインイン"}
                   </Button>
-                  <div className="text-right">
-                    <Link
-                      to="/forgot-password"
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      パスワードを忘れた場合
-                    </Link>
-                  </div>
+                  {/* パスワードリセットは standalone（bcrypt）専用。LDAP bind 認証では
+                      パスワードの真実の源が LDAP 側にあるため MailShield からリセットできない。 */}
+                  {hasStandalone && (
+                    <div className="text-right">
+                      <Link
+                        to="/forgot-password"
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        パスワードを忘れた場合
+                      </Link>
+                    </div>
+                  )}
                 </form>
               )}
 
-              {hasStandalone && hasOIDC && (
+              {hasLocalLogin && hasOIDC && (
                 <div className="flex items-center gap-2">
                   <hr className="flex-1 border-gray-200" />
                   <span className="text-xs text-gray-400">または</span>

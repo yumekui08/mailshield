@@ -151,6 +151,7 @@ notification:
 | `reinject.port` | int | `MAILSHIELD_REINJECT_PORT` | 再インジェクト先の SMTP ポート |
 
 - policy ファイルのルールに `destination` が明示されている場合は、そちらが優先される
+- `deliverers.default` が定義されている場合は、そちらが優先される（reinject は後方互換用）
 - `api-server.yaml` の `notification.reinject_host/port` が未設定の場合、api-server は自動的にこの設定を継承する（SSOT）
 
 ```yaml
@@ -161,6 +162,49 @@ reinject:
 
 **本番環境の注意点:**
 通知メールを Postfix 経由で送ると content_filter ループが発生する恐れがある。Postfix を経由せず直接 SMTP リレーへ送るか、`mynetworks` / `check_client_access` で smtp-gateway からの接続を content_filter バイパスするよう設定すること。
+
+### deliverers
+
+名前付き配送トランスポート定義。policy ファイルの `rules[].destination` に deliverer 名を書くと、その deliverer 経由で配送される。ローカル MTA への平文再インジェクトのほか、SendGrid / Amazon SES などの外部 SMTP エンドポイント（STARTTLS + SMTP AUTH）を配送先にできる。
+
+| キー | 型 | デフォルト | 説明 |
+|-----|-----|----------|------|
+| `deliverers.<名前>.type` | string | `smtp` | 配送方式（現在は `smtp` のみ） |
+| `deliverers.<名前>.host` | string | —（必須） | 接続先ホスト |
+| `deliverers.<名前>.port` | int | `25` | 接続先ポート |
+| `deliverers.<名前>.tls` | string | `none` | `none`（平文）/ `starttls` / `tls`（SMTPS） |
+| `deliverers.<名前>.auth.username` | string | — | SMTP AUTH ユーザー名。設定すると AUTH を行う（PLAIN / LOGIN をサーバー広告から自動選択） |
+| `deliverers.<名前>.auth.password` | string | — | SMTP AUTH パスワード |
+| `deliverers.<名前>.tls_skip_verify` | bool | `false` | TLS 証明書検証をスキップ（開発・テスト用） |
+
+- **`default` は予約名。** `destination` 未指定の deliver ルールには `deliverers.default` が使われ、未定義なら `reinject.host:port`（平文 SMTP）にフォールバックする
+- deliverer 名は英数字・ハイフン・アンダースコアのみ（`:` を含む名前は不可。`destination` の host:port 形式と区別するため）
+- `destination` の解決順序: **deliverer 名 → host[:port] 形式**（名前が優先）
+- パスワードは環境変数 `MAILSHIELD_DELIVERER_<大文字名>_PASSWORD` が YAML より優先される（名前のハイフンは `_` に変換。例: `ses-tokyo` → `MAILSHIELD_DELIVERER_SES_TOKYO_PASSWORD`）
+- 平文接続（`tls: none`）でリモートホストに AUTH を設定した場合、送信時に資格情報の送出を拒否してエラーになる（localhost 宛は許可）
+
+```yaml
+deliverers:
+  default:                        # destination 未指定のルールで使われる
+    host: postfix
+    port: 25
+  sendgrid:
+    host: smtp.sendgrid.net
+    port: 587
+    tls: starttls
+    auth:
+      username: apikey            # SendGrid は固定文字列 "apikey"
+      password: ""                # ENV: MAILSHIELD_DELIVERER_SENDGRID_PASSWORD
+  ses:
+    host: email-smtp.ap-northeast-1.amazonaws.com
+    port: 587
+    tls: starttls
+    auth:
+      username: AKIAXXXXXXXXXXXXXXXX
+      password: ""                # ENV: MAILSHIELD_DELIVERER_SES_PASSWORD
+```
+
+**SendGrid / SES 利用時の注意:** 両サービスとも送信元（エンベロープ FROM）のドメイン検証が必要なため、外部送信者の FROM をそのまま中継する inbound ルートの配送先には使えない。自組織ドメインが FROM になる outbound ルートの配送先として使用すること。
 
 ### quarantine_notification
 
@@ -395,7 +439,8 @@ rules:
   - name: default_deliver
     condition: "true"
     action: deliver
-    # destination: "mailpit:1025"   # 省略時は mailshield.yaml の reinject 設定が使われる
+    # destination: "mailpit:1025"   # 省略時は deliverers.default（未定義なら reinject 設定）が使われる
+    # destination: "sendgrid"        # deliverer 名も指定できる（mailshield.yaml の deliverers 参照）
 ```
 
 | condition 形式 | 例 |
@@ -447,10 +492,32 @@ smtp-gateway の `database` セクションと同じキー構成。
 
 ### auth
 
+認証は2つの独立した軸で決まる。
+
+| 軸 | 値 | 意味 |
+|-----|-----|------|
+| `directory.source`（後述） | `none` / `ldap` / `scim` | **ユーザー情報の真実の源**とローカルログイン手段の選択 |
+| `auth.sso_mode` | `disabled` / `optional` / `required` | **OIDC（SSO）の扱い** |
+
+`directory.source` ごとの「ローカルログイン」の実体:
+
+| `directory.source` | ローカルログイン手段 |
+|---|---|
+| `none`（デフォルト） | standalone（メール + bcrypt パスワード） |
+| `ldap` | LDAP bind 認証（`directory.ldap` の接続設定を認証にも流用する） |
+| `scim` | なし（SCIM はパスワード検証の仕組みを持たないため、`auth.sso_mode` を `optional`/`required` にすることが起動時に必須。`disabled` のままだと起動エラーになる） |
+
+`auth.sso_mode` の意味:
+
+| 値 | 動作 |
+|---|---|
+| `disabled`（デフォルト） | OIDC を使わない。`directory.source` が決めたローカルログインのみ |
+| `optional` | ローカルログイン + OIDC の両方を提示する |
+| `required` | OIDC のみ提示する。ローカルログイン（standalone/LDAP bind）は無効化される（`auth.providers.oidc.issuer` の設定が無いと起動時エラーになる） |
+
 | キー | 型 | 説明 |
 |-----|-----|------|
-| `providers.standalone.enabled` | bool | 組み込み認証を有効化（パスワード認証） |
-| `providers.oidc.enabled` | bool | OIDC 認証を有効化 |
+| `sso_mode` | string | 上表参照。省略時 `disabled` |
 | `providers.oidc.issuer` | string | OIDC プロバイダーの issuer URL |
 | `providers.oidc.client_id` | string | OIDC クライアント ID |
 | `providers.oidc.client_secret` | string | OIDC クライアントシークレット（環境変数 `OIDC_CLIENT_SECRET` で設定推奨） |
@@ -462,6 +529,80 @@ smtp-gateway の `database` セクションと同じキー構成。
 | `session.ttl_minutes` | int | セッション有効期間（分） |
 | `session.cookie_name` | string | セッション Cookie 名 |
 | `session.cookie_secure` | bool | Secure 属性を付与するか（本番環境では `true` 推奨） |
+
+```yaml
+# 例1: デフォルト（standalone のみ）
+auth:
+  sso_mode: disabled
+
+# 例2: standalone + OIDC の両方を提示（ユーザーが選べる）
+auth:
+  sso_mode: optional
+  providers:
+    oidc:
+      issuer: "https://idp.example.com/application/o/mailshield/"
+      # ...
+
+# 例3: OIDC を強制（standalone/LDAP bind は無効化）
+auth:
+  sso_mode: required
+  providers:
+    oidc:
+      issuer: "https://idp.example.com/application/o/mailshield/"
+      # ...
+```
+
+### directory.ldap
+
+LDAP ディレクトリ（Active Directory / OpenLDAP 等）を `directory.source: ldap` の真実の源として使う。この接続設定は次の2つの機能で共用される:
+
+1. **定期同期**（`internal/directory/ldap.Syncer`）: バックグラウンドでユーザー・グループを `users` テーブルに反映する
+2. **bind 認証**（`internal/auth.LDAPBindProvider`）: ログインのたびに LDAP へ bind してパスワードを検証し、JIT でユーザーを反映する（`auth.sso_mode` が `required` でなければ有効）
+
+| キー | 型 | デフォルト | 説明 |
+|-----|-----|----------|------|
+| `directory.source` | string | `none` | `none` / `ldap` / `scim`。`ldap` のときのみ本セクションが使われる |
+| `directory.ldap.host` | string | — | LDAP サーバーホスト |
+| `directory.ldap.port` | int | `389` | LDAP サーバーポート |
+| `directory.ldap.tls` | string | `none` | `none`（平文）/ `starttls` / `ldaps`（暗黙 TLS） |
+| `directory.ldap.tls_skip_verify` | bool | `false` | TLS 証明書検証をスキップ（開発・テスト用） |
+| `directory.ldap.bind_dn` | string | — | 検索用サービスアカウントの DN |
+| `directory.ldap.bind_password` | string | — | サービスアカウントのパスワード。環境変数 `LDAP_BIND_PASSWORD` で設定推奨 |
+| `directory.ldap.base_dn` | string | — | ユーザー検索の起点 DN |
+| `directory.ldap.user_filter` | string | — | ユーザーを絞り込む LDAP 検索フィルタ（例: `(objectClass=person)`） |
+| `directory.ldap.attributes.email` | string | — | メールアドレス属性名（例: `mail`） |
+| `directory.ldap.attributes.display_name` | string | — | 表示名属性名（例: `displayName`） |
+| `directory.ldap.attributes.groups` | string | — | グループ所属を表す属性名。Active Directory は標準で `memberOf` が使える。OpenLDAP は `memberof` overlay の有効化が必要 |
+| `directory.ldap.group_mappings.admin/operator/viewer` | string | — | ロールにマッピングするグループの DN（`attributes.groups` で得られる値と同じ形式） |
+| `directory.ldap.sync_interval_minutes` | int | `60` | 定期同期の間隔（分） |
+| `directory.ldap.search_timeout_seconds` | int | `30` | 1 回の LDAP 検索のタイムアウト（秒） |
+| `directory.ldap.page_size` | int | `500` | LDAP ページング検索の 1 ページあたり件数。AD 等のサーバー側件数上限（既定 1000 件）を超える規模のディレクトリでも全件取得するために使用 |
+| `directory.ldap.deactivate_missing_users` | bool | `false` | 同期結果に含まれなくなった `provisioned_by=ldap` のユーザーを `is_active=0` にする。LDAP 検索が0件を返した場合（誤設定の可能性）は全ユーザー無効化を防ぐため何もしない |
+
+**role の権威順位:** `manual > ldap/scim > oidc`。LDAP 同期で作成・更新されたユーザー（`provisioned_by=ldap`）の role は、その後の OIDC ログインでは上書きされない。詳細は [API 認証仕様](api-authentication.md) を参照。
+
+```yaml
+directory:
+  source: ldap
+  ldap:
+    host: ldap.corp.local
+    port: 389
+    tls: starttls
+    bind_dn: "cn=svc-mailshield,ou=Service Accounts,dc=corp,dc=local"
+    bind_password: ""              # ENV: LDAP_BIND_PASSWORD
+    base_dn: "ou=Users,dc=corp,dc=local"
+    user_filter: "(objectClass=person)"
+    attributes:
+      email: mail
+      display_name: displayName
+      groups: memberOf
+    group_mappings:
+      admin: "cn=MailShield-Admins,ou=Groups,dc=corp,dc=local"
+      operator: "cn=MailShield-Operators,ou=Groups,dc=corp,dc=local"
+      viewer: "cn=MailShield-Viewers,ou=Groups,dc=corp,dc=local"
+    sync_interval_minutes: 60
+    deactivate_missing_users: true
+```
 
 ### mailbox_policy
 

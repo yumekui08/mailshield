@@ -16,6 +16,8 @@ type mockRepository struct {
 	updateMessageStatusFunc        func(ctx context.Context, id string, status domain.MessageStatus) error
 	findUserByEmailFunc            func(ctx context.Context, email string) (*repository.User, error)
 	createUserFunc                 func(ctx context.Context, user *repository.User) error
+	upsertFederatedUserFunc        func(ctx context.Context, email, displayName string, role domain.Role, source domain.ProvisionedBy) (*repository.User, error)
+	deactivateMissingLDAPUsersFunc func(ctx context.Context, presentEmails []string) (int, error)
 	countUsersFunc                 func(ctx context.Context) (int, error)
 	listUsersFunc                  func(ctx context.Context) ([]repository.User, error)
 	updateUserPasswordFunc         func(ctx context.Context, userID, passwordHash string) error
@@ -72,6 +74,20 @@ func (m *mockRepository) CreateUser(ctx context.Context, user *repository.User) 
 		return m.createUserFunc(ctx, user)
 	}
 	return nil
+}
+
+func (m *mockRepository) UpsertFederatedUser(ctx context.Context, email, displayName string, role domain.Role, source domain.ProvisionedBy) (*repository.User, error) {
+	if m.upsertFederatedUserFunc != nil {
+		return m.upsertFederatedUserFunc(ctx, email, displayName, role, source)
+	}
+	return &repository.User{ID: "mock-user-id", Email: email, DisplayName: displayName, Role: role, IsActive: true, ProvisionedBy: source}, nil
+}
+
+func (m *mockRepository) DeactivateMissingLDAPUsers(ctx context.Context, presentEmails []string) (int, error) {
+	if m.deactivateMissingLDAPUsersFunc != nil {
+		return m.deactivateMissingLDAPUsersFunc(ctx, presentEmails)
+	}
+	return 0, nil
 }
 
 func (m *mockRepository) CountUsers(ctx context.Context) (int, error) {

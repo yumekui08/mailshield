@@ -27,6 +27,17 @@ type Repository interface {
 	FindUserByEmail(ctx context.Context, email string) (*User, error)
 	// CreateUser はユーザーを登録する。
 	CreateUser(ctx context.Context, user *User) error
+	// UpsertFederatedUser は外部ディレクトリ（OIDC/LDAP/SCIM）からのログイン・同期時に
+	// ユーザーを作成または更新する。role の上書き可否は権威の優先順位で決まる:
+	// manual（手動） > ldap/scim（ディレクトリ同期） > oidc（groups claim。フォールバック）。
+	// 既存行が上位または同格の権威で管理されている場合、下位の source からの role 上書きは行わない。
+	// is_active は変更しない（admin が無効化したユーザーをログインだけで再有効化しない）。
+	UpsertFederatedUser(ctx context.Context, email, displayName string, role domain.Role, source domain.ProvisionedBy) (*User, error)
+	// DeactivateMissingLDAPUsers は provisioned_by=ldap のユーザーのうち、
+	// presentEmails に含まれないものを is_active=0 にし、無効化した件数を返す。
+	// presentEmails が空の場合は何もしない（LDAP 検索の誤検知で全ユーザーを
+	// 無効化することを防ぐ、最後の防衛線として repository 層でもガードする）。
+	DeactivateMissingLDAPUsers(ctx context.Context, presentEmails []string) (int, error)
 	// CountUsers はユーザー数を返す。
 	CountUsers(ctx context.Context) (int, error)
 	// ListUsers はユーザー一覧を返す。
@@ -153,15 +164,16 @@ type MailboxAssignment struct {
 	CreatedAt       time.Time
 }
 
-// User はスタンドアロン認証のユーザー情報を保持する。
+// User はユーザー情報を保持する（スタンドアロン認証・OIDC/LDAP/SCIM 経由の両方）。
 type User struct {
-	ID           string
-	Email        string
-	DisplayName  string
-	PasswordHash string
-	Role         domain.Role
-	IsActive     bool
-	ApproverID   *string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID            string
+	Email         string
+	DisplayName   string
+	PasswordHash  string
+	Role          domain.Role
+	IsActive      bool
+	ApproverID    *string
+	ProvisionedBy domain.ProvisionedBy
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }

@@ -12,7 +12,19 @@ import (
 
 // ─── EvaluateAndAct テスト ────────────────────────────────────
 
-func newEngineFromYAML(t *testing.T, yaml string) *Engine {
+// fakeDeliverer は Deliver 呼び出しを記録するテスト用実装。
+type fakeDeliverer struct {
+	called      bool
+	destination string
+}
+
+func (f *fakeDeliverer) Deliver(_ context.Context, _ *domain.Mail, destination string) error {
+	f.called = true
+	f.destination = destination
+	return nil
+}
+
+func newEngineFromYAML(t *testing.T, yaml string, d Deliverer) *Engine {
 	t.Helper()
 	f, err := os.CreateTemp(t.TempDir(), "policy*.yaml")
 	if err != nil {
@@ -22,7 +34,7 @@ func newEngineFromYAML(t *testing.T, yaml string) *Engine {
 		t.Fatal(err)
 	}
 	f.Close()
-	e, err := New(f.Name(), "mailpit:1025", 0)
+	e, err := New(f.Name(), d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,22 +125,43 @@ rules:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := newEngineFromYAML(t, tt.rules)
+			fd := &fakeDeliverer{}
+			e := newEngineFromYAML(t, tt.rules, fd)
 			mail := &domain.Mail{MessageID: "test-id"}
 
 			action, err := e.EvaluateAndAct(context.Background(), mail, tt.results)
-			// deliver アクションは実際のSMTP接続を試みるためエラーになる場合がある
-			if tt.wantAction == ActionDeliver && err != nil {
-				// 接続エラーはテスト環境では想定内 → アクション判定のみ検証不能なためスキップ
-				t.Skipf("deliver: SMTP接続エラー（テスト環境）: %v", err)
-			}
 			if err != nil {
 				t.Fatalf("EvaluateAndAct() error = %v", err)
 			}
 			if action != tt.wantAction {
 				t.Errorf("action = %q, want %q", action, tt.wantAction)
 			}
+			if tt.wantAction == ActionDeliver {
+				if !fd.called {
+					t.Error("deliver アクションなのに Deliverer が呼ばれていません")
+				}
+				if fd.destination != "mailpit:1025" {
+					t.Errorf("destination = %q, want %q", fd.destination, "mailpit:1025")
+				}
+			} else if fd.called {
+				t.Errorf("%s アクションで Deliverer が呼ばれました", tt.wantAction)
+			}
 		})
+	}
+}
+
+// TestEvaluateAndAct_NilDeliverer は deliverer 未設定で deliver アクションが
+// エラーになることを確認する。
+func TestEvaluateAndAct_NilDeliverer(t *testing.T) {
+	e := newEngineFromYAML(t, `
+rules:
+  - name: default
+    condition: "true"
+    action: deliver
+`, nil)
+	_, err := e.EvaluateAndAct(context.Background(), &domain.Mail{MessageID: "test-id"}, nil)
+	if err == nil {
+		t.Fatal("deliverer が nil のとき deliver はエラーになるべきです")
 	}
 }
 
@@ -266,7 +299,7 @@ func TestBuildFacts(t *testing.T) {
 }
 
 func TestNewEngine_InvalidFile(t *testing.T) {
-	_, err := New("/nonexistent/policy.yaml", "mailpit:1025", 0)
+	_, err := New("/nonexistent/policy.yaml", nil)
 	if err == nil {
 		t.Error("New() should return error for nonexistent file")
 	}

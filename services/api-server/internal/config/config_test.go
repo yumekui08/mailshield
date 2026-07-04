@@ -35,11 +35,9 @@ redis:
   port: 6379
   db: 0
 auth:
+  sso_mode: optional
   providers:
-    standalone:
-      enabled: true
     oidc:
-      enabled: true
       issuer: https://accounts.google.com
       client_id: my-client-id
       client_secret: my-client-secret
@@ -161,5 +159,142 @@ func TestLoad_EnvOverridesYAML(t *testing.T) {
 	}
 	if cfg.Auth.Providers.OIDC.ClientSecret != "override-secret" {
 		t.Errorf("OIDC_CLIENT_SECRET 上書き期待: override-secret, 実際: %s", cfg.Auth.Providers.OIDC.ClientSecret)
+	}
+}
+
+func TestValidateAuthDirectory_DefaultsOK(t *testing.T) {
+	path := writeYAML(t, `
+server:
+  port: 8080
+database:
+  host: mariadb
+`)
+	if _, err := Load(path); err != nil {
+		t.Fatalf("デフォルト設定（directory.source/auth.sso_mode 省略）は許容されるべき: %v", err)
+	}
+}
+
+func TestValidateAuthDirectory_ScimRequiresSSO(t *testing.T) {
+	path := writeYAML(t, `
+server:
+  port: 8080
+database:
+  host: mariadb
+directory:
+  source: scim
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("directory.source: scim かつ auth.sso_mode 未設定（disabled）はエラーになるべき")
+	}
+}
+
+func TestValidateAuthDirectory_ScimWithSSOOptionalOK(t *testing.T) {
+	path := writeYAML(t, `
+server:
+  port: 8080
+database:
+  host: mariadb
+directory:
+  source: scim
+auth:
+  sso_mode: optional
+  providers:
+    oidc:
+      issuer: https://idp.example.com
+`)
+	if _, err := Load(path); err != nil {
+		t.Fatalf("directory.source: scim + sso_mode: optional は許容されるべき: %v", err)
+	}
+}
+
+func TestValidateAuthDirectory_InvalidSource(t *testing.T) {
+	path := writeYAML(t, `
+server:
+  port: 8080
+database:
+  host: mariadb
+directory:
+  source: invalid-value
+`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("directory.source が不正な値の場合エラーになるべき")
+	}
+}
+
+func TestValidateAuthDirectory_InvalidSSOMode(t *testing.T) {
+	path := writeYAML(t, `
+server:
+  port: 8080
+database:
+  host: mariadb
+auth:
+  sso_mode: invalid-value
+`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("auth.sso_mode が不正な値の場合エラーになるべき")
+	}
+}
+
+func TestValidateAuthDirectory_RequiredNeedsOIDCIssuer(t *testing.T) {
+	path := writeYAML(t, `
+server:
+  port: 8080
+database:
+  host: mariadb
+auth:
+  sso_mode: required
+`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("sso_mode: required で oidc.issuer 未設定はエラーになるべき")
+	}
+}
+
+func TestValidateAuthDirectory_RequiredWithOIDCIssuerOK(t *testing.T) {
+	path := writeYAML(t, `
+server:
+  port: 8080
+database:
+  host: mariadb
+auth:
+  sso_mode: required
+  providers:
+    oidc:
+      issuer: https://idp.example.com
+`)
+	if _, err := Load(path); err != nil {
+		t.Fatalf("sso_mode: required + oidc.issuer 設定済みは許容されるべき: %v", err)
+	}
+}
+
+func TestAuthConfig_EffectiveDefaults(t *testing.T) {
+	var a AuthConfig
+	if a.EffectiveSSOMode() != SSOModeDisabled {
+		t.Errorf("EffectiveSSOMode() 省略時 = %q, want disabled", a.EffectiveSSOMode())
+	}
+	if !a.LocalLoginAllowed() {
+		t.Error("デフォルトでは LocalLoginAllowed() は true であるべき")
+	}
+	if a.SSOAllowed() {
+		t.Error("デフォルトでは SSOAllowed() は false であるべき")
+	}
+
+	a.SSOMode = SSOModeRequired
+	if a.LocalLoginAllowed() {
+		t.Error("required では LocalLoginAllowed() は false であるべき")
+	}
+	if !a.SSOAllowed() {
+		t.Error("required では SSOAllowed() は true であるべき")
+	}
+}
+
+func TestDirectoryConfig_EffectiveSource(t *testing.T) {
+	var d DirectoryConfig
+	if d.EffectiveSource() != DirectorySourceNone {
+		t.Errorf("EffectiveSource() 省略時 = %q, want none", d.EffectiveSource())
+	}
+	d.Source = DirectorySourceLDAP
+	if d.EffectiveSource() != DirectorySourceLDAP {
+		t.Errorf("EffectiveSource() = %q, want ldap", d.EffectiveSource())
 	}
 }

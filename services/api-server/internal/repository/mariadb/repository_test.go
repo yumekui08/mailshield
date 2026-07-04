@@ -319,3 +319,152 @@ func TestUpdateMessageStatus_Success(t *testing.T) {
 		t.Errorf("未消化の期待値あり: %v", err)
 	}
 }
+
+func TestUpsertFederatedUser_NewUser(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	mock.ExpectExec("INSERT INTO users").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT id, email, display_name").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "approver_id", "provisioned_by", "created_at", "updated_at"},
+		).AddRow(
+			"new-user-id", "new@example.com", "New User", "", "operator", 1, nil, "oidc", now, now,
+		))
+
+	u, err := repo.UpsertFederatedUser(ctx, "new@example.com", "New User", domain.RoleOperator, domain.ProvisionedByOIDC)
+	if err != nil {
+		t.Fatalf("UpsertFederatedUser 失敗: %v", err)
+	}
+	if u.ID != "new-user-id" || u.Role != domain.RoleOperator || u.ProvisionedBy != domain.ProvisionedByOIDC {
+		t.Errorf("結果が期待と異なる: %+v", u)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("未消化の期待値あり: %v", err)
+	}
+}
+
+func TestUpsertFederatedUser_ManualRolePreserved(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	mock.ExpectExec("INSERT INTO users").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// SQL の ON DUPLICATE KEY UPDATE ロジック（IF(provisioned_by='manual', role, VALUES(role))）が
+	// 実際に適用された結果として、DB は manual のまま admin を返す想定。
+	mock.ExpectQuery("SELECT id, email, display_name").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "approver_id", "provisioned_by", "created_at", "updated_at"},
+		).AddRow(
+			"existing-admin-id", "admin@example.com", "Admin", "$2a$hash", "admin", 1, nil, "manual", now, now,
+		))
+
+	u, err := repo.UpsertFederatedUser(ctx, "admin@example.com", "Admin (IdP name)", domain.RoleViewer, domain.ProvisionedByOIDC)
+	if err != nil {
+		t.Fatalf("UpsertFederatedUser 失敗: %v", err)
+	}
+	if u.Role != domain.RoleAdmin {
+		t.Errorf("role = %q, want admin（manual ユーザーは role を保持するべき）", u.Role)
+	}
+	if u.ProvisionedBy != domain.ProvisionedByManual {
+		t.Errorf("provisioned_by = %q, want manual", u.ProvisionedBy)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("未消化の期待値あり: %v", err)
+	}
+}
+
+func TestUpsertFederatedUser_LDAPRoleProtectedFromOIDC(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	mock.ExpectExec("INSERT INTO users").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// provisioned_by=ldap の行に対する oidc ログインは role を上書きしない
+	// （SQL の CASE 分岐: provisioned_by IN ('ldap','scim') AND VALUES(provisioned_by)='oidc' → 既存値保持）。
+	mock.ExpectQuery("SELECT id, email, display_name").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "approver_id", "provisioned_by", "created_at", "updated_at"},
+		).AddRow(
+			"ldap-user-id", "ldapuser@example.com", "LDAP User", "", "operator", 1, nil, "ldap", now, now,
+		))
+
+	u, err := repo.UpsertFederatedUser(ctx, "ldapuser@example.com", "LDAP User (IdP name)", domain.RoleViewer, domain.ProvisionedByOIDC)
+	if err != nil {
+		t.Fatalf("UpsertFederatedUser 失敗: %v", err)
+	}
+	if u.Role != domain.RoleOperator {
+		t.Errorf("role = %q, want operator（ldap 同期済みユーザーの role は oidc から保護されるべき）", u.Role)
+	}
+	if u.ProvisionedBy != domain.ProvisionedByLDAP {
+		t.Errorf("provisioned_by = %q, want ldap", u.ProvisionedBy)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("未消化の期待値あり: %v", err)
+	}
+}
+
+func TestUpsertFederatedUser_LDAPCanUpdateOwnSync(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	mock.ExpectExec("INSERT INTO users").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// provisioned_by=ldap の行に対する ldap 側の再同期は role を更新してよい（同格の権威）。
+	mock.ExpectQuery("SELECT id, email, display_name").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "approver_id", "provisioned_by", "created_at", "updated_at"},
+		).AddRow(
+			"ldap-user-id", "ldapuser@example.com", "LDAP User", "", "admin", 1, nil, "ldap", now, now,
+		))
+
+	u, err := repo.UpsertFederatedUser(ctx, "ldapuser@example.com", "LDAP User", domain.RoleAdmin, domain.ProvisionedByLDAP)
+	if err != nil {
+		t.Fatalf("UpsertFederatedUser 失敗: %v", err)
+	}
+	if u.Role != domain.RoleAdmin {
+		t.Errorf("role = %q, want admin（ldap 自身による再同期は role を更新できるべき）", u.Role)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("未消化の期待値あり: %v", err)
+	}
+}
+
+func TestDeactivateMissingLDAPUsers_Success(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	ctx := context.Background()
+
+	mock.ExpectExec("UPDATE users SET is_active = 0").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	n, err := repo.DeactivateMissingLDAPUsers(ctx, []string{"alice@corp.local", "bob@corp.local"})
+	if err != nil {
+		t.Fatalf("DeactivateMissingLDAPUsers 失敗: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("n = %d, want 2", n)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("未消化の期待値あり: %v", err)
+	}
+}
+
+func TestDeactivateMissingLDAPUsers_EmptyListNoop(t *testing.T) {
+	repo, _ := newMockRepo(t)
+	ctx := context.Background()
+
+	// presentEmails が空の場合、SQL を実行せずに 0 を返す
+	// （LDAP 検索の誤検知で全 ldap ユーザーを無効化することを防ぐ最後の防衛線）。
+	n, err := repo.DeactivateMissingLDAPUsers(ctx, nil)
+	if err != nil {
+		t.Fatalf("DeactivateMissingLDAPUsers 失敗: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("n = %d, want 0", n)
+	}
+}

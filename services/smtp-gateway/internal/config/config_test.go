@@ -355,3 +355,82 @@ func TestLoad_FileNotFound(t *testing.T) {
 		t.Error("存在しないディレクトリはエラーを返すべき")
 	}
 }
+
+func TestLoad_Deliverers(t *testing.T) {
+	dir := t.TempDir()
+	mainYAML := `
+server:
+  smtp_port: 10024
+deliverers:
+  default:
+    host: postfix
+    port: 25
+  sendgrid:
+    type: smtp
+    host: smtp.sendgrid.net
+    port: 587
+    tls: starttls
+    auth:
+      username: apikey
+      password: yaml-password
+`
+	if err := os.WriteFile(filepath.Join(dir, "mailshield.yaml"), []byte(mainYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.Deliverers) != 2 {
+		t.Fatalf("Deliverers = %d 件, want 2", len(cfg.Deliverers))
+	}
+	def := cfg.Deliverers["default"]
+	if def.Host != "postfix" || def.Port != 25 {
+		t.Errorf("default = %+v", def)
+	}
+	sg := cfg.Deliverers["sendgrid"]
+	if sg.Host != "smtp.sendgrid.net" || sg.Port != 587 || sg.TLS != "starttls" {
+		t.Errorf("sendgrid = %+v", sg)
+	}
+	if sg.Auth.Username != "apikey" || sg.Auth.Password != "yaml-password" {
+		t.Errorf("sendgrid.Auth = %+v", sg.Auth)
+	}
+}
+
+func TestLoad_DelivererPasswordEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	mainYAML := `
+server:
+  smtp_port: 10024
+deliverers:
+  sendgrid:
+    host: smtp.sendgrid.net
+    auth:
+      username: apikey
+      password: yaml-password
+  ses-tokyo:
+    host: email-smtp.ap-northeast-1.amazonaws.com
+    auth:
+      username: AKIAEXAMPLE
+`
+	if err := os.WriteFile(filepath.Join(dir, "mailshield.yaml"), []byte(mainYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("MAILSHIELD_DELIVERER_SENDGRID_PASSWORD", "env-password")
+	// ハイフンは _ に変換される
+	t.Setenv("MAILSHIELD_DELIVERER_SES_TOKYO_PASSWORD", "ses-env-password")
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.Deliverers["sendgrid"].Auth.Password; got != "env-password" {
+		t.Errorf("sendgrid password = %q, want env-password（環境変数が YAML を上書きするべき）", got)
+	}
+	if got := cfg.Deliverers["ses-tokyo"].Auth.Password; got != "ses-env-password" {
+		t.Errorf("ses-tokyo password = %q, want ses-env-password", got)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
+	"github.com/koizumib/mailshield/services/api-server/internal/directory"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 )
 
@@ -20,6 +21,7 @@ type OIDCProvider struct {
 	verifier     *gooidc.IDTokenVerifier
 	oauth2Config oauth2.Config
 	authCfg      *config.AuthConfig
+	roleMapper   directory.GroupRoleMapper
 }
 
 // NewOIDCProvider はOIDCプロバイダーを初期化して返す。
@@ -47,6 +49,11 @@ func NewOIDCProvider(ctx context.Context, cfg *config.AuthConfig) (*OIDCProvider
 		verifier:     verifier,
 		oauth2Config: oauth2Cfg,
 		authCfg:      cfg,
+		roleMapper: directory.GroupRoleMapper{
+			AdminGroup:    cfg.GroupMappings.Admin,
+			OperatorGroup: cfg.GroupMappings.Operator,
+			ViewerGroup:   cfg.GroupMappings.Viewer,
+		},
 	}, nil
 }
 
@@ -119,8 +126,8 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code, nonce string) (*domai
 		return nil, fmt.Errorf("nonce 不一致: expected=%s, got=%s", nonce, claims.Nonce)
 	}
 
-	// グループからロールを解決
-	role := p.resolveRole(claims.Groups)
+	// グループからロールを解決（OIDC/LDAP/SCIM 共通の GroupRoleMapper を利用）
+	role := p.roleMapper.Resolve(claims.Groups)
 
 	userClaims := domain.UserClaims{
 		Sub:    claims.Sub,
@@ -143,32 +150,4 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code, nonce string) (*domai
 	}
 
 	return session, nil
-}
-
-// resolveRole はユーザーの所属グループから最上位のロールを決定する。
-func (p *OIDCProvider) resolveRole(groups []string) domain.Role {
-	groupSet := make(map[string]struct{}, len(groups))
-	for _, g := range groups {
-		groupSet[g] = struct{}{}
-	}
-
-	mappings := p.authCfg.GroupMappings
-	if mappings.Admin != "" {
-		if _, ok := groupSet[mappings.Admin]; ok {
-			return domain.RoleAdmin
-		}
-	}
-	if mappings.Operator != "" {
-		if _, ok := groupSet[mappings.Operator]; ok {
-			return domain.RoleOperator
-		}
-	}
-	if mappings.Viewer != "" {
-		if _, ok := groupSet[mappings.Viewer]; ok {
-			return domain.RoleViewer
-		}
-	}
-
-	// デフォルトは最低権限
-	return domain.RoleViewer
 }

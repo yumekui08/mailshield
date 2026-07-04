@@ -143,9 +143,48 @@ notification:
 # deliver アクション時のデフォルト再インジェクト先。
 # Postfix の content_filter なしポートを指定すること（ループ防止）。
 # policy ファイルの rules[].destination が指定されている場合はそちらが優先される。
+# deliverers.default が定義されている場合はそちらが優先される（本セクションは後方互換）。
 reinject:
   host: localhost                       # ENV: MAILSHIELD_REINJECT_HOST
   port: 25                              # ENV: MAILSHIELD_REINJECT_PORT
+
+# ─── 配送トランスポート（deliverers） ─────────────────────────────────────────
+
+# 名前付きの配送先定義。policy の rules[].destination に名前を書くと
+# その deliverer 経由で配送される。"default" は予約名で、destination 未指定の
+# deliver ルールに使われる（未定義なら reinject.host:port にフォールバック）。
+#
+# 各 deliverer のパラメータ:
+#   type:            smtp（省略時 smtp。現在 smtp のみ対応）
+#   host:            接続先ホスト（必須）
+#   port:            接続先ポート（省略時 25）
+#   tls:             none | starttls | tls（省略時 none）
+#   auth.username:   SMTP AUTH ユーザー名（設定すると AUTH を行う。PLAIN/LOGIN 自動選択）
+#   auth.password:   SMTP AUTH パスワード
+#                    ENV: MAILSHIELD_DELIVERER_<大文字名>_PASSWORD が YAML より優先
+#                    （名前のハイフンは _ に変換。例: ses-tokyo → MAILSHIELD_DELIVERER_SES_TOKYO_PASSWORD）
+#   tls_skip_verify: TLS 証明書検証をスキップ（開発・テスト用。省略時 false）
+#
+# 例:
+# deliverers:
+#   default:                            # destination 未指定のルールで使われる
+#     host: postfix
+#     port: 25
+#   sendgrid:                           # policy で destination: sendgrid と指定
+#     host: smtp.sendgrid.net
+#     port: 587
+#     tls: starttls
+#     auth:
+#       username: apikey
+#       password: ""                    # ENV: MAILSHIELD_DELIVERER_SENDGRID_PASSWORD
+#   ses:                                # Amazon SES SMTP エンドポイント
+#     host: email-smtp.ap-northeast-1.amazonaws.com
+#     port: 587
+#     tls: starttls
+#     auth:
+#       username: AKIAXXXXXXXXXXXXXXXX  # SES SMTP 認証情報
+#       password: ""                    # ENV: MAILSHIELD_DELIVERER_SES_PASSWORD
+deliverers: {}
 
 # ─── 隔離通知 ────────────────────────────────────────────────────────────────
 

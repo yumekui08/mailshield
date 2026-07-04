@@ -108,7 +108,13 @@ func (s *serviceRepository) BulkUpdateMessageStatus(_ context.Context, _ []strin
 func (s *serviceRepository) FindUserByEmail(_ context.Context, _ string) (*repository.User, error) {
 	return nil, nil
 }
-func (s *serviceRepository) CreateUser(_ context.Context, _ *repository.User) error  { return nil }
+func (s *serviceRepository) CreateUser(_ context.Context, _ *repository.User) error { return nil }
+func (s *serviceRepository) UpsertFederatedUser(_ context.Context, _, _ string, _ domain.Role, _ domain.ProvisionedBy) (*repository.User, error) {
+	return nil, nil
+}
+func (s *serviceRepository) DeactivateMissingLDAPUsers(_ context.Context, _ []string) (int, error) {
+	return 0, nil
+}
 func (s *serviceRepository) CountUsers(_ context.Context) (int, error)               { return 0, nil }
 func (s *serviceRepository) ListUsers(_ context.Context) ([]repository.User, error)  { return nil, nil }
 func (s *serviceRepository) UpdateUserPassword(_ context.Context, _, _ string) error { return nil }

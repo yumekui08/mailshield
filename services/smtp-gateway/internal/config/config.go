@@ -30,7 +30,36 @@ type Config struct {
 	Approval               ApprovalConfig               `mapstructure:"approval"`
 	// Reinject は deliver アクション時のデフォルト再インジェクト先。
 	// policy ファイルに destination が明示されている場合はそちらが優先される。
+	// deliverers.default が定義されている場合はそちらが優先される（後方互換用）。
 	Reinject ReinjectConfig `mapstructure:"reinject"`
+	// Deliverers は名前付き配送トランスポート定義。
+	// policy の destination に名前を書くと該当 deliverer 経由で配送される。
+	// "default" は予約名で、destination 未指定の deliver ルールに使われる。
+	Deliverers map[string]DelivererConfig `mapstructure:"deliverers"`
+}
+
+// DelivererConfig は 1 つの名前付き配送先（SMTP エンドポイント）の設定。
+// Postfix 等のローカル MTA のほか、SendGrid / Amazon SES の SMTP エンドポイントを
+// STARTTLS + SMTP AUTH で指定できる。
+type DelivererConfig struct {
+	// Type は配送方式。現在は "smtp" のみ対応（省略時 smtp）。
+	Type string `mapstructure:"type"`
+	Host string `mapstructure:"host"`
+	// Port は接続先ポート（省略時 25）。
+	Port int `mapstructure:"port"`
+	// TLS は接続の暗号化方式（none | starttls | tls。省略時 none）。
+	TLS string `mapstructure:"tls"`
+	// Auth を設定すると SMTP AUTH（PLAIN / LOGIN 自動選択）を行う。
+	Auth DelivererAuthConfig `mapstructure:"auth"`
+	// TLSSkipVerify は TLS 証明書検証をスキップする（開発・テスト用）。
+	TLSSkipVerify bool `mapstructure:"tls_skip_verify"`
+}
+
+// DelivererAuthConfig は SMTP AUTH の資格情報。
+// Password は環境変数 MAILSHIELD_DELIVERER_<大文字名>_PASSWORD で上書きできる。
+type DelivererAuthConfig struct {
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
 }
 
 // ReinjectConfig は処理済みメールを MTA に戻す再インジェクト先の設定。
@@ -332,6 +361,18 @@ func Load(configDir string) (*Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("設定のデシリアライズ失敗: %w", err)
+	}
+
+	// 4. deliverers の認証パスワードを環境変数で上書きする。
+	// マップキーが動的なため viper の BindEnv では扱えず、ここで直接読む。
+	// 例: deliverers.sendgrid → MAILSHIELD_DELIVERER_SENDGRID_PASSWORD
+	for name, dc := range cfg.Deliverers {
+		envKey := "MAILSHIELD_DELIVERER_" +
+			strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_PASSWORD"
+		if pw := os.Getenv(envKey); pw != "" {
+			dc.Auth.Password = pw
+			cfg.Deliverers[name] = dc
+		}
 	}
 
 	// 5. routes.d/ をロード

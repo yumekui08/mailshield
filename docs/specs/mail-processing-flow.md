@@ -40,7 +40,7 @@ flowchart TD
         S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
     end
 
-    S7 -->|deliver| Del["設定された配送先 MTA へ直接 SMTP\n（開発: mailpit:1025）"]
+    S7 -->|deliver| Del["deliverer 経由で配送先へ SMTP 送信\n（開発: mailpit:1025）"]
     S7 -->|quarantine| Qua["DB: status = quarantined\nprocessed/ に処理済み EML 保存\n隔離通知メール送信（enabled の場合）"]
     S7 -->|reject| Rej["DB: status = rejected\n送信者へバウンス通知"]
 
@@ -57,6 +57,18 @@ flowchart TD
 - マッチしたルートの `direction:` フィールド（`inbound` / `outbound`）がメールの方向を決定する
 - テナント情報はルート設定から取得する（`tenants` テーブルを参照しない）
 - どのルートにもマッチしない場合は `550` を返す
+
+---
+
+## deliver アクションの配送先解決（[7/7]）
+
+deliver アクションの配送は `internal/deliver` の Registry が行う。policy.yaml の `destination` は以下の順序で解決される。
+
+1. **空文字列** → `deliverers.default`（`mailshield.yaml`）→ 未定義なら `reinject.host:port`（平文 SMTP）
+2. **deliverer 名** → `deliverers.<名前>` の設定（TLS 方式・SMTP AUTH を含む）で接続
+3. **host[:port] 形式** → その宛先へ平文 SMTP（後方互換。port 省略時は `reinject.port`、それも未設定なら 25 を補完）
+
+deliverer は `tls: starttls | tls` と `auth`（PLAIN / LOGIN をサーバー広告から自動選択）に対応しており、SendGrid / Amazon SES の SMTP エンドポイントを配送先にできる。詳細は `docs/specs/configuration.md` の deliverers セクションを参照。
 
 ---
 

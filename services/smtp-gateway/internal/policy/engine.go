@@ -4,20 +4,23 @@ package policy
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net"
-	"net/smtp"
 	"os"
-	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
 )
+
+// Deliverer は deliver アクション実行時にメールを配送先へ送信する。
+// destination はルールの destination フィールドの値
+// （deliverer 名または host:port。空文字列はデフォルト配送先を意味する）。
+// 実装は internal/deliver.Registry が提供する。
+type Deliverer interface {
+	Deliver(ctx context.Context, mail *domain.Mail, destination string) error
+}
 
 // ActionType はポリシーエンジンが決定するアクションの種類。
 type ActionType string
@@ -45,28 +48,21 @@ type PolicyRules struct {
 // Engine はポリシーエンジンの実装である。
 type Engine struct {
 	rules []Rule
-	// defaultDestination は deliver アクションのルールに destination が指定されていない場合に使う宛先。
-	// mailshield.yaml の reinject.host:port から設定される。
-	defaultDestination string
-	// defaultDeliverPort は destination にポートが含まれない場合に補完するデフォルトポート。
-	// mailshield.yaml の reinject.port から設定される。
-	defaultDeliverPort int
+	// deliverer は deliver アクションの配送を実行する。
+	// destination の解決（deliverer 名 / host:port / デフォルト）は deliverer 側が行う。
+	// nil の場合、deliver アクションはエラーになる（Evaluate のみ使う用途では nil 可）。
+	deliverer Deliverer
 }
 
 // New は policy.yaml を読み込んで Engine を構築する。
-// defaultDestination は deliver アクション時のデフォルト再インジェクト先（host:port）。
-// defaultDeliverPort は policy の destination にポートが省略された場合に補完するポート番号。
-// ルールに destination が明示されている場合はそちらが優先される。
+// deliverer は deliver アクション実行時に使う配送トランスポート。
+// ルールの destination（deliverer 名または host:port）の解決は deliverer に委譲する。
 // rulesFile が空の場合はポリシーファイル未指定として全メールをデフォルト宛先に配送する。
-func New(rulesFile, defaultDestination string, defaultDeliverPort int) (*Engine, error) {
-	if defaultDeliverPort == 0 {
-		defaultDeliverPort = 25
-	}
+func New(rulesFile string, deliverer Deliverer) (*Engine, error) {
 	if rulesFile == "" {
 		return &Engine{
-			rules:              []Rule{{Name: "default", Condition: "true", Action: "deliver"}},
-			defaultDestination: defaultDestination,
-			defaultDeliverPort: defaultDeliverPort,
+			rules:     []Rule{{Name: "default", Condition: "true", Action: "deliver"}},
+			deliverer: deliverer,
 		}, nil
 	}
 	data, err := os.ReadFile(rulesFile)
@@ -79,7 +75,7 @@ func New(rulesFile, defaultDestination string, defaultDeliverPort int) (*Engine,
 		return nil, fmt.Errorf("policy.yaml パース失敗: %w", err)
 	}
 
-	return &Engine{rules: pr.Rules, defaultDestination: defaultDestination, defaultDeliverPort: defaultDeliverPort}, nil
+	return &Engine{rules: pr.Rules, deliverer: deliverer}, nil
 }
 
 // Evaluate は検査結果を評価してアクション種別とマッチしたルール名を返す。
@@ -146,78 +142,13 @@ func (e *Engine) EvaluateAndAct(ctx context.Context, mail *domain.Mail, results 
 	return "", nil
 }
 
-// deliver は宛先 MTA へ SMTP でメールを送信する。
-// ctx のデッドラインを TCP コネクションに伝播させることで、宛先 MTA がハングしても
-// smtp.SendMail と異なり呼び出し元の goroutine がブロックし続けることを防ぐ。
+// deliver は注入された Deliverer 経由でメールを配送する。
+// destination はルールの destination フィールドの値（空文字列はデフォルト配送先）。
 func (e *Engine) deliver(ctx context.Context, mail *domain.Mail, destination string) error {
-	if destination == "" {
-		destination = e.defaultDestination
+	if e.deliverer == nil {
+		return fmt.Errorf("deliverer が設定されていません（deliver アクションを実行できません）")
 	}
-	if destination == "" {
-		return fmt.Errorf("deliver アクションの宛先が未設定です（policy の destination または mailshield.yaml の reinject.host を設定してください）")
-	}
-
-	// 宛先アドレスが host:port 形式でない場合はデフォルトポートを付加する。
-	// net.JoinHostPort を使うことでベア IPv6 アドレス（例: ::1）も正しく扱える。
-	host, _, err := net.SplitHostPort(destination)
-	if err != nil {
-		destination = net.JoinHostPort(destination, strconv.Itoa(e.defaultDeliverPort))
-		host, _, err = net.SplitHostPort(destination)
-		if err != nil {
-			return fmt.Errorf("宛先アドレスのパース失敗 (%s): %w", destination, err)
-		}
-	}
-
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", destination)
-	if err != nil {
-		return fmt.Errorf("SMTP 接続失敗 (destination=%s): %w", destination, err)
-	}
-	if deadline, ok := ctx.Deadline(); ok {
-		if err := conn.SetDeadline(deadline); err != nil {
-			_ = conn.Close()
-			return fmt.Errorf("SMTP デッドライン設定失敗: %w", err)
-		}
-	}
-
-	c, err := smtp.NewClient(conn, host)
-	if err != nil {
-		_ = conn.Close()
-		return fmt.Errorf("SMTP クライアント作成失敗: %w", err)
-	}
-	defer c.Close()
-
-	if err := c.Mail(mail.FromAddress); err != nil {
-		return fmt.Errorf("MAIL FROM 失敗: %w", err)
-	}
-	for _, to := range mail.ToAddresses {
-		if err := c.Rcpt(to); err != nil {
-			return fmt.Errorf("RCPT TO 失敗 (%s): %w", to, err)
-		}
-	}
-	wc, err := c.Data()
-	if err != nil {
-		return fmt.Errorf("DATA コマンド失敗: %w", err)
-	}
-	if _, err := wc.Write(mail.RawEML); err != nil {
-		return fmt.Errorf("メールデータ送信失敗: %w", err)
-	}
-	if err := wc.Close(); err != nil {
-		return fmt.Errorf("DATA 完了失敗: %w", err)
-	}
-	if err := c.Quit(); err != nil {
-		// 一部のMTA（Mailpit等）はDATA完了後に即接続を閉じる。
-		// QUITのEOFは配送成功後の接続切断であり、再配送の原因にならない。
-		if !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "connection reset") {
-			return fmt.Errorf("QUIT 失敗 (destination=%s, message_id=%s): %w",
-				destination, mail.MessageID, err)
-		}
-		slog.Debug("QUIT接続切断（配送済み・無視）", "destination", destination, "error", err)
-	}
-
-	slog.Info("メール配送完了",
-		"message_id", mail.MessageID,
-		"destination", destination)
-	return nil
+	return e.deliverer.Deliver(ctx, mail, destination)
 }
 
 // buildFacts は InspectResult の一覧から条件評価用のマップを構築する。

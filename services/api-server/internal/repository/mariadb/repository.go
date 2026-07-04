@@ -10,6 +10,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // MariaDB/MySQL ドライバー
+	"github.com/google/uuid"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/repository"
@@ -445,7 +446,7 @@ func scanMessages(rows *sql.Rows) ([]domain.Message, error) {
 // FindUserByEmail はメールアドレスでユーザーを検索する。
 func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, approver_id, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
 		FROM users
 		WHERE email = ? AND is_active = 1
 		LIMIT 1`
@@ -453,11 +454,11 @@ func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*reposi
 	return scanUser(row)
 }
 
-// CreateUser はユーザーを登録する。
+// CreateUser はユーザーを登録する（Web UI・セットアップ経由の手動作成）。
 func (r *Repository) CreateUser(ctx context.Context, u *repository.User) error {
 	const q = `
-		INSERT INTO users (id, email, display_name, password_hash, role, is_active)
-		VALUES (?, ?, ?, ?, ?, 1)`
+		INSERT INTO users (id, email, display_name, password_hash, role, is_active, provisioned_by)
+		VALUES (?, ?, ?, ?, ?, 1, 'manual')`
 	_, err := r.db.ExecContext(ctx, q,
 		u.ID, u.Email, u.DisplayName, u.PasswordHash, string(u.Role),
 	)
@@ -465,6 +466,78 @@ func (r *Repository) CreateUser(ctx context.Context, u *repository.User) error {
 		return fmt.Errorf("ユーザー作成失敗 (email=%s): %w", u.Email, err)
 	}
 	return nil
+}
+
+// UpsertFederatedUser は外部ディレクトリ（OIDC/LDAP/SCIM）からのログイン・同期時に
+// ユーザーを作成または更新する。role・provisioned_by の上書き可否は権威の優先順位で決める:
+//
+//	manual（Web UI 手動作成・編集） > ldap/scim（ディレクトリ同期） > oidc（グループ claim。フォールバック）
+//
+// 既存行が上位または同格の権威で管理されている場合、下位の source からの role 上書きは行わない。
+// 例: provisioned_by=ldap の行に対する oidc ログインは role を変更しない
+// （OIDC の groups claim は LDAP/SCIM が無い環境向けのフォールバックであり、
+// ディレクトリ同期済みユーザーの role・manager 派生値を勝手に書き換えるべきではないため）。
+// is_active は変更しない。無効化されたユーザーがログインだけで再有効化されないようにするため。
+func (r *Repository) UpsertFederatedUser(ctx context.Context, email, displayName string, role domain.Role, source domain.ProvisionedBy) (*repository.User, error) {
+	const q = `
+		INSERT INTO users (id, email, display_name, password_hash, role, is_active, provisioned_by)
+		VALUES (?, ?, ?, '', ?, 1, ?)
+		ON DUPLICATE KEY UPDATE
+			display_name  = VALUES(display_name),
+			role          = CASE
+				WHEN provisioned_by = 'manual' THEN role
+				WHEN provisioned_by IN ('ldap', 'scim') AND VALUES(provisioned_by) = 'oidc' THEN role
+				ELSE VALUES(role)
+			END,
+			provisioned_by = CASE
+				WHEN provisioned_by = 'manual' THEN provisioned_by
+				WHEN provisioned_by IN ('ldap', 'scim') AND VALUES(provisioned_by) = 'oidc' THEN provisioned_by
+				ELSE VALUES(provisioned_by)
+			END`
+	_, err := r.db.ExecContext(ctx, q, uuid.New().String(), email, displayName, string(role), string(source))
+	if err != nil {
+		return nil, fmt.Errorf("フェデレーションユーザーupsert失敗 (email=%s): %w", email, err)
+	}
+
+	const sel = `
+		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
+		FROM users WHERE email = ? LIMIT 1`
+	row := r.db.QueryRowContext(ctx, sel, email)
+	u, err := scanUser(row)
+	if err != nil {
+		return nil, fmt.Errorf("フェデレーションユーザー取得失敗 (email=%s): %w", email, err)
+	}
+	return u, nil
+}
+
+// DeactivateMissingLDAPUsers は provisioned_by=ldap のユーザーのうち、
+// presentEmails に含まれないものを is_active=0 にする。
+// presentEmails が空の場合は何もしない（呼び出し側の Syncer でもガードしているが、
+// repository 層でも最後の防衛線として二重にガードする）。
+func (r *Repository) DeactivateMissingLDAPUsers(ctx context.Context, presentEmails []string) (int, error) {
+	if len(presentEmails) == 0 {
+		return 0, nil
+	}
+	placeholders := strings.Repeat("?,", len(presentEmails))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(presentEmails))
+	for _, email := range presentEmails {
+		args = append(args, email)
+	}
+	query := fmt.Sprintf(
+		`UPDATE users SET is_active = 0
+		 WHERE provisioned_by = 'ldap' AND is_active = 1 AND email NOT IN (%s)`,
+		placeholders,
+	)
+	res, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("LDAP離脱ユーザー無効化失敗: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("無効化件数取得失敗: %w", err)
+	}
+	return int(n), nil
 }
 
 // CountUsers はユーザー数を返す。
@@ -480,7 +553,7 @@ func (r *Repository) CountUsers(ctx context.Context) (int, error) {
 // ListUsers はユーザー一覧を返す。
 func (r *Repository) ListUsers(ctx context.Context) ([]repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, approver_id, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
 		FROM users
 		WHERE is_active = 1
 		ORDER BY created_at ASC`
@@ -496,7 +569,7 @@ func (r *Repository) ListUsers(ctx context.Context) ([]repository.User, error) {
 		var isActiveInt int
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.DisplayName,
-			&u.PasswordHash, &u.Role, &isActiveInt, &u.ApproverID, &u.CreatedAt, &u.UpdatedAt,
+			&u.PasswordHash, &u.Role, &isActiveInt, &u.ApproverID, &u.ProvisionedBy, &u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("ユーザースキャン失敗: %w", err)
 		}
@@ -1102,7 +1175,7 @@ func scanUser(row *sql.Row) (*repository.User, error) {
 	var isActiveInt int
 	if err := row.Scan(
 		&u.ID, &u.Email, &u.DisplayName,
-		&u.PasswordHash, &u.Role, &isActiveInt, &u.ApproverID, &u.CreatedAt, &u.UpdatedAt,
+		&u.PasswordHash, &u.Role, &isActiveInt, &u.ApproverID, &u.ProvisionedBy, &u.CreatedAt, &u.UpdatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("ユーザーが見つかりません")
@@ -1326,7 +1399,7 @@ func (r *Repository) ExpireApprovals(ctx context.Context) ([]string, error) {
 // GetUser は指定 ID のユーザーを返す。
 func (r *Repository) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, approver_id, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
 		FROM users WHERE id = ? LIMIT 1`
 	row := r.db.QueryRowContext(ctx, q, id)
 	u, err := scanUser(row)
@@ -1351,7 +1424,7 @@ func (r *Repository) UpdateUserApprover(ctx context.Context, userID string, appr
 // FindUserByEmailInternal はメールアドレスでアクティブユーザーを検索する（通知送信先解決用）。
 func (r *Repository) FindUserByEmailInternal(ctx context.Context, email string) (*repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, approver_id, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
 		FROM users WHERE email = ? AND is_active = 1 LIMIT 1`
 	row := r.db.QueryRowContext(ctx, q, email)
 	u, err := scanUser(row)

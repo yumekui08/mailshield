@@ -48,15 +48,18 @@ CREATE TABLE IF NOT EXISTS inspect_results (
 -- ユーザーテーブル（スタンドアロン認証用）
 -- OIDC 認証のユーザーはこのテーブルを使わない
 CREATE TABLE IF NOT EXISTS users (
-    id            CHAR(36)     NOT NULL,
-    email         VARCHAR(512) NOT NULL,
-    display_name  VARCHAR(256) NOT NULL DEFAULT '',
-    password_hash VARCHAR(256) NOT NULL DEFAULT '',
-    role          ENUM('admin','operator','viewer') NOT NULL DEFAULT 'viewer',
-    is_active     TINYINT(1)   NOT NULL DEFAULT 1,
-    approver_id   CHAR(36)     NULL DEFAULT NULL,   -- この ユーザーの承認者（users.id の自己参照）
-    created_at    DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    updated_at    DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    id             CHAR(36)     NOT NULL,
+    email          VARCHAR(512) NOT NULL,
+    display_name   VARCHAR(256) NOT NULL DEFAULT '',
+    password_hash  VARCHAR(256) NOT NULL DEFAULT '',
+    role           ENUM('admin','operator','viewer') NOT NULL DEFAULT 'viewer',
+    is_active      TINYINT(1)   NOT NULL DEFAULT 1,
+    approver_id    CHAR(36)     NULL DEFAULT NULL,   -- この ユーザーの承認者（users.id の自己参照）
+    -- role・display_name の同期主体。manual（Web UI 手動作成・編集）は OIDC/LDAP/SCIM
+    -- からの role 上書きを受けない（手動設定を外部ディレクトリより優先する）。
+    provisioned_by ENUM('manual','oidc','ldap','scim') NOT NULL DEFAULT 'manual',
+    created_at     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY uq_users_email (email),
     KEY idx_users_approver (approver_id),

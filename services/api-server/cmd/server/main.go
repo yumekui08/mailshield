@@ -17,6 +17,8 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/approval"
 	"github.com/koizumib/mailshield/services/api-server/internal/auth"
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
+	"github.com/koizumib/mailshield/services/api-server/internal/directory"
+	ldapsync "github.com/koizumib/mailshield/services/api-server/internal/directory/ldap"
 	"github.com/koizumib/mailshield/services/api-server/internal/handler"
 	"github.com/koizumib/mailshield/services/api-server/internal/otp"
 	"github.com/koizumib/mailshield/services/api-server/internal/pwreset"
@@ -110,16 +112,61 @@ func main() {
 		pwResetStore = pwreset.NewStore(redisClient)
 	}
 
-	// ─── スタンドアロンプロバイダー ───────────────────────────
+	// ─── バックグラウンドサービス共通 context ─────────────────
+	// 承認フロー・LDAP 定期同期など、シグナル受信で一括停止するジョブはすべてこの ctx を使う。
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+
+	// ─── ローカルログイン（directory.source で決まる） / OIDC（sso_mode で決まる） ──
+	// directory.source: ユーザー情報の真実の源とローカルログイン手段（none→standalone / ldap→LDAP bind / scim→無し）
+	// auth.sso_mode   : OIDC の扱い（disabled/optional/required）。config.Load() 内で
+	//                   scim+disabled・required 時の OIDC 未設定は起動時エラーとして弾いている。
+	provisioner := directory.NewProvisioner(repo)
+
 	var standaloneProvider *auth.StandaloneProvider
-	if cfg.Auth.Providers.Standalone.Enabled {
-		standaloneProvider = auth.NewStandaloneProvider(repo, &cfg.Auth)
-		slog.Info("スタンドアロン認証: 有効")
+	var ldapAuthProvider *auth.LDAPBindProvider
+	localLoginAllowed := cfg.Auth.LocalLoginAllowed()
+
+	switch cfg.Directory.EffectiveSource() {
+	case config.DirectorySourceLDAP:
+		if localLoginAllowed {
+			ldapAuthProvider, err = auth.NewLDAPBindProvider(&cfg.Directory.LDAP, provisioner, &cfg.Auth.Session)
+			if err != nil {
+				slog.Error("LDAP bind 認証プロバイダー初期化失敗", "error", err)
+				os.Exit(1)
+			}
+			slog.Info("LDAP bind 認証: 有効")
+		}
+
+		ldapConnCfg, ldapSyncCfg, err := auth.BuildLDAPConnConfig(&cfg.Directory.LDAP)
+		if err != nil {
+			slog.Error("LDAP 設定不正", "error", err)
+			os.Exit(1)
+		}
+		syncer := ldapsync.NewSyncer(provisioner, repo, ldapSyncCfg)
+		syncIntervalMinutes := cfg.Directory.LDAP.SyncIntervalMinutes
+		if syncIntervalMinutes <= 0 {
+			syncIntervalMinutes = 60
+		}
+		ldapSyncInterval := time.Duration(syncIntervalMinutes) * time.Minute
+		go syncer.RunPeriodic(bgCtx, ldapConnCfg, ldapSyncInterval)
+		slog.Info("LDAP ディレクトリ同期起動",
+			"host", cfg.Directory.LDAP.Host,
+			"base_dn", cfg.Directory.LDAP.BaseDN,
+			"interval", ldapSyncInterval,
+			"deactivate_missing_users", cfg.Directory.LDAP.DeactivateMissingUsers,
+		)
+	case config.DirectorySourceSCIM:
+		slog.Info("ユーザー情報源: SCIM（プロビジョニングは未実装。auth.sso_mode 経由の SSO ログインのみ有効）")
+	default:
+		if localLoginAllowed {
+			standaloneProvider = auth.NewStandaloneProvider(repo, &cfg.Auth)
+			slog.Info("スタンドアロン認証: 有効")
+		}
 	}
 
-	// ─── OIDCプロバイダー（オプション） ───────────────────────
+	// ─── OIDCプロバイダー（sso_mode: optional/required で有効） ───────────
 	var oidcProvider *auth.OIDCProvider
-	if cfg.Auth.Providers.OIDC.Enabled {
+	if cfg.Auth.SSOAllowed() {
 		slog.Debug("OIDCプロバイダー初期化", "issuer", cfg.Auth.Providers.OIDC.Issuer)
 		oidcProvider, err = initOIDCWithRetry(cfg)
 		if err != nil {
@@ -129,8 +176,8 @@ func main() {
 		slog.Info("OIDCプロバイダー初期化完了", "issuer", cfg.Auth.Providers.OIDC.Issuer)
 	}
 
-	if standaloneProvider == nil && oidcProvider == nil {
-		slog.Error("認証プロバイダーが1つも有効になっていません。auth.providers.standalone.enabled または auth.providers.oidc.enabled を true にしてください")
+	if standaloneProvider == nil && ldapAuthProvider == nil && oidcProvider == nil {
+		slog.Error("認証プロバイダーが1つも有効になっていません。directory.source と auth.sso_mode の組み合わせを確認してください")
 		os.Exit(1)
 	}
 
@@ -154,13 +201,12 @@ func main() {
 
 	// ─── 承認フロー バックグラウンドサービス ───────────────────
 	approvalSvc := approval.New(repo, cfg.Approval, cfg.Notification)
-	bgCtx, bgCancel := context.WithCancel(context.Background())
 	go approvalSvc.RunNotifier(bgCtx)
 	go approvalSvc.RunExpiryWorker(bgCtx)
 	slog.Info("承認フロー バックグラウンドサービス起動")
 
 	// ─── HTTPサーバー ─────────────────────────────────────────
-	router := handler.NewRouter(standaloneProvider, oidcProvider, sessionStore, repo, stor, stor, otpStore, pwResetStore, cfg)
+	router := handler.NewRouter(standaloneProvider, ldapAuthProvider, oidcProvider, sessionStore, repo, stor, stor, otpStore, pwResetStore, cfg)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	httpServer := &http.Server{

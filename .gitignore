@@ -46,9 +46,14 @@ Thumbs.db
 coverage/
 *.coverprofile
 *.out
+*.test
+__debug_bin*
 
-# ARC 秘密鍵（コミットしない）
-config/arc/private.pem
+# ARC 鍵（生成物。config/arc/generate-key.sh で再生成できる）
+config/arc/*.pem
+
+# Vite ローカル環境変数（web/.env.development 等）
+web/.env*
 
 # ─── インストールテスト用クローン ────────────────────────────────
 tests/install-test/

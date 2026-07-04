@@ -13,6 +13,18 @@ const (
 	RoleViewer   Role = "viewer"
 )
 
+// ProvisionedBy はユーザーの role・display_name の同期主体を表す。
+// OIDC/LDAP/SCIM 経由でログイン・同期されたユーザーは、Web UI で手動作成・編集された
+// ユーザー（manual）の role を上書きしない。手動設定を外部ディレクトリより優先するためである。
+type ProvisionedBy string
+
+const (
+	ProvisionedByManual ProvisionedBy = "manual"
+	ProvisionedByOIDC   ProvisionedBy = "oidc"
+	ProvisionedByLDAP   ProvisionedBy = "ldap"
+	ProvisionedBySCIM   ProvisionedBy = "scim"
+)
+
 // UserClaims はOIDCトークンから取得するユーザー情報を表す。
 type UserClaims struct {
 	Sub    string   `json:"sub"`

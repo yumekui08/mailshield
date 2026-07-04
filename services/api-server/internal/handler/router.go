@@ -20,6 +20,7 @@ import (
 // NewRouter はchiルーターを組み立てて返す。
 func NewRouter(
 	standaloneProvider *auth.StandaloneProvider,
+	ldapAuthProvider *auth.LDAPBindProvider,
 	oidcProvider *auth.OIDCProvider,
 	sessionStore auth.SessionStore,
 	repo repository.Repository,
@@ -41,6 +42,7 @@ func NewRouter(
 
 	authHandler := NewAuthHandler(
 		standaloneProvider,
+		ldapAuthProvider,
 		oidcProvider,
 		sessionStore,
 		&cfg.Auth.Session,

@@ -19,6 +19,7 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/audit"
 	"github.com/koizumib/mailshield/services/api-server/internal/auth"
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
+	"github.com/koizumib/mailshield/services/api-server/internal/directory"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
 	"github.com/koizumib/mailshield/services/api-server/internal/pwreset"
@@ -26,23 +27,28 @@ import (
 )
 
 // AuthHandler は認証フローを処理するハンドラーである。
-// standalone と oidc は有効な場合のみ非 nil になる。
+// standalone・ldapAuth・oidc は有効な場合のみ非 nil になる。
+// standalone と ldapAuth は directory.source によって排他的に切り替わる
+// （同時に有効になることはない。「ローカルログイン」の実体がどちらかという違いのみ）。
 type AuthHandler struct {
 	standalone   *auth.StandaloneProvider
+	ldapAuth     *auth.LDAPBindProvider
 	oidc         *auth.OIDCProvider
 	store        auth.SessionStore
 	sessionCfg   *config.SessionConfig
 	frontendURL  string
 	repo         repository.Repository
+	provisioner  *directory.Provisioner
 	pwResetStore pwreset.Store
 	notifCfg     config.NotificationConfig
 	auditLogger  *audit.Logger
 }
 
 // NewAuthHandler はAuthHandlerを返す。
-// standalone と oidc はどちらか一方または両方が nil でも動作する。
+// standalone・ldapAuth・oidc はそれぞれ nil でも動作する。
 func NewAuthHandler(
 	standalone *auth.StandaloneProvider,
+	ldapAuth *auth.LDAPBindProvider,
 	oidc *auth.OIDCProvider,
 	store auth.SessionStore,
 	cfg *config.SessionConfig,
@@ -54,11 +60,13 @@ func NewAuthHandler(
 ) *AuthHandler {
 	return &AuthHandler{
 		standalone:   standalone,
+		ldapAuth:     ldapAuth,
 		oidc:         oidc,
 		store:        store,
 		sessionCfg:   cfg,
 		frontendURL:  frontendURL,
 		repo:         repo,
+		provisioner:  directory.NewProvisioner(repo),
 		pwResetStore: pwResetStore,
 		notifCfg:     notifCfg,
 		auditLogger:  auditLogger,
@@ -75,6 +83,9 @@ func (h *AuthHandler) HandleProviders(w http.ResponseWriter, r *http.Request) {
 	var providers []providerInfo
 	if h.standalone != nil {
 		providers = append(providers, providerInfo{ID: "standalone", Name: "メールアドレス・パスワード"})
+	}
+	if h.ldapAuth != nil {
+		providers = append(providers, providerInfo{ID: "ldap", Name: "LDAP（メールアドレス・パスワード）"})
 	}
 	if h.oidc != nil {
 		providers = append(providers, providerInfo{ID: "oidc", Name: "SSO（OIDC）"})
@@ -99,10 +110,12 @@ func (h *AuthHandler) HandleProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleLoginStandalone はPOST /api/v1/auth/login を処理する。
-// メールアドレスとパスワードでスタンドアロン認証を行いセッションを発行する。
+// メールアドレスとパスワードでローカルログインを行いセッションを発行する。
+// ローカルログインの実体は directory.source によって standalone（bcrypt）か
+// LDAP bind 認証のいずれかに決まる（両方が同時に有効になることはない）。
 func (h *AuthHandler) HandleLoginStandalone(w http.ResponseWriter, r *http.Request) {
-	if h.standalone == nil {
-		writeErrorResponse(w, http.StatusNotFound, "NOT_FOUND", "スタンドアロン認証は無効です")
+	if h.standalone == nil && h.ldapAuth == nil {
+		writeErrorResponse(w, http.StatusNotFound, "NOT_FOUND", "ローカルログインは無効です")
 		return
 	}
 
@@ -119,9 +132,15 @@ func (h *AuthHandler) HandleLoginStandalone(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	session, err := h.standalone.Login(r.Context(), req.Email, req.Password)
+	var session *domain.Session
+	var err error
+	if h.standalone != nil {
+		session, err = h.standalone.Login(r.Context(), req.Email, req.Password)
+	} else {
+		session, err = h.ldapAuth.Login(r.Context(), req.Email, req.Password)
+	}
 	if err != nil {
-		slog.Warn("スタンドアロンログイン失敗", "email", req.Email, "error", err)
+		slog.Warn("ローカルログイン失敗", "email", req.Email, "error", err)
 		ip := audit.ClientIP(r)
 		h.auditLogger.Log(domain.AuditLog{
 			EventType: domain.EventAuthLoginFailure,
@@ -141,7 +160,7 @@ func (h *AuthHandler) HandleLoginStandalone(w http.ResponseWriter, r *http.Reque
 
 	h.setSessionCookie(w, sessionID, session.ExpiresAt)
 
-	slog.Info("スタンドアロンログイン成功", "email", session.User.Email, "role", session.Role)
+	slog.Info("ローカルログイン成功", "email", session.User.Email, "role", session.Role)
 
 	ip := audit.ClientIP(r)
 	h.auditLogger.Log(domain.AuditLog{
@@ -210,6 +229,17 @@ func (h *AuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.provisionFederatedUser(r.Context(), session, domain.ProvisionedByOIDC); err != nil {
+		if errors.Is(err, errFederatedUserInactive) {
+			slog.Warn("OIDCログイン拒否: アカウントが無効化されています", "email", session.User.Email)
+			writeErrorResponse(w, http.StatusForbidden, "FORBIDDEN", "アカウントが無効です")
+			return
+		}
+		slog.Error("OIDCユーザーのプロビジョニング失敗", "email", session.User.Email, "error", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "認証処理に失敗しました")
+		return
+	}
+
 	sessionID, err := h.store.Create(r.Context(), session)
 	if err != nil {
 		slog.Error("セッション保存失敗", "error", err)
@@ -226,6 +256,35 @@ func (h *AuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		dest = h.frontendURL + redirectTo
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
+}
+
+// errFederatedUserInactive は provisionFederatedUser がユーザー無効化を検出した場合に返す。
+var errFederatedUserInactive = errors.New("federated user is inactive")
+
+// provisionFederatedUser は外部ディレクトリ（OIDC/LDAP/SCIM）ログイン後に users 行を
+// 作成・更新し、session.User.Sub を内部 user_id に差し替える。これにより OIDC ユーザーも
+// メールボックス割り当て・承認者設定の対象になる（mailbox_assignments.user_id /
+// approval_requests.approver_id は users.id への FK のため）。
+// role の上書き可否は権威の優先順位（manual > ldap/scim > oidc）で決まる。
+// OIDC の groups claim は LDAP/SCIM が無い環境向けのフォールバックであり、
+// ディレクトリ同期済みユーザーの role を勝手に書き換えない（詳細は UpsertFederatedUser を参照）。
+// アカウントが無効化されている場合は errFederatedUserInactive を返す。
+func (h *AuthHandler) provisionFederatedUser(ctx context.Context, session *domain.Session, source domain.ProvisionedBy) error {
+	dbUser, err := h.provisioner.Provision(ctx, directory.ExternalIdentity{
+		Email:       session.User.Email,
+		DisplayName: session.User.Name,
+		Role:        session.Role,
+		Source:      source,
+	})
+	if err != nil {
+		return err
+	}
+	if !dbUser.IsActive {
+		return errFederatedUserInactive
+	}
+	session.User.Sub = dbUser.ID
+	session.Role = dbUser.Role
+	return nil
 }
 
 // HandleSetup はPOST /api/v1/auth/setup を処理する。

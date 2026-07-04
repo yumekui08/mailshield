@@ -20,9 +20,83 @@ type Config struct {
 	AttachmentDownload AttachmentDownloadConfig `mapstructure:"attachment_download"`
 	Notification       NotificationConfig       `mapstructure:"notification"`
 	Approval           ApprovalConfig           `mapstructure:"approval"`
+	Directory          DirectoryConfig          `mapstructure:"directory"`
 	Gateway            GatewayConfig            `mapstructure:"gateway"`
 	Settings           SettingsConfig           `mapstructure:"settings"`
 	Log                LogConfig                `mapstructure:"log"`
+}
+
+// DirectoryConfig は「ユーザー情報（role・display_name 等）の真実の源」を選択する設定を保持する。
+// Source は auth.sso_mode とは独立した軸である:
+//   - Source           : ユーザー情報の真実の源とローカルログイン手段の選択（none | ldap | scim）
+//   - Auth.SSOMode : OIDC（SSO）をどこまで使うか（disabled | optional | required）
+//
+// Source ごとの「ローカルログイン」手段:
+//   - none : standalone（メール + bcrypt パスワード）
+//   - ldap : LDAP bind 認証（同じ directory.ldap 接続設定を認証にも流用する）
+//   - scim : ローカルログイン手段なし（SCIM はパスワード検証の仕組みを持たないため、
+//     auth.sso_mode を optional/required にすることが必須。Load() 時にバリデーションする）
+type DirectoryConfig struct {
+	// Source はユーザー情報源の選択（省略時 none）。
+	Source string     `mapstructure:"source"`
+	LDAP   LDAPConfig `mapstructure:"ldap"`
+}
+
+const (
+	DirectorySourceNone = "none"
+	DirectorySourceLDAP = "ldap"
+	DirectorySourceSCIM = "scim"
+)
+
+// EffectiveSource は Source の省略時デフォルト（none）を補完して返す。
+func (d DirectoryConfig) EffectiveSource() string {
+	if d.Source == "" {
+		return DirectorySourceNone
+	}
+	return d.Source
+}
+
+// LDAPConfig は LDAP ディレクトリの接続・検索・マッピング設定を保持する。
+// directory.source: ldap のとき、この接続設定は定期同期（Syncer）と bind 認証
+// （auth.LDAPBindProvider）の両方から共用される。
+type LDAPConfig struct {
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+	// TLS は接続の暗号化方式（none | starttls | ldaps。省略時 none）。
+	TLS           string `mapstructure:"tls"`
+	TLSSkipVerify bool   `mapstructure:"tls_skip_verify"`
+	// BindDN / BindPassword はディレクトリ検索用のサービスアカウント資格情報。
+	BindDN       string `mapstructure:"bind_dn"`
+	BindPassword string `mapstructure:"bind_password"`
+	// BaseDN はユーザー検索の起点となる DN。
+	BaseDN string `mapstructure:"base_dn"`
+	// UserFilter はユーザーを絞り込む LDAP 検索フィルタ。
+	UserFilter string `mapstructure:"user_filter"`
+	// Attributes はユーザーエントリの属性名マッピング。
+	Attributes LDAPAttributesConfig `mapstructure:"attributes"`
+	// GroupMappings はグループの DN（Attributes.Groups で得られる値と同じ形式）と
+	// MailShield ロールのマッピング。
+	GroupMappings GroupMappingsConfig `mapstructure:"group_mappings"`
+	// SyncIntervalMinutes は定期同期の間隔（デフォルト 60 分）。
+	SyncIntervalMinutes int `mapstructure:"sync_interval_minutes"`
+	// SearchTimeoutSeconds は 1 回の LDAP 検索のタイムアウト（デフォルト 30 秒）。
+	SearchTimeoutSeconds int `mapstructure:"search_timeout_seconds"`
+	// PageSize は LDAP ページング検索の 1 ページあたり件数（デフォルト 500）。
+	// AD 等のサーバー側件数上限（既定 1000 件）を超える規模のディレクトリでも
+	// 全件を確実に取得するために使用する。
+	PageSize int `mapstructure:"page_size"`
+	// DeactivateMissingUsers を true にすると、同期結果に含まれなくなった
+	// provisioned_by=ldap のユーザーを is_active=0 にする（アクセス即時剥奪）。
+	// LDAP 検索が 0 件を返した場合は誤って全ユーザーを無効化しないよう何もしない。
+	DeactivateMissingUsers bool `mapstructure:"deactivate_missing_users"`
+}
+
+// LDAPAttributesConfig はユーザーエントリから読み取る属性名。
+type LDAPAttributesConfig struct {
+	Email       string `mapstructure:"email"`
+	DisplayName string `mapstructure:"display_name"`
+	// Groups はグループ所属を表す属性名（Active Directory の memberOf 等）。
+	Groups string `mapstructure:"groups"`
 }
 
 // ApprovalConfig は承認フローの設定を保持する。
@@ -169,26 +243,55 @@ type RedisConfig struct {
 }
 
 // AuthConfig は認証・認可の設定を保持する。
+// AuthConfig は認証全体の設定を保持する。
+//
+// SSOMode は OIDC（SSO）の扱いを決める独立した軸である（disabled | optional | required）:
+//   - disabled（省略時）: OIDC を使わない。directory.source が決めるローカルログイン手段のみ
+//   - optional          : ローカルログイン手段 + OIDC の両方を提示する
+//   - required          : OIDC のみ。ローカルログイン手段（standalone/LDAP bind）は無効化する
+//
+// directory.source（DirectoryConfig.Source）と組み合わせて、実際に有効なログイン手段が決まる。
 type AuthConfig struct {
+	SSOMode       string              `mapstructure:"sso_mode"`
 	Providers     AuthProvidersConfig `mapstructure:"providers"`
 	GroupMappings GroupMappingsConfig `mapstructure:"group_mappings"`
 	Session       SessionConfig       `mapstructure:"session"`
 }
 
-// AuthProvidersConfig は有効化する認証プロバイダーの設定を保持する。
+const (
+	SSOModeDisabled = "disabled"
+	SSOModeOptional = "optional"
+	SSOModeRequired = "required"
+)
+
+// EffectiveSSOMode は SSOMode の省略時デフォルト（disabled）を補完して返す。
+func (a AuthConfig) EffectiveSSOMode() string {
+	if a.SSOMode == "" {
+		return SSOModeDisabled
+	}
+	return a.SSOMode
+}
+
+// LocalLoginAllowed はローカルログイン手段（standalone または LDAP bind）を
+// 提示してよいかを返す（sso_mode: required でなければ true）。
+func (a AuthConfig) LocalLoginAllowed() bool {
+	return a.EffectiveSSOMode() != SSOModeRequired
+}
+
+// SSOAllowed は OIDC を提示してよいかを返す（sso_mode が disabled でなければ true）。
+func (a AuthConfig) SSOAllowed() bool {
+	return a.EffectiveSSOMode() != SSOModeDisabled
+}
+
+// AuthProvidersConfig は認証プロバイダーの接続設定を保持する。
+// 各プロバイダーを実際に使うかどうかは Enabled フラグではなく、
+// directory.source（ローカルログイン手段の選択）と auth.sso_mode（OIDC の扱い）から導出する。
 type AuthProvidersConfig struct {
-	Standalone StandaloneConfig `mapstructure:"standalone"`
-	OIDC       OIDCConfig       `mapstructure:"oidc"`
+	OIDC OIDCConfig `mapstructure:"oidc"`
 }
 
-// StandaloneConfig はスタンドアロン認証（メール+パスワード）の設定を保持する。
-type StandaloneConfig struct {
-	Enabled bool `mapstructure:"enabled"`
-}
-
-// OIDCConfig はOIDCプロバイダーの設定を保持する。
+// OIDCConfig はOIDCプロバイダーの接続設定を保持する。
 type OIDCConfig struct {
-	Enabled        bool     `mapstructure:"enabled"`
 	Issuer         string   `mapstructure:"issuer"`
 	ExternalIssuer string   `mapstructure:"external_issuer"` // ブラウザ向けURLのベース（空の場合はIssuerと同じ）
 	ClientID       string   `mapstructure:"client_id"`
@@ -243,6 +346,7 @@ func Load(configFile string) (*Config, error) {
 		"storage.use_ssl":                   "MINIO_USE_SSL",
 		"notification.auth_pass":            "NOTIFICATION_AUTH_PASS",
 		"auth.providers.oidc.client_secret": "OIDC_CLIENT_SECRET",
+		"directory.ldap.bind_password":      "LDAP_BIND_PASSWORD",
 	}
 	for yamlKey, envKey := range bindEnvs {
 		if err := v.BindEnv(yamlKey, envKey); err != nil {
@@ -267,7 +371,42 @@ func Load(configFile string) (*Config, error) {
 		}
 	}
 
+	if err := validateAuthDirectory(&cfg); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
+}
+
+// validateAuthDirectory は directory.source と auth.sso_mode の組み合わせを検証する。
+// 起動時に検出できる設定不正はここで弾き、実行中に「誰もログインできない」状態や
+// 静かなフォールバックを起こさないようにする。
+func validateAuthDirectory(cfg *Config) error {
+	switch cfg.Directory.EffectiveSource() {
+	case DirectorySourceNone, DirectorySourceLDAP, DirectorySourceSCIM:
+	default:
+		return fmt.Errorf("directory.source が不正です: %q（none | ldap | scim）", cfg.Directory.Source)
+	}
+
+	switch cfg.Auth.EffectiveSSOMode() {
+	case SSOModeDisabled, SSOModeOptional, SSOModeRequired:
+	default:
+		return fmt.Errorf("auth.sso_mode が不正です: %q（disabled | optional | required）", cfg.Auth.SSOMode)
+	}
+
+	// SCIM はパスワード検証の仕組みを持たないため、ローカルログイン手段が存在しない。
+	// SSO（OIDC）を使わない設定はログイン手段が一つも無い詰みの構成になるため起動時に弾く。
+	if cfg.Directory.EffectiveSource() == DirectorySourceSCIM && !cfg.Auth.SSOAllowed() {
+		return fmt.Errorf("directory.source: scim を使う場合、auth.sso_mode を optional または required に設定してください（SCIM は認証手段を持たないため）")
+	}
+
+	// sso_mode: required でローカルログイン手段が無効化されるとき、OIDC の接続設定が
+	// 無ければ誰もログインできない。
+	if cfg.Auth.EffectiveSSOMode() == SSOModeRequired && cfg.Auth.Providers.OIDC.Issuer == "" {
+		return fmt.Errorf("auth.sso_mode: required の場合、auth.providers.oidc.issuer 等の OIDC 接続設定が必要です")
+	}
+
+	return nil
 }
 
 // inheritReinjectFromGateway は mailshield.yaml の reinject.host/port を読み込んで
