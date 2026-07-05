@@ -8,30 +8,31 @@ import (
 )
 
 type mockRepository struct {
-	getStatsFunc                   func(ctx context.Context, filter *domain.MailboxVisibilityFilter) (*domain.Stats, error)
-	listMessagesFunc               func(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error)
-	getMessageFunc                 func(ctx context.Context, id string) (*domain.MessageDetail, error)
-	listQuarantineFunc             func(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error)
-	getQuarantineFunc              func(ctx context.Context, id string) (*domain.MessageDetail, error)
-	updateMessageStatusFunc        func(ctx context.Context, id string, status domain.MessageStatus) error
-	findUserByEmailFunc            func(ctx context.Context, email string) (*repository.User, error)
-	createUserFunc                 func(ctx context.Context, user *repository.User) error
-	upsertFederatedUserFunc        func(ctx context.Context, email, displayName string, role domain.Role, source domain.ProvisionedBy) (*repository.User, error)
-	deactivateMissingLDAPUsersFunc func(ctx context.Context, presentEmails []string) (int, error)
-	countUsersFunc                 func(ctx context.Context) (int, error)
-	listUsersFunc                  func(ctx context.Context) ([]repository.User, error)
-	updateUserPasswordFunc         func(ctx context.Context, userID, passwordHash string) error
-	updateUserRoleFunc             func(ctx context.Context, userID string, role domain.Role) error
-	deleteUserFunc                 func(ctx context.Context, userID string) error
-	createMailboxFunc              func(ctx context.Context, mailbox *repository.Mailbox) error
-	listMailboxesFunc              func(ctx context.Context) ([]repository.Mailbox, error)
-	getMailboxFunc                 func(ctx context.Context, id string) (*repository.Mailbox, error)
-	updateMailboxFunc              func(ctx context.Context, id, displayName string, isActive bool) error
-	deleteMailboxFunc              func(ctx context.Context, id string) error
-	listAssignmentsFunc            func(ctx context.Context, mailboxID string) ([]repository.MailboxAssignment, error)
-	addAssignmentFunc              func(ctx context.Context, assignment *repository.MailboxAssignment) error
-	removeAssignmentFunc           func(ctx context.Context, mailboxID, userID string, role domain.AssignmentRole) error
-	getMailboxAddressesForUserFunc func(ctx context.Context, userID string, roles []domain.AssignmentRole) ([]string, error)
+	getStatsFunc                      func(ctx context.Context, filter *domain.MailboxVisibilityFilter) (*domain.Stats, error)
+	listMessagesFunc                  func(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error)
+	getMessageFunc                    func(ctx context.Context, id string) (*domain.MessageDetail, error)
+	listQuarantineFunc                func(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error)
+	getQuarantineFunc                 func(ctx context.Context, id string) (*domain.MessageDetail, error)
+	updateMessageStatusFunc           func(ctx context.Context, id string, status domain.MessageStatus) error
+	findUserByEmailFunc               func(ctx context.Context, email string) (*repository.User, error)
+	createUserFunc                    func(ctx context.Context, user *repository.User) error
+	upsertFederatedUserFunc           func(ctx context.Context, email, displayName string, role domain.Role, source domain.ProvisionedBy) (*repository.User, error)
+	deactivateMissingLDAPUsersFunc    func(ctx context.Context, presentEmails []string) (int, error)
+	countUsersFunc                    func(ctx context.Context) (int, error)
+	listUsersFunc                     func(ctx context.Context) ([]repository.User, error)
+	updateUserPasswordFunc            func(ctx context.Context, userID, passwordHash string) error
+	updateUserRoleFunc                func(ctx context.Context, userID string, role domain.Role) error
+	deleteUserFunc                    func(ctx context.Context, userID string) error
+	createMailboxFunc                 func(ctx context.Context, mailbox *repository.Mailbox) error
+	listMailboxesFunc                 func(ctx context.Context) ([]repository.Mailbox, error)
+	getMailboxFunc                    func(ctx context.Context, id string) (*repository.Mailbox, error)
+	updateMailboxFunc                 func(ctx context.Context, id, displayName string, isActive bool) error
+	deleteMailboxFunc                 func(ctx context.Context, id string) error
+	listAssignmentsFunc               func(ctx context.Context, mailboxID string) ([]repository.MailboxAssignment, error)
+	addAssignmentFunc                 func(ctx context.Context, assignment *repository.MailboxAssignment) error
+	removeAssignmentFunc              func(ctx context.Context, mailboxID, userID string, role domain.AssignmentRole) error
+	syncMailboxAssignmentsForUserFunc func(ctx context.Context, userID string, source domain.ProvisionedBy, desired []repository.MailboxAssignmentRequest) error
+	getMailboxAddressesForUserFunc    func(ctx context.Context, userID string, roles []domain.AssignmentRole) ([]string, error)
 
 	// 承認フロー
 	listApprovalRequestsFunc    func(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error)
@@ -177,6 +178,13 @@ func (m *mockRepository) AddAssignment(ctx context.Context, assignment *reposito
 func (m *mockRepository) RemoveAssignment(ctx context.Context, mailboxID, userID string, role domain.AssignmentRole) error {
 	if m.removeAssignmentFunc != nil {
 		return m.removeAssignmentFunc(ctx, mailboxID, userID, role)
+	}
+	return nil
+}
+
+func (m *mockRepository) SyncMailboxAssignmentsForUser(ctx context.Context, userID string, source domain.ProvisionedBy, desired []repository.MailboxAssignmentRequest) error {
+	if m.syncMailboxAssignmentsForUserFunc != nil {
+		return m.syncMailboxAssignmentsForUserFunc(ctx, userID, source, desired)
 	}
 	return nil
 }

@@ -129,7 +129,7 @@ func main() {
 	switch cfg.Directory.EffectiveSource() {
 	case config.DirectorySourceLDAP:
 		if localLoginAllowed {
-			ldapAuthProvider, err = auth.NewLDAPBindProvider(&cfg.Directory.LDAP, provisioner, &cfg.Auth.Session)
+			ldapAuthProvider, err = auth.NewLDAPBindProvider(&cfg.Directory.LDAP, provisioner, repo, &cfg.Auth.Session)
 			if err != nil {
 				slog.Error("LDAP bind 認証プロバイダー初期化失敗", "error", err)
 				os.Exit(1)
@@ -142,7 +142,7 @@ func main() {
 			slog.Error("LDAP 設定不正", "error", err)
 			os.Exit(1)
 		}
-		syncer := ldapsync.NewSyncer(provisioner, repo, ldapSyncCfg)
+		syncer := ldapsync.NewSyncer(provisioner, repo, repo, ldapSyncCfg)
 		syncIntervalMinutes := cfg.Directory.LDAP.SyncIntervalMinutes
 		if syncIntervalMinutes <= 0 {
 			syncIntervalMinutes = 60

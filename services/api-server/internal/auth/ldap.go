@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	goldap "github.com/go-ldap/ldap/v3"
@@ -11,6 +12,7 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/directory"
 	ldapsync "github.com/koizumib/mailshield/services/api-server/internal/directory/ldap"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 )
 
 // dialer は LDAPBindProvider が必要とする接続確立操作。
@@ -30,26 +32,32 @@ type dialer func(cfg ldapsync.ConnConfig) (ldapsync.Searcher, error)
 //     こちら側でパスワードやハッシュを保持しない）
 //  3. GroupRoleMapper で role を解決し、Provisioner.Provision で JIT プロビジョニングする
 //     （権威順位 manual > ldap/scim > oidc は Provisioner 側で解決される）
+//  4. mailboxSyncer が設定されていれば、同じグループ集合から MailboxMapper で
+//     メールボックス割り当ても JIT 反映する（ログイン直後に本人のメールボックスが見えるようにする）。
+//     このユーザー1人分の行だけを対象にするため、他ユーザーへの影響はない。
 type LDAPBindProvider struct {
-	dial        dialer
-	connCfg     ldapsync.ConnConfig
-	syncCfg     ldapsync.SyncConfig
-	provisioner *directory.Provisioner
-	sessionCfg  *config.SessionConfig
+	dial          dialer
+	connCfg       ldapsync.ConnConfig
+	syncCfg       ldapsync.SyncConfig
+	provisioner   *directory.Provisioner
+	mailboxSyncer ldapsync.MailboxAssignmentSyncer
+	sessionCfg    *config.SessionConfig
 }
 
 // NewLDAPBindProvider は config.LDAPConfig から LDAPBindProvider を構築する。
-func NewLDAPBindProvider(ldapCfg *config.LDAPConfig, provisioner *directory.Provisioner, sessionCfg *config.SessionConfig) (*LDAPBindProvider, error) {
+// mailboxSyncer が nil の場合、メールボックス割り当ての JIT 反映は行わない。
+func NewLDAPBindProvider(ldapCfg *config.LDAPConfig, provisioner *directory.Provisioner, mailboxSyncer ldapsync.MailboxAssignmentSyncer, sessionCfg *config.SessionConfig) (*LDAPBindProvider, error) {
 	connCfg, syncCfg, err := BuildLDAPConnConfig(ldapCfg)
 	if err != nil {
 		return nil, err
 	}
 	return &LDAPBindProvider{
-		dial:        ldapsync.Dial,
-		connCfg:     connCfg,
-		syncCfg:     syncCfg,
-		provisioner: provisioner,
-		sessionCfg:  sessionCfg,
+		dial:          ldapsync.Dial,
+		connCfg:       connCfg,
+		syncCfg:       syncCfg,
+		provisioner:   provisioner,
+		mailboxSyncer: mailboxSyncer,
+		sessionCfg:    sessionCfg,
 	}, nil
 }
 
@@ -73,7 +81,8 @@ func (p *LDAPBindProvider) Login(ctx context.Context, email, password string) (*
 		return nil, err
 	}
 
-	role := p.syncCfg.RoleMapper.Resolve(entry.Attributes[p.syncCfg.GroupsAttr])
+	groups := entry.Attributes[p.syncCfg.GroupsAttr]
+	role := p.syncCfg.RoleMapper.Resolve(groups)
 	dbUser, err := p.provisioner.Provision(ctx, directory.ExternalIdentity{
 		Email:       email,
 		DisplayName: entry.FirstAttr(p.syncCfg.NameAttr),
@@ -85,6 +94,27 @@ func (p *LDAPBindProvider) Login(ctx context.Context, email, password string) (*
 	}
 	if !dbUser.IsActive {
 		return nil, fmt.Errorf("アカウントが無効です")
+	}
+
+	if p.mailboxSyncer != nil {
+		groupCNs := make([]string, len(groups))
+		for i, dn := range groups {
+			groupCNs[i] = ldapsync.ExtractCN(dn)
+		}
+		tuples := p.syncCfg.MailboxMapper.Resolve(groupCNs)
+		desired := make([]repository.MailboxAssignmentRequest, len(tuples))
+		for i, t := range tuples {
+			desired[i] = repository.MailboxAssignmentRequest{
+				MailboxEmail:       t.MailboxEmail,
+				MailboxDisplayName: t.MailboxDisplayName,
+				Role:               t.Role,
+			}
+		}
+		if err := p.mailboxSyncer.SyncMailboxAssignmentsForUser(ctx, dbUser.ID, domain.ProvisionedByLDAP, desired); err != nil {
+			// メールボックス割り当ての反映失敗はログイン自体を失敗させない
+			// （role/認証は既に確定しているため。次回ログインまたは定期同期で再試行される）。
+			slog.Warn("LDAP bind ログイン: メールボックス割り当て同期失敗", "email", email, "error", err)
+		}
 	}
 
 	return &domain.Session{

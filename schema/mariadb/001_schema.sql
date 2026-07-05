@@ -69,12 +69,15 @@ CREATE TABLE IF NOT EXISTS users (
 -- メールボックステーブル
 -- 内部メールアドレスを管理する
 CREATE TABLE IF NOT EXISTS mailboxes (
-    id            CHAR(36)     NOT NULL,
-    email_address VARCHAR(512) NOT NULL,
-    display_name  VARCHAR(256) NOT NULL DEFAULT '',
-    is_active     TINYINT(1)   NOT NULL DEFAULT 1,
-    created_at    DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    updated_at    DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    id             CHAR(36)     NOT NULL,
+    email_address  VARCHAR(512) NOT NULL,
+    display_name   VARCHAR(256) NOT NULL DEFAULT '',
+    is_active      TINYINT(1)   NOT NULL DEFAULT 1,
+    -- display_name の同期主体。manual（Web UI 手動作成）は LDAP/SCIM からの
+    -- 上書きを受けない（users.provisioned_by と同じ権威モデル）。
+    provisioned_by ENUM('manual','ldap','scim') NOT NULL DEFAULT 'manual',
+    created_at     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY uq_mailboxes_email (email_address)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -82,11 +85,14 @@ CREATE TABLE IF NOT EXISTS mailboxes (
 -- メールボックス割り当てテーブル
 -- ユーザーとメールボックスの関係（member/owner/admin）を管理する
 CREATE TABLE IF NOT EXISTS mailbox_assignments (
-    id          CHAR(36)                          NOT NULL,
-    mailbox_id  CHAR(36)                          NOT NULL,
-    user_id     CHAR(36)                          NOT NULL,
-    role        ENUM('member','owner','admin')    NOT NULL,
-    created_at  DATETIME(6)                       NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    id             CHAR(36)                       NOT NULL,
+    mailbox_id     CHAR(36)                       NOT NULL,
+    user_id        CHAR(36)                       NOT NULL,
+    role           ENUM('member','owner','admin') NOT NULL,
+    -- この割り当て行の作成主体。manual（Web UI 手動追加）は LDAP/SCIM の
+    -- 定期同期・JIT プロビジョニングによる自動削除の対象にしない。
+    provisioned_by ENUM('manual','ldap','scim')   NOT NULL DEFAULT 'manual',
+    created_at     DATETIME(6)                    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY uq_mailbox_assignments (mailbox_id, user_id, role),
     KEY idx_mailbox_assignments_mailbox (mailbox_id),

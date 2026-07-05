@@ -298,3 +298,69 @@ func TestDirectoryConfig_EffectiveSource(t *testing.T) {
 		t.Errorf("EffectiveSource() = %q, want ldap", d.EffectiveSource())
 	}
 }
+
+func TestLoad_MailboxMappings(t *testing.T) {
+	path := writeYAML(t, `
+server:
+  port: 8080
+database:
+  host: mariadb
+directory:
+  source: ldap
+  ldap:
+    host: ldap.corp.local
+    base_dn: "ou=Users,dc=corp,dc=local"
+    mailbox_mappings:
+      list:
+        - group: "Sales-Team"
+          mailbox: "sales@example.com"
+          mailbox_display_name: "Sales"
+          role: member
+        - group: "Sales-Managers"
+          mailbox: "sales@example.com"
+          role: owner
+      pattern:
+        regex: '^mbx-(?P<mailbox>[\w.-]+)-(?P<role>member|owner|admin)$'
+        mailbox_domain: "example.com"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	mm := cfg.Directory.LDAP.MailboxMappings
+	if len(mm.List) != 2 {
+		t.Fatalf("MailboxMappings.List = %d 件, want 2", len(mm.List))
+	}
+	if mm.List[0].Group != "Sales-Team" || mm.List[0].Mailbox != "sales@example.com" || mm.List[0].Role != "member" {
+		t.Errorf("List[0] = %+v", mm.List[0])
+	}
+	if mm.Pattern.Regex == "" {
+		t.Error("Pattern.Regex が空です")
+	}
+	if mm.Pattern.MailboxDomain != "example.com" {
+		t.Errorf("Pattern.MailboxDomain = %q, want example.com", mm.Pattern.MailboxDomain)
+	}
+}
+
+func TestLoad_MailboxMappings_InvalidPatternFailsAtProviderBuild(t *testing.T) {
+	// config.Load() 自体は YAML の構文だけを見るため、正規表現の意味的な不正
+	// （名前付きキャプチャグループの欠落等）は auth.BuildLDAPConnConfig 側で検出される。
+	// ここでは Load() が正規表現の中身を検証しないことだけ確認する（責務の分離）。
+	path := writeYAML(t, `
+server:
+  port: 8080
+database:
+  host: mariadb
+directory:
+  source: ldap
+  ldap:
+    host: ldap.corp.local
+    mailbox_mappings:
+      pattern:
+        regex: '^mbx-([\w.-]+)-(member|owner|admin)$'
+`)
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load() 自体はエラーにならないはず（正規表現の意味検証は auth 側の責務）: %v", err)
+	}
+}

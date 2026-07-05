@@ -578,6 +578,12 @@ LDAP ディレクトリ（Active Directory / OpenLDAP 等）を `directory.sourc
 | `directory.ldap.search_timeout_seconds` | int | `30` | 1 回の LDAP 検索のタイムアウト（秒） |
 | `directory.ldap.page_size` | int | `500` | LDAP ページング検索の 1 ページあたり件数。AD 等のサーバー側件数上限（既定 1000 件）を超える規模のディレクトリでも全件取得するために使用 |
 | `directory.ldap.deactivate_missing_users` | bool | `false` | 同期結果に含まれなくなった `provisioned_by=ldap` のユーザーを `is_active=0` にする。LDAP 検索が0件を返した場合（誤設定の可能性）は全ユーザー無効化を防ぐため何もしない |
+| `directory.ldap.mailbox_mappings.list[].group` | string | — | グループ識別子（LDAP の CN。DN 全体ではない） |
+| `directory.ldap.mailbox_mappings.list[].mailbox` | string | — | 割り当てるメールボックスのメールアドレス。存在しなければ自動作成する |
+| `directory.ldap.mailbox_mappings.list[].mailbox_display_name` | string | — | 自動作成時の表示名（省略時はメールアドレスをそのまま使用） |
+| `directory.ldap.mailbox_mappings.list[].role` | string | — | `member` / `owner` / `admin` |
+| `directory.ldap.mailbox_mappings.pattern.regex` | string | — | グループ名の命名規則から mailbox+role を抽出する正規表現。名前付きキャプチャグループ `(?P<mailbox>...)` `(?P<role>...)` が必須 |
+| `directory.ldap.mailbox_mappings.pattern.mailbox_domain` | string | — | 空でない場合、`mailbox` キャプチャの値をローカルパートとみなし `local@mailbox_domain` を組み立てる。空の場合は `mailbox` キャプチャの値をメールアドレスとしてそのまま使う |
 
 **role の権威順位:** `manual > ldap/scim > oidc`。LDAP 同期で作成・更新されたユーザー（`provisioned_by=ldap`）の role は、その後の OIDC ログインでは上書きされない。詳細は [API 認証仕様](api-authentication.md) を参照。
 
@@ -602,7 +608,24 @@ directory:
       viewer: "cn=MailShield-Viewers,ou=Groups,dc=corp,dc=local"
     sync_interval_minutes: 60
     deactivate_missing_users: true
+    # メールボックス割り当ての自動反映（任意）。ユーザーの memberOf から解決する。
+    mailbox_mappings:
+      # 少数のメールボックスなら明示リストで十分
+      list:
+        - group: "Sales-Team"
+          mailbox: "sales@example.com"
+          mailbox_display_name: "Sales"
+          role: member
+        - group: "Sales-Managers"
+          mailbox: "sales@example.com"
+          role: owner
+      # メールボックス数が多い組織向け: 命名規則から自動解決（例: mbx-hr-owner → hr@example.com, role: owner）
+      pattern:
+        regex: '^mbx-(?P<mailbox>[\w.-]+)-(?P<role>member|owner|admin)$'
+        mailbox_domain: "example.com"
 ```
+
+`mailbox_mappings` の詳細な設計思想（自動作成の可否・権威モデル・命名規則を選ぶ理由）は [API 認証仕様のメールボックス割り当て自動反映](api-authentication.md#メールボックス割り当ての自動反映ldap-mailbox_mappings) を参照。
 
 ### mailbox_policy
 

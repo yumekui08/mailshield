@@ -80,6 +80,19 @@ directory:
     #   viewer: "cn=MailShield-Viewers,ou=Groups,dc=corp,dc=local"
     # sync_interval_minutes: 60
     # deactivate_missing_users: true  # 同期結果に含まれなくなった ldap ユーザーを無効化する
+    # メールボックス割り当て（member/owner/admin）をユーザーの所属グループから自動反映する（任意）
+    # mailbox_mappings:
+    #   list:                        # 少数のメールボックスなら明示リストで十分
+    #     - group: "Sales-Team"      # LDAP の CN（DN 全体ではない）
+    #       mailbox: "sales@example.com"
+    #       mailbox_display_name: "Sales"
+    #       role: member
+    #     - group: "Sales-Managers"
+    #       mailbox: "sales@example.com"
+    #       role: owner
+    #   pattern:                     # メールボックス数が多い組織向け: 命名規則から自動解決
+    #     regex: '^mbx-(?P<mailbox>[\w.-]+)-(?P<role>member|owner|admin)$'
+    #     mailbox_domain: "example.com"
 
 mailbox_policy:
   inbound_quarantine:

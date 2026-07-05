@@ -67,6 +67,16 @@ type Repository interface {
 	// RemoveAssignment はメールボックスからユーザーの割り当てを削除する。
 	RemoveAssignment(ctx context.Context, mailboxID, userID string, role domain.AssignmentRole) error
 
+	// SyncMailboxAssignmentsForUser は 1 ユーザー分の LDAP/SCIM 由来メールボックス割り当てを
+	// desired の内容に一致させる。
+	//   - desired に含まれるメールボックスが存在しなければ作成する（provisioned_by=source）
+	//   - 既存が provisioned_by=manual のメールボックス・割り当ては一切変更しない
+	//   - 同一ユーザーの provisioned_by=source な割り当てのうち desired に無いものは削除する
+	//
+	// スコープはこのユーザーの行だけなので、JIT ログイン時にも定期同期のループ内からも
+	// 安全に呼べる（他ユーザーの割り当てには一切影響しない）。
+	SyncMailboxAssignmentsForUser(ctx context.Context, userID string, source domain.ProvisionedBy, desired []MailboxAssignmentRequest) error
+
 	// GetMailboxAddressesForUser は指定ロールを持つユーザーのメールボックスアドレス一覧を返す。
 	// 隔離一覧の可視性フィルターに使用する。
 	GetMailboxAddressesForUser(ctx context.Context, userID string, roles []domain.AssignmentRole) ([]string, error)
@@ -144,20 +154,31 @@ type Repository interface {
 
 // Mailbox はメールボックス情報を保持する。
 type Mailbox struct {
-	ID           string
-	EmailAddress string
-	DisplayName  string
-	IsActive     bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID            string
+	EmailAddress  string
+	DisplayName   string
+	IsActive      bool
+	ProvisionedBy domain.ProvisionedBy
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// MailboxAssignmentRequest は SyncMailboxAssignmentsForUser への入力 1 件を表す。
+// MailboxEmail に一致するメールボックスが存在しない場合、MailboxDisplayName で新規作成する
+// （表示名省略時は MailboxEmail をそのまま使う。既存の CreateMailbox と同じ挙動）。
+type MailboxAssignmentRequest struct {
+	MailboxEmail       string
+	MailboxDisplayName string
+	Role               domain.AssignmentRole
 }
 
 // MailboxAssignment はメールボックスとユーザーの割り当て情報を保持する。
 type MailboxAssignment struct {
-	ID        string
-	MailboxID string
-	UserID    string
-	Role      domain.AssignmentRole
+	ID            string
+	MailboxID     string
+	UserID        string
+	Role          domain.AssignmentRole
+	ProvisionedBy domain.ProvisionedBy
 	// 表示用（JOIN して取得）
 	UserEmail       string
 	UserDisplayName string

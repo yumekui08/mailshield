@@ -10,6 +10,7 @@ import (
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 )
 
 func newMockRepo(t *testing.T) (*Repository, sqlmock.Sqlmock) {
@@ -466,5 +467,76 @@ func TestDeactivateMissingLDAPUsers_EmptyListNoop(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("n = %d, want 0", n)
+	}
+}
+
+func TestSyncMailboxAssignmentsForUser_CreatesNewMailboxAndAssignment(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	ctx := context.Background()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO mailboxes").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT id FROM mailboxes").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("mb-1"))
+	mock.ExpectExec("INSERT INTO mailbox_assignments").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT mailbox_id, role FROM mailbox_assignments").
+		WillReturnRows(sqlmock.NewRows([]string{"mailbox_id", "role"}))
+	mock.ExpectCommit()
+
+	err := repo.SyncMailboxAssignmentsForUser(ctx, "user-1", domain.ProvisionedByLDAP, []repository.MailboxAssignmentRequest{
+		{MailboxEmail: "sales@example.com", MailboxDisplayName: "Sales", Role: domain.AssignmentRoleMember},
+	})
+	if err != nil {
+		t.Fatalf("SyncMailboxAssignmentsForUser 失敗: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("未消化の期待値あり: %v", err)
+	}
+}
+
+func TestSyncMailboxAssignmentsForUser_RemovesStaleAssignment(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	ctx := context.Background()
+
+	mock.ExpectBegin()
+	// desired が空なので mailbox upsert ループは実行されない
+	mock.ExpectQuery("SELECT mailbox_id, role FROM mailbox_assignments").
+		WillReturnRows(sqlmock.NewRows([]string{"mailbox_id", "role"}).AddRow("mb-1", "member"))
+	mock.ExpectExec("DELETE FROM mailbox_assignments").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := repo.SyncMailboxAssignmentsForUser(ctx, "user-1", domain.ProvisionedByLDAP, nil)
+	if err != nil {
+		t.Fatalf("SyncMailboxAssignmentsForUser 失敗: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("未消化の期待値あり: %v", err)
+	}
+}
+
+func TestSyncMailboxAssignmentsForUser_KeepsPresentAssignment(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	ctx := context.Background()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO mailboxes").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT id FROM mailboxes").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("mb-1"))
+	mock.ExpectExec("INSERT INTO mailbox_assignments").WillReturnResult(sqlmock.NewResult(0, 1))
+	// 既存の割り当てが desired と一致するので DELETE は呼ばれない
+	mock.ExpectQuery("SELECT mailbox_id, role FROM mailbox_assignments").
+		WillReturnRows(sqlmock.NewRows([]string{"mailbox_id", "role"}).AddRow("mb-1", "member"))
+	mock.ExpectCommit()
+
+	err := repo.SyncMailboxAssignmentsForUser(ctx, "user-1", domain.ProvisionedByLDAP, []repository.MailboxAssignmentRequest{
+		{MailboxEmail: "sales@example.com", Role: domain.AssignmentRoleMember},
+	})
+	if err != nil {
+		t.Fatalf("SyncMailboxAssignmentsForUser 失敗: %v", err)
+	}
+	// DELETE が期待されていないので、もし実行されていれば ExpectationsWereMet がエラーにならない
+	// (sqlmock は未定義のクエリが実行されるとその時点でエラーを返す)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("未消化の期待値あり: %v", err)
 	}
 }

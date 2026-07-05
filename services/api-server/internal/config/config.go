@@ -89,6 +89,34 @@ type LDAPConfig struct {
 	// provisioned_by=ldap のユーザーを is_active=0 にする（アクセス即時剥奪）。
 	// LDAP 検索が 0 件を返した場合は誤って全ユーザーを無効化しないよう何もしない。
 	DeactivateMissingUsers bool `mapstructure:"deactivate_missing_users"`
+	// MailboxMappings はユーザーの所属グループからメールボックス割り当て（member/owner/admin）を
+	// 自動反映するための設定。明示リスト・命名規則いずれか、または両方を設定できる。
+	MailboxMappings MailboxMappingsConfig `mapstructure:"mailbox_mappings"`
+}
+
+// MailboxMappingsConfig はグループ→メールボックス+role の解決方法を保持する。
+type MailboxMappingsConfig struct {
+	// List はグループ識別子（LDAP の CN）とメールボックス+role の明示的な対応付け。
+	List []MailboxMappingEntry `mapstructure:"list"`
+	// Pattern はグループ名の命名規則からメールボックス+role を機械的に抽出する正規表現ルール。
+	Pattern MailboxMappingPatternConfig `mapstructure:"pattern"`
+}
+
+// MailboxMappingEntry は明示マッピング 1 件分。
+type MailboxMappingEntry struct {
+	Group              string `mapstructure:"group"`
+	Mailbox            string `mapstructure:"mailbox"`
+	MailboxDisplayName string `mapstructure:"mailbox_display_name"`
+	Role               string `mapstructure:"role"`
+}
+
+// MailboxMappingPatternConfig は命名規則による解決ルール。
+type MailboxMappingPatternConfig struct {
+	// Regex は名前付きキャプチャグループ (?P<mailbox>...) と (?P<role>...) を含む正規表現。
+	Regex string `mapstructure:"regex"`
+	// MailboxDomain が空でない場合、"mailbox" キャプチャの値をローカルパートとみなし
+	// "local@MailboxDomain" をメールボックスアドレスとする。
+	MailboxDomain string `mapstructure:"mailbox_domain"`
 }
 
 // LDAPAttributesConfig はユーザーエントリから読み取る属性名。

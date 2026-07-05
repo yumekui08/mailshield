@@ -142,6 +142,9 @@ func (s *serviceRepository) AddAssignment(_ context.Context, _ *repository.Mailb
 func (s *serviceRepository) RemoveAssignment(_ context.Context, _, _ string, _ domain.AssignmentRole) error {
 	return nil
 }
+func (s *serviceRepository) SyncMailboxAssignmentsForUser(_ context.Context, _ string, _ domain.ProvisionedBy, _ []repository.MailboxAssignmentRequest) error {
+	return nil
+}
 func (s *serviceRepository) GetMailboxAddressesForUser(_ context.Context, _ string, _ []domain.AssignmentRole) ([]string, error) {
 	return nil, nil
 }

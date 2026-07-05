@@ -79,6 +79,22 @@ func testLDAPBindProvider(t *testing.T, dial dialer, repo *fakeProvisionerRepo) 
 	}
 }
 
+// fakeMailboxAssignmentSyncer は SyncMailboxAssignmentsForUser 呼び出しを記録するフェイク。
+type fakeMailboxAssignmentSyncer struct {
+	calls []mailboxSyncCall
+}
+
+type mailboxSyncCall struct {
+	userID  string
+	source  domain.ProvisionedBy
+	desired []repository.MailboxAssignmentRequest
+}
+
+func (f *fakeMailboxAssignmentSyncer) SyncMailboxAssignmentsForUser(_ context.Context, userID string, source domain.ProvisionedBy, desired []repository.MailboxAssignmentRequest) error {
+	f.calls = append(f.calls, mailboxSyncCall{userID: userID, source: source, desired: desired})
+	return nil
+}
+
 // TestLDAPBindProvider_Login_Success は search+bind の一連の流れとロール解決を確認する。
 func TestLDAPBindProvider_Login_Success(t *testing.T) {
 	entries := []ldapsync.Entry{
@@ -207,5 +223,62 @@ func TestLDAPBindProvider_Login_EmptyCredentials(t *testing.T) {
 	}
 	if _, err := p.Login(context.Background(), "a@b.com", ""); !errors.Is(err, errInvalidCredentials) {
 		t.Errorf("password 空のとき errInvalidCredentials を期待: %v", err)
+	}
+}
+
+// TestLDAPBindProvider_Login_SyncsMailboxAssignments はログイン時に
+// mailboxSyncer が本人1人分のメールボックス割り当てで呼ばれることを確認する。
+func TestLDAPBindProvider_Login_SyncsMailboxAssignments(t *testing.T) {
+	entries := []ldapsync.Entry{
+		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{
+			"mail": {"alice@corp.local"},
+			"memberOf": {
+				"cn=Sales-Team,ou=Groups,dc=corp,dc=local",
+			},
+		}},
+	}
+	dial := fakeDialer(t, "cn=svc,dc=corp,dc=local", "svc-pass", entries, "cn=Alice,ou=Users,dc=corp,dc=local", "correct-password", nil)
+	repo := &fakeProvisionerRepo{}
+	p := testLDAPBindProvider(t, dial, repo)
+	p.syncCfg.MailboxMapper = directory.GroupMailboxMapper{
+		Mappings: []directory.GroupMailboxMapping{
+			{Group: "Sales-Team", MailboxEmail: "sales@example.com", Role: domain.AssignmentRoleMember},
+		},
+	}
+	mboxSyncer := &fakeMailboxAssignmentSyncer{}
+	p.mailboxSyncer = mboxSyncer
+
+	session, err := p.Login(context.Background(), "alice@corp.local", "correct-password")
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	if len(mboxSyncer.calls) != 1 {
+		t.Fatalf("SyncMailboxAssignmentsForUser 呼び出し = %d 回, want 1", len(mboxSyncer.calls))
+	}
+	call := mboxSyncer.calls[0]
+	if call.userID != session.User.Sub {
+		t.Errorf("userID = %q, want %q（ログインしたユーザー本人のみが対象であるべき）", call.userID, session.User.Sub)
+	}
+	if len(call.desired) != 1 || call.desired[0].MailboxEmail != "sales@example.com" {
+		t.Errorf("desired = %+v", call.desired)
+	}
+	if call.source != domain.ProvisionedByLDAP {
+		t.Errorf("source = %q, want ldap", call.source)
+	}
+}
+
+// TestLDAPBindProvider_Login_NilMailboxSyncerSkipped は mailboxSyncer が nil の場合、
+// ログイン自体は成功し、割り当て同期は単純にスキップされることを確認する。
+func TestLDAPBindProvider_Login_NilMailboxSyncerSkipped(t *testing.T) {
+	entries := []ldapsync.Entry{
+		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{"mail": {"alice@corp.local"}}},
+	}
+	dial := fakeDialer(t, "cn=svc,dc=corp,dc=local", "svc-pass", entries, "cn=Alice,ou=Users,dc=corp,dc=local", "correct-password", nil)
+	p := testLDAPBindProvider(t, dial, &fakeProvisionerRepo{})
+	// mailboxSyncer は設定しない（nil のまま）
+
+	if _, err := p.Login(context.Background(), "alice@corp.local", "correct-password"); err != nil {
+		t.Fatalf("Login() error = %v", err)
 	}
 }

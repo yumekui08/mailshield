@@ -11,7 +11,7 @@
 - **MariaDB のみ必須**: RabbitMQ・MinIO・Redis はすべてオプション。`queue.backend: none` / `storage.backend: filesystem` / `redis.backend: mariadb` で外部サービスなしの単一ノード構成にできる
 - **管理 Web UI**: メール一覧・隔離管理・添付ファイル分離・ユーザー管理・監査ログ・API キー管理を Web ブラウザで操作できる
 - **API キー認証**: `Authorization: Bearer <key>` ヘッダで機械間認証。CI/CD・SIEM 連携に使用できる
-- **LDAP ディレクトリ同期 + bind 認証**: Active Directory / OpenLDAP からユーザー・グループを定期同期し、role をディレクトリ側で一元管理できる。ログインも LDAP bind に切り替え可能（`directory.source: ldap`）
+- **LDAP ディレクトリ同期 + bind 認証**: Active Directory / OpenLDAP からユーザー・グループを定期同期し、role をディレクトリ側で一元管理できる。ログインも LDAP bind に切り替え可能（`directory.source: ldap`）。メールボックスの閲覧・管理権限もグループ所属から自動反映できる（`mailbox_mappings`）
 - **SSO ポリシー**: `auth.sso_mode`(disabled/optional/required)で OIDC を「使わない/併用/強制」に切り替えられる
 
 ## クイックスタート

@@ -624,8 +624,8 @@ func (r *Repository) DeleteUser(ctx context.Context, userID string) error {
 // CreateMailbox はメールボックスを登録する。
 func (r *Repository) CreateMailbox(ctx context.Context, m *repository.Mailbox) error {
 	const q = `
-		INSERT INTO mailboxes (id, email_address, display_name, is_active)
-		VALUES (?, ?, ?, 1)`
+		INSERT INTO mailboxes (id, email_address, display_name, is_active, provisioned_by)
+		VALUES (?, ?, ?, 1, 'manual')`
 	_, err := r.db.ExecContext(ctx, q, m.ID, m.EmailAddress, m.DisplayName)
 	if err != nil {
 		return fmt.Errorf("メールボックス作成失敗 (email=%s): %w", m.EmailAddress, err)
@@ -636,7 +636,7 @@ func (r *Repository) CreateMailbox(ctx context.Context, m *repository.Mailbox) e
 // ListMailboxes はメールボックス一覧を返す。
 func (r *Repository) ListMailboxes(ctx context.Context) ([]repository.Mailbox, error) {
 	const q = `
-		SELECT id, email_address, display_name, is_active, created_at, updated_at
+		SELECT id, email_address, display_name, is_active, provisioned_by, created_at, updated_at
 		FROM mailboxes
 		ORDER BY email_address ASC`
 	rows, err := r.db.QueryContext(ctx, q)
@@ -651,7 +651,7 @@ func (r *Repository) ListMailboxes(ctx context.Context) ([]repository.Mailbox, e
 		var isActiveInt int
 		if err := rows.Scan(
 			&m.ID, &m.EmailAddress, &m.DisplayName,
-			&isActiveInt, &m.CreatedAt, &m.UpdatedAt,
+			&isActiveInt, &m.ProvisionedBy, &m.CreatedAt, &m.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("メールボックススキャン失敗: %w", err)
 		}
@@ -670,7 +670,7 @@ func (r *Repository) ListMailboxes(ctx context.Context) ([]repository.Mailbox, e
 // GetMailbox は指定メールボックスを返す。見つからない場合は nil, nil を返す。
 func (r *Repository) GetMailbox(ctx context.Context, id string) (*repository.Mailbox, error) {
 	const q = `
-		SELECT id, email_address, display_name, is_active, created_at, updated_at
+		SELECT id, email_address, display_name, is_active, provisioned_by, created_at, updated_at
 		FROM mailboxes
 		WHERE id = ?`
 	row := r.db.QueryRowContext(ctx, q, id)
@@ -678,7 +678,7 @@ func (r *Repository) GetMailbox(ctx context.Context, id string) (*repository.Mai
 	var isActiveInt int
 	if err := row.Scan(
 		&m.ID, &m.EmailAddress, &m.DisplayName,
-		&isActiveInt, &m.CreatedAt, &m.UpdatedAt,
+		&isActiveInt, &m.ProvisionedBy, &m.CreatedAt, &m.UpdatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -720,7 +720,7 @@ func (r *Repository) DeleteMailbox(ctx context.Context, id string) error {
 // ListAssignments はメールボックスの割り当て一覧を返す（ユーザー情報も JOIN）。
 func (r *Repository) ListAssignments(ctx context.Context, mailboxID string) ([]repository.MailboxAssignment, error) {
 	const q = `
-		SELECT ma.id, ma.mailbox_id, ma.user_id, ma.role, ma.created_at,
+		SELECT ma.id, ma.mailbox_id, ma.user_id, ma.role, ma.provisioned_by, ma.created_at,
 		       u.email, u.display_name
 		FROM mailbox_assignments ma
 		JOIN users u ON u.id = ma.user_id
@@ -737,7 +737,7 @@ func (r *Repository) ListAssignments(ctx context.Context, mailboxID string) ([]r
 		var a repository.MailboxAssignment
 		var role string
 		if err := rows.Scan(
-			&a.ID, &a.MailboxID, &a.UserID, &role, &a.CreatedAt,
+			&a.ID, &a.MailboxID, &a.UserID, &role, &a.ProvisionedBy, &a.CreatedAt,
 			&a.UserEmail, &a.UserDisplayName,
 		); err != nil {
 			return nil, fmt.Errorf("割り当てスキャン失敗: %w", err)
@@ -757,8 +757,8 @@ func (r *Repository) ListAssignments(ctx context.Context, mailboxID string) ([]r
 // AddAssignment はメールボックスにユーザーを割り当てる。重複は無視する。
 func (r *Repository) AddAssignment(ctx context.Context, a *repository.MailboxAssignment) error {
 	const q = `
-		INSERT IGNORE INTO mailbox_assignments (id, mailbox_id, user_id, role)
-		VALUES (?, ?, ?, ?)`
+		INSERT IGNORE INTO mailbox_assignments (id, mailbox_id, user_id, role, provisioned_by)
+		VALUES (?, ?, ?, ?, 'manual')`
 	_, err := r.db.ExecContext(ctx, q, a.ID, a.MailboxID, a.UserID, string(a.Role))
 	if err != nil {
 		return fmt.Errorf("割り当て追加失敗 (mailbox_id=%s, user_id=%s): %w", a.MailboxID, a.UserID, err)
@@ -774,6 +774,114 @@ func (r *Repository) RemoveAssignment(ctx context.Context, mailboxID, userID str
 	_, err := r.db.ExecContext(ctx, q, mailboxID, userID, string(role))
 	if err != nil {
 		return fmt.Errorf("割り当て削除失敗 (mailbox_id=%s, user_id=%s, role=%s): %w", mailboxID, userID, role, err)
+	}
+	return nil
+}
+
+// SyncMailboxAssignmentsForUser は 1 ユーザー分の LDAP/SCIM 由来メールボックス割り当てを
+// desired の内容に一致させる。desired が指すメールボックスが無ければ作成し、
+// provisioned_by=manual のメールボックス・割り当ては一切変更しない。
+// このユーザーの provisioned_by=source な割り当てのうち desired に無いものは削除する。
+// 一連の操作はトランザクションで保護する。
+func (r *Repository) SyncMailboxAssignmentsForUser(ctx context.Context, userID string, source domain.ProvisionedBy, desired []repository.MailboxAssignmentRequest) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("トランザクション開始失敗: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // Commit 成功後の Rollback はエラーを返すが無視してよい
+
+	type assignKey struct {
+		mailboxID string
+		role      domain.AssignmentRole
+	}
+	keep := make(map[assignKey]struct{}, len(desired))
+
+	for _, d := range desired {
+		mailboxID, err := upsertProvisionedMailboxTx(ctx, tx, d.MailboxEmail, d.MailboxDisplayName, source)
+		if err != nil {
+			return fmt.Errorf("メールボックス確保失敗 (email=%s): %w", d.MailboxEmail, err)
+		}
+		if err := upsertProvisionedAssignmentTx(ctx, tx, mailboxID, userID, d.Role, source); err != nil {
+			return fmt.Errorf("割り当て確保失敗 (mailbox_id=%s, user_id=%s, role=%s): %w", mailboxID, userID, d.Role, err)
+		}
+		keep[assignKey{mailboxID, d.Role}] = struct{}{}
+	}
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT mailbox_id, role FROM mailbox_assignments WHERE user_id = ? AND provisioned_by = ?`,
+		userID, string(source),
+	)
+	if err != nil {
+		return fmt.Errorf("既存割り当て取得失敗 (user_id=%s): %w", userID, err)
+	}
+	var toDelete []assignKey
+	for rows.Next() {
+		var mailboxID, roleStr string
+		if err := rows.Scan(&mailboxID, &roleStr); err != nil {
+			rows.Close()
+			return fmt.Errorf("既存割り当てスキャン失敗: %w", err)
+		}
+		k := assignKey{mailboxID, domain.AssignmentRole(roleStr)}
+		if _, ok := keep[k]; !ok {
+			toDelete = append(toDelete, k)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("既存割り当てイテレーション失敗: %w", err)
+	}
+	rows.Close()
+
+	for _, k := range toDelete {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM mailbox_assignments WHERE mailbox_id = ? AND user_id = ? AND role = ? AND provisioned_by = ?`,
+			k.mailboxID, userID, string(k.role), string(source),
+		); err != nil {
+			return fmt.Errorf("割り当て削除失敗 (mailbox_id=%s, role=%s): %w", k.mailboxID, k.role, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("トランザクションコミット失敗: %w", err)
+	}
+	return nil
+}
+
+// upsertProvisionedMailboxTx はディレクトリ同期由来でメールボックスを作成・更新し、その ID を返す。
+// provisioned_by=manual の既存メールボックスは display_name・provisioned_by を上書きしない。
+func upsertProvisionedMailboxTx(ctx context.Context, tx *sql.Tx, emailAddress, displayName string, source domain.ProvisionedBy) (string, error) {
+	if displayName == "" {
+		displayName = emailAddress
+	}
+	const q = `
+		INSERT INTO mailboxes (id, email_address, display_name, is_active, provisioned_by)
+		VALUES (?, ?, ?, 1, ?)
+		ON DUPLICATE KEY UPDATE
+			display_name  = IF(provisioned_by = 'manual', display_name, VALUES(display_name)),
+			provisioned_by = IF(provisioned_by = 'manual', provisioned_by, VALUES(provisioned_by))`
+	if _, err := tx.ExecContext(ctx, q, uuid.New().String(), emailAddress, displayName, string(source)); err != nil {
+		return "", fmt.Errorf("メールボックスupsert失敗 (email=%s): %w", emailAddress, err)
+	}
+
+	var id string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM mailboxes WHERE email_address = ?`, emailAddress).Scan(&id); err != nil {
+		return "", fmt.Errorf("メールボックスID取得失敗 (email=%s): %w", emailAddress, err)
+	}
+	return id, nil
+}
+
+// upsertProvisionedAssignmentTx はディレクトリ同期由来で割り当てを作成する。
+// 既存が provisioned_by=manual の場合は provisioned_by を上書きしない
+// （Web UI で手動追加された割り当てをディレクトリ同期が奪わないようにする）。
+func upsertProvisionedAssignmentTx(ctx context.Context, tx *sql.Tx, mailboxID, userID string, role domain.AssignmentRole, source domain.ProvisionedBy) error {
+	const q = `
+		INSERT INTO mailbox_assignments (id, mailbox_id, user_id, role, provisioned_by)
+		VALUES (?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			provisioned_by = IF(provisioned_by = 'manual', provisioned_by, VALUES(provisioned_by))`
+	_, err := tx.ExecContext(ctx, q, uuid.New().String(), mailboxID, userID, string(role), string(source))
+	if err != nil {
+		return fmt.Errorf("割り当てupsert失敗 (mailbox_id=%s, user_id=%s, role=%s): %w", mailboxID, userID, role, err)
 	}
 	return nil
 }

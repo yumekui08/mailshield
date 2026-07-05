@@ -6,8 +6,11 @@ import (
 	"log/slog"
 	"time"
 
+	goldap "github.com/go-ldap/ldap/v3"
+
 	"github.com/koizumib/mailshield/services/api-server/internal/directory"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 )
 
 // UserDeactivator は Syncer が必要とする repository.Repository のサブセット。
@@ -18,6 +21,13 @@ type UserDeactivator interface {
 	DeactivateMissingLDAPUsers(ctx context.Context, presentEmails []string) (int, error)
 }
 
+// MailboxAssignmentSyncer は Syncer が必要とする repository.Repository のサブセット。
+type MailboxAssignmentSyncer interface {
+	// SyncMailboxAssignmentsForUser は 1 ユーザー分のメールボックス割り当てを
+	// desired に一致させる（詳細は repository.Repository の同名メソッドを参照）。
+	SyncMailboxAssignmentsForUser(ctx context.Context, userID string, source domain.ProvisionedBy, desired []repository.MailboxAssignmentRequest) error
+}
+
 // SyncConfig は 1 回の同期処理に必要なディレクトリ側の設定。
 type SyncConfig struct {
 	BaseDN     string
@@ -26,6 +36,9 @@ type SyncConfig struct {
 	NameAttr   string
 	GroupsAttr string
 	RoleMapper directory.GroupRoleMapper
+	// MailboxMapper はユーザーの所属グループからメールボックス割り当てを解決する
+	// （パターン1: ユーザー起点の発見）。ゼロ値（Mappings 空・Pattern 未設定）でもよい。
+	MailboxMapper directory.GroupMailboxMapper
 	// DeactivateMissing を true にすると、同期結果に含まれなくなった
 	// provisioned_by=ldap のユーザーを無効化する。
 	DeactivateMissing bool
@@ -39,16 +52,18 @@ type Result struct {
 	Errors      []error
 }
 
-// Syncer は LDAP ディレクトリと users テーブルを同期する。
+// Syncer は LDAP ディレクトリと users / mailbox_assignments テーブルを同期する。
 type Syncer struct {
-	provisioner *directory.Provisioner
-	deactivator UserDeactivator
-	cfg         SyncConfig
+	provisioner   *directory.Provisioner
+	deactivator   UserDeactivator
+	mailboxSyncer MailboxAssignmentSyncer
+	cfg           SyncConfig
 }
 
-// NewSyncer は Syncer を返す。
-func NewSyncer(provisioner *directory.Provisioner, deactivator UserDeactivator, cfg SyncConfig) *Syncer {
-	return &Syncer{provisioner: provisioner, deactivator: deactivator, cfg: cfg}
+// NewSyncer は Syncer を返す。mailboxSyncer が nil の場合、メールボックス割り当ての
+// 自動同期は行わない（role/display_name の同期のみ）。
+func NewSyncer(provisioner *directory.Provisioner, deactivator UserDeactivator, mailboxSyncer MailboxAssignmentSyncer, cfg SyncConfig) *Syncer {
+	return &Syncer{provisioner: provisioner, deactivator: deactivator, mailboxSyncer: mailboxSyncer, cfg: cfg}
 }
 
 // RunPeriodic は起動直後に1回同期し、以後 interval 間隔で同期を繰り返すループを起動する。
@@ -109,10 +124,10 @@ func (s *Syncer) Sync(ctx context.Context, searcher Searcher) (Result, error) {
 		}
 
 		displayName := e.FirstAttr(s.cfg.NameAttr)
-		groups := e.Attributes[s.cfg.GroupsAttr]
-		role := s.cfg.RoleMapper.Resolve(groups)
+		groupDNs := e.Attributes[s.cfg.GroupsAttr]
+		role := s.cfg.RoleMapper.Resolve(groupDNs)
 
-		_, err := s.provisioner.Provision(ctx, directory.ExternalIdentity{
+		dbUser, err := s.provisioner.Provision(ctx, directory.ExternalIdentity{
 			Email:       email,
 			DisplayName: displayName,
 			Role:        role,
@@ -125,6 +140,29 @@ func (s *Syncer) Sync(ctx context.Context, searcher Searcher) (Result, error) {
 		}
 		result.Synced++
 		presentEmails = append(presentEmails, email)
+
+		if s.mailboxSyncer != nil {
+			groupCNs := make([]string, len(groupDNs))
+			for i, dn := range groupDNs {
+				groupCNs[i] = ExtractCN(dn)
+			}
+			tuples := s.cfg.MailboxMapper.Resolve(groupCNs)
+			desired := make([]repository.MailboxAssignmentRequest, len(tuples))
+			for i, t := range tuples {
+				desired[i] = repository.MailboxAssignmentRequest{
+					MailboxEmail:       t.MailboxEmail,
+					MailboxDisplayName: t.MailboxDisplayName,
+					Role:               t.Role,
+				}
+			}
+			// desired が空でも呼ぶ。グループから正当に離脱したユーザーの
+			// メールボックス割り当てを剥奪するのに必要なため（0件ガードは不要。
+			// LDAP 検索全体が0件の場合はこのループ自体が回らないため既に保護されている）。
+			if err := s.mailboxSyncer.SyncMailboxAssignmentsForUser(ctx, dbUser.ID, domain.ProvisionedByLDAP, desired); err != nil {
+				slog.Error("LDAP同期: メールボックス割り当て同期失敗", "email", email, "error", err)
+				result.Errors = append(result.Errors, err)
+			}
+		}
 	}
 
 	if s.cfg.DeactivateMissing {
@@ -147,4 +185,17 @@ func (s *Syncer) Sync(ctx context.Context, searcher Searcher) (Result, error) {
 		"deactivated", result.Deactivated, "errors", len(result.Errors))
 
 	return result, nil
+}
+
+// ExtractCN は LDAP DN から先頭 RDN（通常 CN）の値を抽出する。
+// メールボックスのグループ→role マッピングは CN（表示名相当）に対して照合するため、
+// memberOf 属性の値（DN 形式）から比較用の識別子を取り出すのに使う。
+// パース失敗時は DN をそのまま返す（呼び出し側でどのマッピングにも一致しないだけで、
+// 処理全体を止める必要はないため）。
+func ExtractCN(dn string) string {
+	parsed, err := goldap.ParseDN(dn)
+	if err != nil || len(parsed.RDNs) == 0 || len(parsed.RDNs[0].Attributes) == 0 {
+		return dn
+	}
+	return parsed.RDNs[0].Attributes[0].Value
 }
