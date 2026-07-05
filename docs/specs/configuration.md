@@ -578,14 +578,32 @@ LDAP ディレクトリ（Active Directory / OpenLDAP 等）を `directory.sourc
 | `directory.ldap.search_timeout_seconds` | int | `30` | 1 回の LDAP 検索のタイムアウト（秒） |
 | `directory.ldap.page_size` | int | `500` | LDAP ページング検索の 1 ページあたり件数。AD 等のサーバー側件数上限（既定 1000 件）を超える規模のディレクトリでも全件取得するために使用 |
 | `directory.ldap.deactivate_missing_users` | bool | `false` | 同期結果に含まれなくなった `provisioned_by=ldap` のユーザーを `is_active=0` にする。LDAP 検索が0件を返した場合（誤設定の可能性）は全ユーザー無効化を防ぐため何もしない |
-| `directory.ldap.mailbox_mappings.list[].group` | string | — | グループ識別子（LDAP の CN。DN 全体ではない） |
-| `directory.ldap.mailbox_mappings.list[].mailbox` | string | — | 割り当てるメールボックスのメールアドレス。存在しなければ自動作成する |
-| `directory.ldap.mailbox_mappings.list[].mailbox_display_name` | string | — | 自動作成時の表示名（省略時はメールアドレスをそのまま使用） |
-| `directory.ldap.mailbox_mappings.list[].role` | string | — | `member` / `owner` / `admin` |
-| `directory.ldap.mailbox_mappings.pattern.regex` | string | — | グループ名の命名規則から mailbox+role を抽出する正規表現。名前付きキャプチャグループ `(?P<mailbox>...)` `(?P<role>...)` が必須 |
-| `directory.ldap.mailbox_mappings.pattern.mailbox_domain` | string | — | 空でない場合、`mailbox` キャプチャの値をローカルパートとみなし `local@mailbox_domain` を組み立てる。空の場合は `mailbox` キャプチャの値をメールアドレスとしてそのまま使う |
-
 **role の権威順位:** `manual > ldap/scim > oidc`。LDAP 同期で作成・更新されたユーザー（`provisioned_by=ldap`）の role は、その後の OIDC ログインでは上書きされない。詳細は [API 認証仕様](api-authentication.md) を参照。
+
+#### directory.ldap.mailbox_provisioning
+
+メールボックス割り当て（member/owner/admin）をディレクトリ構造から自動反映する（任意）。`roles` のキーは `member` / `owner` / `admin` で、**ロールごとに解決方式（method）を独立して選べる**。設定に書くのは「どこを見るか・属性名が何を意味するか」という構造情報だけで、個々のメールボックス名やグループ名は書かない。
+
+| method | 概要 | 使いどころ |
+|---|---|---|
+| `user_attribute` | ユーザー自身の属性（`memberOf` 等）から解決する有界パイプライン | 汎用。将来の SCIM でも同じ考え方が使える |
+| `group_search` | メールボックスを表すグループを一括検索し、グループの `member_attr`（DN 一覧）を対象ユーザーとする | Exchange 連携 AD（配布グループの `mail`/`managedBy` 属性をそのまま使える）。`memberOf` overlay が無い素の OpenLDAP でも動く |
+| `fixed` | 列挙したユーザーへ、ldap 管理下の全メールボックスに対して当該ロールを一括付与 | 全メールボックスを見られる管理者の決め打ち |
+
+**`user_attribute` のパイプライン**（`source_attribute` → `source_transform`? → `dereference`?（最大1回） → `target_attribute` → `target_transform`?）:
+
+| キー | 説明 |
+|-----|------|
+| `source_attribute` | 必須。ユーザーエントリのどの属性を読むか（例: `memberOf`）。複数値なら 1 件ずつ処理 |
+| `source_transform` | 任意。値に適用する正規表現。**マッチしない値はスキップ**されるため、無関係なグループを除外するフィルタを兼ねる。抽出値は名前付きグループ `(?P<value>...)` > 最初のキャプチャ > マッチ全体の順 |
+| `dereference.base_dn` / `dereference.filter` | 任意（最大1回の再検索）。`filter` の `{value}` プレースホルダに前段の値が埋め込まれる。**埋め込み値は必ず LDAP エスケープされる**（インジェクション対策・無効化不可）。同一クエリは同期サイクル内でキャッシュされ、N+1 を防ぐ |
+| `target_attribute` | `dereference` 使用時は必須。再検索でヒットしたエントリから読む属性（例: `mail`）。`dereference` 無しでは指定不可（source の値がそのまま使われる） |
+| `target_transform` | 任意。最終値に適用する正規表現 |
+| `mailbox_domain` | 任意。最終値に `@` が無い場合 `値@mailbox_domain` を組み立てる |
+
+**`group_search` のキー:** `base_dn`・`filter`（グループの検索条件）、`member_attr`（メンバー DN の属性。例: `member`、owner 用途なら `managedBy` 等）、`target_attribute`/`target_transform`/`mailbox_domain`（グループエントリ自身からメールボックスアドレスを取り出す）。member DN とユーザー DN の突き合わせは正規化（大文字小文字・空白ゆれ吸収）して行う。
+
+**`fixed` のキー:** `fixed_value`（カンマまたはセミコロン区切りのユーザーメールアドレス。大文字小文字は無視して一致）。対象ユーザーには `provisioned_by=ldap` かつ有効な**全メールボックス**へ当該ロールが付与される。定期同期では第2パス（他ユーザーの反映でメールボックスが出揃った後）に処理される。
 
 ```yaml
 directory:
@@ -608,24 +626,28 @@ directory:
       viewer: "cn=MailShield-Viewers,ou=Groups,dc=corp,dc=local"
     sync_interval_minutes: 60
     deactivate_missing_users: true
-    # メールボックス割り当ての自動反映（任意）。ユーザーの memberOf から解決する。
-    mailbox_mappings:
-      # 少数のメールボックスなら明示リストで十分
-      list:
-        - group: "Sales-Team"
-          mailbox: "sales@example.com"
-          mailbox_display_name: "Sales"
-          role: member
-        - group: "Sales-Managers"
-          mailbox: "sales@example.com"
-          role: owner
-      # メールボックス数が多い組織向け: 命名規則から自動解決（例: mbx-hr-owner → hr@example.com, role: owner）
-      pattern:
-        regex: '^mbx-(?P<mailbox>[\w.-]+)-(?P<role>member|owner|admin)$'
-        mailbox_domain: "example.com"
+    mailbox_provisioning:
+      roles:
+        member:                              # memberOf → グループ再検索 → グループの mail 属性
+          method: user_attribute
+          source_attribute: memberOf
+          source_transform: '^cn=(?P<value>[^,]+),ou=Groups.*$'
+          dereference:
+            base_dn: "ou=Groups,dc=corp,dc=local"
+            filter: "(cn={value})"
+          target_attribute: mail
+        owner:                               # mail 属性つきグループの owner（AD なら managedBy）
+          method: group_search
+          base_dn: "ou=Groups,dc=corp,dc=local"
+          filter: "(mail=*)"
+          member_attr: owner
+          target_attribute: mail
+        admin:                               # 固定の管理者
+          method: fixed
+          fixed_value: "admin@internal.dev"
 ```
 
-`mailbox_mappings` の詳細な設計思想（自動作成の可否・権威モデル・命名規則を選ぶ理由）は [API 認証仕様のメールボックス割り当て自動反映](api-authentication.md#メールボックス割り当ての自動反映ldap-mailbox_mappings) を参照。
+`mailbox_provisioning` の詳細な設計思想（自動作成の可否・権威モデル・方式選択の考え方）は [API 認証仕様のメールボックス割り当て自動反映](api-authentication.md#メールボックス割り当ての自動反映ldap-mailbox_provisioning) を参照。
 
 ### mailbox_policy
 

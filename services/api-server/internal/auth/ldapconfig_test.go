@@ -1,40 +1,29 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
+	ldapsync "github.com/koizumib/mailshield/services/api-server/internal/directory/ldap"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 )
 
-func TestBuildLDAPConnConfig_MailboxMappings_ExplicitList(t *testing.T) {
-	cfg := &config.LDAPConfig{
-		Host: "ldap.corp.local", BaseDN: "ou=Users,dc=corp,dc=local",
-		MailboxMappings: config.MailboxMappingsConfig{
-			List: []config.MailboxMappingEntry{
-				{Group: "Sales-Team", Mailbox: "sales@example.com", MailboxDisplayName: "Sales", Role: "member"},
-			},
-		},
-	}
-
-	_, syncCfg, err := BuildLDAPConnConfig(cfg)
-	if err != nil {
-		t.Fatalf("BuildLDAPConnConfig() error = %v", err)
-	}
-
-	tuples := syncCfg.MailboxMapper.Resolve([]string{"Sales-Team"})
-	if len(tuples) != 1 || tuples[0].MailboxEmail != "sales@example.com" || tuples[0].Role != domain.AssignmentRoleMember {
-		t.Errorf("tuples = %+v", tuples)
-	}
-}
-
-func TestBuildLDAPConnConfig_MailboxMappings_ValidPattern(t *testing.T) {
+func TestBuildLDAPConnConfig_MailboxProvisioning_UserAttribute(t *testing.T) {
 	cfg := &config.LDAPConfig{
 		Host: "ldap.corp.local",
-		MailboxMappings: config.MailboxMappingsConfig{
-			Pattern: config.MailboxMappingPatternConfig{
-				Regex:         `^mbx-(?P<mailbox>[\w.-]+)-(?P<role>member|owner|admin)$`,
-				MailboxDomain: "example.com",
+		MailboxProvisioning: config.MailboxProvisioningConfig{
+			Roles: map[string]config.MailboxRoleResolutionConfig{
+				"member": {
+					Method:          ldapsync.MethodUserAttribute,
+					SourceAttribute: "memberOf",
+					SourceTransform: `^cn=(?P<value>[^,]+),.*$`,
+					Dereference: config.MailboxDereferenceConfig{
+						BaseDN: "ou=Groups,dc=corp,dc=local",
+						Filter: "(cn={value})",
+					},
+					TargetAttribute: "mail",
+				},
 			},
 		},
 	}
@@ -43,46 +32,139 @@ func TestBuildLDAPConnConfig_MailboxMappings_ValidPattern(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildLDAPConnConfig() error = %v", err)
 	}
-
-	tuples := syncCfg.MailboxMapper.Resolve([]string{"mbx-sales-member"})
-	if len(tuples) != 1 || tuples[0].MailboxEmail != "sales@example.com" {
-		t.Errorf("tuples = %+v", tuples)
+	if syncCfg.MailboxResolution.Empty() {
+		t.Fatal("MailboxResolution が構築されるべき")
+	}
+	rr := syncCfg.MailboxResolution.Roles[0]
+	if rr.Role != domain.AssignmentRoleMember || rr.Method != ldapsync.MethodUserAttribute {
+		t.Errorf("rr = %+v", rr)
+	}
+	if rr.SourceTransform == nil || rr.Dereference == nil || rr.TargetAttribute != "mail" {
+		t.Errorf("パイプライン構成が不完全: %+v", rr)
 	}
 }
 
-// TestBuildLDAPConnConfig_MailboxMappings_InvalidPattern は名前付きキャプチャグループの
-// 欠落や不正な正規表現が起動時エラー（BuildLDAPConnConfig の戻り値）として検出されることを確認する。
-// main.go はこのエラーを os.Exit(1) につなげており、実行時に静かに機能しないままにはならない。
-func TestBuildLDAPConnConfig_MailboxMappings_InvalidPattern(t *testing.T) {
+func TestBuildLDAPConnConfig_MailboxProvisioning_Validation(t *testing.T) {
 	tests := []struct {
-		name  string
-		regex string
+		name    string
+		rc      config.MailboxRoleResolutionConfig
+		roleKey string
+		wantErr string
 	}{
-		{"名前付きキャプチャグループ無し", `^mbx-([\w.-]+)-(member|owner|admin)$`},
-		{"不正な正規表現", `(unclosed`},
+		{
+			name:    "不正なロールキー",
+			roleKey: "superuser",
+			rc:      config.MailboxRoleResolutionConfig{Method: ldapsync.MethodFixed, FixedValue: "a@b.c"},
+			wantErr: "roles のキーが不正",
+		},
+		{
+			name:    "method 未指定",
+			roleKey: "member",
+			rc:      config.MailboxRoleResolutionConfig{},
+			wantErr: "method は必須",
+		},
+		{
+			name:    "未知の method",
+			roleKey: "member",
+			rc:      config.MailboxRoleResolutionConfig{Method: "magic"},
+			wantErr: "未知の method",
+		},
+		{
+			name:    "user_attribute で source_attribute 欠落",
+			roleKey: "member",
+			rc:      config.MailboxRoleResolutionConfig{Method: ldapsync.MethodUserAttribute},
+			wantErr: "source_attribute が必須",
+		},
+		{
+			name:    "不正な正規表現",
+			roleKey: "member",
+			rc: config.MailboxRoleResolutionConfig{
+				Method: ldapsync.MethodUserAttribute, SourceAttribute: "memberOf", SourceTransform: "(unclosed",
+			},
+			wantErr: "コンパイル失敗",
+		},
+		{
+			name:    "dereference filter に {value} プレースホルダ無し",
+			roleKey: "member",
+			rc: config.MailboxRoleResolutionConfig{
+				Method: ldapsync.MethodUserAttribute, SourceAttribute: "memberOf",
+				Dereference:     config.MailboxDereferenceConfig{BaseDN: "ou=g", Filter: "(cn=static)"},
+				TargetAttribute: "mail",
+			},
+			wantErr: "{value} プレースホルダが必要",
+		},
+		{
+			name:    "dereference 使用時に target_attribute 欠落",
+			roleKey: "member",
+			rc: config.MailboxRoleResolutionConfig{
+				Method: ldapsync.MethodUserAttribute, SourceAttribute: "memberOf",
+				Dereference: config.MailboxDereferenceConfig{BaseDN: "ou=g", Filter: "(cn={value})"},
+			},
+			wantErr: "target_attribute が必須",
+		},
+		{
+			name:    "dereference 無しで target_attribute 指定",
+			roleKey: "member",
+			rc: config.MailboxRoleResolutionConfig{
+				Method: ldapsync.MethodUserAttribute, SourceAttribute: "memberOf", TargetAttribute: "mail",
+			},
+			wantErr: "dereference と併用したときのみ有効",
+		},
+		{
+			name:    "group_search で必須フィールド欠落",
+			roleKey: "owner",
+			rc:      config.MailboxRoleResolutionConfig{Method: ldapsync.MethodGroupSearch, BaseDN: "ou=g"},
+			wantErr: "すべて必須",
+		},
+		{
+			name:    "fixed で fixed_value 欠落",
+			roleKey: "admin",
+			rc:      config.MailboxRoleResolutionConfig{Method: ldapsync.MethodFixed},
+			wantErr: "fixed_value",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.LDAPConfig{
 				Host: "ldap.corp.local",
-				MailboxMappings: config.MailboxMappingsConfig{
-					Pattern: config.MailboxMappingPatternConfig{Regex: tt.regex},
+				MailboxProvisioning: config.MailboxProvisioningConfig{
+					Roles: map[string]config.MailboxRoleResolutionConfig{tt.roleKey: tt.rc},
 				},
 			}
-			if _, _, err := BuildLDAPConnConfig(cfg); err == nil {
-				t.Error("不正な pattern はエラーになるべき")
+			_, _, err := BuildLDAPConnConfig(cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("err = %v, want contains %q", err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestBuildLDAPConnConfig_MailboxMappings_EmptyIsOK(t *testing.T) {
+func TestBuildLDAPConnConfig_MailboxProvisioning_Fixed(t *testing.T) {
+	cfg := &config.LDAPConfig{
+		Host: "ldap.corp.local",
+		MailboxProvisioning: config.MailboxProvisioningConfig{
+			Roles: map[string]config.MailboxRoleResolutionConfig{
+				"admin": {Method: ldapsync.MethodFixed, FixedValue: "a@x.com, b@x.com; c@x.com"},
+			},
+		},
+	}
+	_, syncCfg, err := BuildLDAPConnConfig(cfg)
+	if err != nil {
+		t.Fatalf("BuildLDAPConnConfig() error = %v", err)
+	}
+	rr := syncCfg.MailboxResolution.Roles[0]
+	if len(rr.FixedUserEmails) != 3 {
+		t.Errorf("FixedUserEmails = %v, want 3 件（カンマ・セミコロン混在で分割されるべき）", rr.FixedUserEmails)
+	}
+}
+
+func TestBuildLDAPConnConfig_MailboxProvisioning_EmptyIsOK(t *testing.T) {
 	cfg := &config.LDAPConfig{Host: "ldap.corp.local"}
 	_, syncCfg, err := BuildLDAPConnConfig(cfg)
 	if err != nil {
-		t.Fatalf("mailbox_mappings 未設定はエラーになるべきではない: %v", err)
+		t.Fatalf("mailbox_provisioning 未設定はエラーになるべきではない: %v", err)
 	}
-	if tuples := syncCfg.MailboxMapper.Resolve([]string{"anything"}); len(tuples) != 0 {
-		t.Errorf("未設定時は常に空であるべき: %+v", tuples)
+	if !syncCfg.MailboxResolution.Empty() {
+		t.Error("未設定時は Empty() が true であるべき")
 	}
 }

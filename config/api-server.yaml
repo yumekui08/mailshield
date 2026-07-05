@@ -80,19 +80,32 @@ directory:
     #   viewer: "cn=MailShield-Viewers,ou=Groups,dc=corp,dc=local"
     # sync_interval_minutes: 60
     # deactivate_missing_users: true  # 同期結果に含まれなくなった ldap ユーザーを無効化する
-    # メールボックス割り当て（member/owner/admin）をユーザーの所属グループから自動反映する（任意）
-    # mailbox_mappings:
-    #   list:                        # 少数のメールボックスなら明示リストで十分
-    #     - group: "Sales-Team"      # LDAP の CN（DN 全体ではない）
-    #       mailbox: "sales@example.com"
-    #       mailbox_display_name: "Sales"
-    #       role: member
-    #     - group: "Sales-Managers"
-    #       mailbox: "sales@example.com"
-    #       role: owner
-    #   pattern:                     # メールボックス数が多い組織向け: 命名規則から自動解決
-    #     regex: '^mbx-(?P<mailbox>[\w.-]+)-(?P<role>member|owner|admin)$'
-    #     mailbox_domain: "example.com"
+    # メールボックス割り当て（member/owner/admin）をディレクトリ構造から自動反映する（任意）。
+    # ロールごとに解決方式を独立して選べる:
+    #   user_attribute : ユーザー自身の属性（memberOf 等）から解決。
+    #                    source_attribute → source_transform?(正規表現・フィルタ兼抽出)
+    #                    → dereference?(再検索・最大1回) → target_attribute → target_transform?
+    #   group_search   : メールボックスを表すグループを一括検索し、member_attr の DN を対象ユーザーとする
+    #   fixed          : 列挙したユーザーへ、ldap 管理下の全メールボックスに対して当該ロールを付与
+    # mailbox_provisioning:
+    #   roles:
+    #     member:                              # 例: memberOf → グループ再検索 → グループの mail 属性
+    #       method: user_attribute
+    #       source_attribute: memberOf
+    #       source_transform: '^cn=(?P<value>[^,]+),ou=Groups.*$'
+    #       dereference:
+    #         base_dn: "ou=Groups,dc=corp,dc=local"
+    #         filter: "(cn={value})"           # {value} は自動で LDAP エスケープされる
+    #       target_attribute: mail
+    #     owner:                               # 例: mail 属性つきグループの owner 属性（AD なら managedBy）
+    #       method: group_search
+    #       base_dn: "ou=Groups,dc=corp,dc=local"
+    #       filter: "(mail=*)"
+    #       member_attr: owner
+    #       target_attribute: mail
+    #     admin:                               # 例: 固定の管理者（複数はカンマ/セミコロン区切り）
+    #       method: fixed
+    #       fixed_value: "admin@internal.dev"
 
 mailbox_policy:
   inbound_quarantine:

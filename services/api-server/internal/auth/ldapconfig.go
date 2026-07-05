@@ -2,6 +2,8 @@ package auth
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
@@ -35,7 +37,7 @@ func BuildLDAPConnConfig(cfg *config.LDAPConfig) (ldapsync.ConnConfig, ldapsync.
 		PageSize:      uint32(cfg.PageSize),
 	}
 
-	mailboxMapper, err := buildGroupMailboxMapper(cfg.MailboxMappings)
+	mailboxResolution, err := buildMailboxResolution(cfg.MailboxProvisioning)
 	if err != nil {
 		return ldapsync.ConnConfig{}, ldapsync.SyncConfig{}, err
 	}
@@ -51,36 +53,126 @@ func BuildLDAPConnConfig(cfg *config.LDAPConfig) (ldapsync.ConnConfig, ldapsync.
 			OperatorGroup: cfg.GroupMappings.Operator,
 			ViewerGroup:   cfg.GroupMappings.Viewer,
 		},
-		MailboxMapper:     mailboxMapper,
+		MailboxResolution: mailboxResolution,
 		DeactivateMissing: cfg.DeactivateMissingUsers,
 	}
 
 	return connCfg, syncCfg, nil
 }
 
-// buildGroupMailboxMapper は config.MailboxMappingsConfig から directory.GroupMailboxMapper を
-// 組み立てる。pattern.regex が設定されている場合はコンパイル・名前付きキャプチャグループの
-// 検証を行い、不正なら起動時エラーとして返す。
-func buildGroupMailboxMapper(cfg config.MailboxMappingsConfig) (directory.GroupMailboxMapper, error) {
-	mappings := make([]directory.GroupMailboxMapping, 0, len(cfg.List))
-	for _, entry := range cfg.List {
-		mappings = append(mappings, directory.GroupMailboxMapping{
-			Group:              entry.Group,
-			MailboxEmail:       entry.Mailbox,
-			MailboxDisplayName: entry.MailboxDisplayName,
-			Role:               domain.AssignmentRole(entry.Role),
-		})
+// buildMailboxResolution は config.MailboxProvisioningConfig を検証し、
+// コンパイル済みの ldapsync.MailboxResolution を組み立てる。
+// 設定不正（未知の method・正規表現の構文エラー・必須フィールド欠落・
+// dereference filter の {value} プレースホルダ欠落）はすべて起動時エラーとして返す。
+func buildMailboxResolution(cfg config.MailboxProvisioningConfig) (*ldapsync.MailboxResolution, error) {
+	if len(cfg.Roles) == 0 {
+		return nil, nil
 	}
 
-	mapper := directory.GroupMailboxMapper{Mappings: mappings}
-
-	if cfg.Pattern.Regex != "" {
-		pattern, err := directory.NewGroupMailboxPattern(cfg.Pattern.Regex, cfg.Pattern.MailboxDomain)
-		if err != nil {
-			return directory.GroupMailboxMapper{}, fmt.Errorf("directory.ldap.mailbox_mappings.pattern が不正です: %w", err)
+	resolution := &ldapsync.MailboxResolution{}
+	for roleName, rc := range cfg.Roles {
+		role := domain.AssignmentRole(roleName)
+		switch role {
+		case domain.AssignmentRoleMember, domain.AssignmentRoleOwner, domain.AssignmentRoleAdmin:
+		default:
+			return nil, fmt.Errorf("mailbox_provisioning.roles のキーが不正です: %q（member | owner | admin）", roleName)
 		}
-		mapper.Pattern = pattern
+
+		rr, err := buildRoleResolution(role, rc)
+		if err != nil {
+			return nil, fmt.Errorf("mailbox_provisioning.roles.%s: %w", roleName, err)
+		}
+		resolution.Roles = append(resolution.Roles, rr)
+	}
+	return resolution, nil
+}
+
+func buildRoleResolution(role domain.AssignmentRole, rc config.MailboxRoleResolutionConfig) (ldapsync.RoleResolution, error) {
+	rr := ldapsync.RoleResolution{Role: role, Method: rc.Method}
+
+	switch rc.Method {
+	case ldapsync.MethodUserAttribute:
+		if rc.SourceAttribute == "" {
+			return rr, fmt.Errorf("method: user_attribute には source_attribute が必須です")
+		}
+		rr.SourceAttribute = rc.SourceAttribute
+		rr.MailboxDomain = rc.MailboxDomain
+
+		var err error
+		if rr.SourceTransform, err = compileTransform("source_transform", rc.SourceTransform); err != nil {
+			return rr, err
+		}
+		if rr.TargetTransform, err = compileTransform("target_transform", rc.TargetTransform); err != nil {
+			return rr, err
+		}
+
+		hasDeref := rc.Dereference.BaseDN != "" || rc.Dereference.Filter != ""
+		if hasDeref {
+			if rc.Dereference.BaseDN == "" || rc.Dereference.Filter == "" {
+				return rr, fmt.Errorf("dereference には base_dn と filter の両方が必要です")
+			}
+			if !strings.Contains(rc.Dereference.Filter, "{value}") {
+				return rr, fmt.Errorf("dereference.filter には {value} プレースホルダが必要です: %q", rc.Dereference.Filter)
+			}
+			if rc.TargetAttribute == "" {
+				return rr, fmt.Errorf("dereference を使う場合は target_attribute が必須です")
+			}
+			rr.Dereference = &ldapsync.DereferenceRule{BaseDN: rc.Dereference.BaseDN, Filter: rc.Dereference.Filter}
+			rr.TargetAttribute = rc.TargetAttribute
+		} else if rc.TargetAttribute != "" {
+			return rr, fmt.Errorf("target_attribute は dereference と併用したときのみ有効です（dereference 無しでは source の値がそのまま使われます）")
+		}
+
+	case ldapsync.MethodGroupSearch:
+		if rc.BaseDN == "" || rc.Filter == "" || rc.MemberAttr == "" || rc.TargetAttribute == "" {
+			return rr, fmt.Errorf("method: group_search には base_dn・filter・member_attr・target_attribute がすべて必須です")
+		}
+		rr.BaseDN = rc.BaseDN
+		rr.Filter = rc.Filter
+		rr.MemberAttr = rc.MemberAttr
+		rr.TargetAttribute = rc.TargetAttribute
+		rr.MailboxDomain = rc.MailboxDomain
+
+		var err error
+		if rr.TargetTransform, err = compileTransform("target_transform", rc.TargetTransform); err != nil {
+			return rr, err
+		}
+
+	case ldapsync.MethodFixed:
+		emails := splitFixedValues(rc.FixedValue)
+		if len(emails) == 0 {
+			return rr, fmt.Errorf("method: fixed には fixed_value（カンマまたはセミコロン区切りのメールアドレス）が必須です")
+		}
+		rr.FixedUserEmails = emails
+
+	case "":
+		return rr, fmt.Errorf("method は必須です（user_attribute | group_search | fixed）")
+	default:
+		return rr, fmt.Errorf("未知の method です: %q（user_attribute | group_search | fixed）", rc.Method)
 	}
 
-	return mapper, nil
+	return rr, nil
+}
+
+// compileTransform は変換用正規表現をコンパイルする。空文字列なら nil（変換なし）。
+func compileTransform(name, pattern string) (*regexp.Regexp, error) {
+	if pattern == "" {
+		return nil, nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("%s のコンパイル失敗: %w", name, err)
+	}
+	return re, nil
+}
+
+// splitFixedValues はカンマ・セミコロン区切りの値リストをパースする。
+func splitFixedValues(s string) []string {
+	var out []string
+	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ';' }) {
+		if v := strings.TrimSpace(part); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }

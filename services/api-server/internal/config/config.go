@@ -89,34 +89,64 @@ type LDAPConfig struct {
 	// provisioned_by=ldap のユーザーを is_active=0 にする（アクセス即時剥奪）。
 	// LDAP 検索が 0 件を返した場合は誤って全ユーザーを無効化しないよう何もしない。
 	DeactivateMissingUsers bool `mapstructure:"deactivate_missing_users"`
-	// MailboxMappings はユーザーの所属グループからメールボックス割り当て（member/owner/admin）を
-	// 自動反映するための設定。明示リスト・命名規則いずれか、または両方を設定できる。
-	MailboxMappings MailboxMappingsConfig `mapstructure:"mailbox_mappings"`
+	// MailboxProvisioning はユーザー・グループのディレクトリ構造からメールボックス割り当て
+	// （member/owner/admin）を自動反映するための設定。ロールごとに解決方式を独立して選べる。
+	MailboxProvisioning MailboxProvisioningConfig `mapstructure:"mailbox_provisioning"`
 }
 
-// MailboxMappingsConfig はグループ→メールボックス+role の解決方法を保持する。
-type MailboxMappingsConfig struct {
-	// List はグループ識別子（LDAP の CN）とメールボックス+role の明示的な対応付け。
-	List []MailboxMappingEntry `mapstructure:"list"`
-	// Pattern はグループ名の命名規則からメールボックス+role を機械的に抽出する正規表現ルール。
-	Pattern MailboxMappingPatternConfig `mapstructure:"pattern"`
+// MailboxProvisioningConfig はメールボックス割り当ての自動反映設定を保持する。
+// Roles のキーは member / owner / admin。設定されたロールだけが自動反映の対象になる。
+type MailboxProvisioningConfig struct {
+	Roles map[string]MailboxRoleResolutionConfig `mapstructure:"roles"`
 }
 
-// MailboxMappingEntry は明示マッピング 1 件分。
-type MailboxMappingEntry struct {
-	Group              string `mapstructure:"group"`
-	Mailbox            string `mapstructure:"mailbox"`
-	MailboxDisplayName string `mapstructure:"mailbox_display_name"`
-	Role               string `mapstructure:"role"`
-}
+// MailboxRoleResolutionConfig は 1 ロール分の解決方式を保持する。
+// Method に応じて対応するフィールド群だけが使われる:
+//   - user_attribute : ユーザー起点。ユーザー自身の属性（memberOf 等）から解決する有界パイプライン
+//     （source_attribute → source_transform? → dereference?(最大1回) → target_attribute → target_transform?）
+//   - group_search   : グループ起点。メールボックスを表すグループを一括検索し、
+//     そのグループの member_attr（DN 一覧）を対象ユーザーとみなす
+//   - fixed          : 決め打ち。fixed_value に列挙したメールアドレスのユーザーへ、
+//     この同期ソースが管理する全メールボックスに対して当該ロールを付与する
+type MailboxRoleResolutionConfig struct {
+	Method string `mapstructure:"method"`
 
-// MailboxMappingPatternConfig は命名規則による解決ルール。
-type MailboxMappingPatternConfig struct {
-	// Regex は名前付きキャプチャグループ (?P<mailbox>...) と (?P<role>...) を含む正規表現。
-	Regex string `mapstructure:"regex"`
-	// MailboxDomain が空でない場合、"mailbox" キャプチャの値をローカルパートとみなし
-	// "local@MailboxDomain" をメールボックスアドレスとする。
+	// ─── method: user_attribute ───
+	// SourceAttribute はユーザーエントリのどの属性を読むか（例: memberOf）。複数値なら 1 件ずつ処理する。
+	SourceAttribute string `mapstructure:"source_attribute"`
+	// SourceTransform は属性値に適用する正規表現（任意）。マッチしない値はスキップされる
+	// （memberOf に含まれる無関係なグループを取り除くフィルタを兼ねる）。
+	SourceTransform string `mapstructure:"source_transform"`
+	// Dereference は前段の値を使った再検索（任意・最大1回）。
+	Dereference MailboxDereferenceConfig `mapstructure:"dereference"`
+	// TargetAttribute は dereference 結果のエントリから読む属性（dereference 使用時は必須）。
+	TargetAttribute string `mapstructure:"target_attribute"`
+	// TargetTransform は最終値に適用する正規表現（任意）。
+	TargetTransform string `mapstructure:"target_transform"`
+	// MailboxDomain が空でなく、最終値に "@" が含まれない場合、"値@MailboxDomain" を
+	// メールボックスアドレスとして組み立てる。
 	MailboxDomain string `mapstructure:"mailbox_domain"`
+
+	// ─── method: group_search ───
+	// BaseDN / Filter はメールボックスを表すグループの検索条件。
+	BaseDN string `mapstructure:"base_dn"`
+	Filter string `mapstructure:"filter"`
+	// MemberAttr はグループエントリのメンバー（ユーザー DN 一覧）を表す属性名（例: member）。
+	MemberAttr string `mapstructure:"member_attr"`
+	// group_search でも TargetAttribute / TargetTransform / MailboxDomain を使い、
+	// グループエントリ自身からメールボックスアドレスを取り出す（例: target_attribute: mail）。
+
+	// ─── method: fixed ───
+	// FixedValue はカンマまたはセミコロン区切りのユーザーメールアドレス一覧。
+	FixedValue string `mapstructure:"fixed_value"`
+}
+
+// MailboxDereferenceConfig は user_attribute の再検索（1回まで）の設定。
+type MailboxDereferenceConfig struct {
+	BaseDN string `mapstructure:"base_dn"`
+	// Filter は "{value}" プレースホルダを含む LDAP フィルタ。
+	// プレースホルダには前段の値が LDAP エスケープされて埋め込まれる（エスケープは無効化できない）。
+	Filter string `mapstructure:"filter"`
 }
 
 // LDAPAttributesConfig はユーザーエントリから読み取る属性名。

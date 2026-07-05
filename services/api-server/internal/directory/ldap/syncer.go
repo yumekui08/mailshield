@@ -26,6 +26,9 @@ type MailboxAssignmentSyncer interface {
 	// SyncMailboxAssignmentsForUser は 1 ユーザー分のメールボックス割り当てを
 	// desired に一致させる（詳細は repository.Repository の同名メソッドを参照）。
 	SyncMailboxAssignmentsForUser(ctx context.Context, userID string, source domain.ProvisionedBy, desired []repository.MailboxAssignmentRequest) error
+	// ListMailboxes は全メールボックスを返す。fixed 方式のロール
+	// （この同期ソースが管理する全メールボックスへの一括付与）の対象決定に使う。
+	ListMailboxes(ctx context.Context) ([]repository.Mailbox, error)
 }
 
 // SyncConfig は 1 回の同期処理に必要なディレクトリ側の設定。
@@ -36,9 +39,9 @@ type SyncConfig struct {
 	NameAttr   string
 	GroupsAttr string
 	RoleMapper directory.GroupRoleMapper
-	// MailboxMapper はユーザーの所属グループからメールボックス割り当てを解決する
-	// （パターン1: ユーザー起点の発見）。ゼロ値（Mappings 空・Pattern 未設定）でもよい。
-	MailboxMapper directory.GroupMailboxMapper
+	// MailboxResolution はメールボックス割り当ての解決設定（ロールごとに
+	// user_attribute / group_search / fixed を選択）。nil なら自動反映しない。
+	MailboxResolution *MailboxResolution
 	// DeactivateMissing を true にすると、同期結果に含まれなくなった
 	// provisioned_by=ldap のユーザーを無効化する。
 	DeactivateMissing bool
@@ -105,6 +108,13 @@ func (s *Syncer) syncOnce(ctx context.Context, connCfg ConnConfig) {
 // 設定に応じて同期結果に含まれなくなったユーザーを無効化する。
 // searcher は呼び出し側が Dial して渡し、本メソッドは Close しない
 // （1 プロセス内で複数回の Sync に同じ接続を使い回すかどうかは呼び出し側の裁量とする）。
+//
+// メールボックス割り当て（MailboxResolution 設定時）は 2 パスで反映する:
+//   - 第1パス（ユーザーループ内）: user_attribute + group_search で解決した割り当てを
+//     ユーザーごとに reconcile する。fixed 対象ユーザーはこの時点では確定できない
+//     （「全メールボックス」の集合が第1パスで作成されるメールボックスに依存する）ため保留する
+//   - 第2パス（ループ後）: DB のメールボックス一覧（第1パスの作成分を含む）を取得し、
+//     fixed 対象ユーザーへ「provisioned_by=ldap の全メールボックス × fixed ロール」を付与する
 func (s *Syncer) Sync(ctx context.Context, searcher Searcher) (Result, error) {
 	attrs := []string{s.cfg.EmailAttr, s.cfg.NameAttr, s.cfg.GroupsAttr}
 	entries, err := searcher.SearchUsers(s.cfg.BaseDN, s.cfg.UserFilter, attrs)
@@ -114,6 +124,29 @@ func (s *Syncer) Sync(ctx context.Context, searcher Searcher) (Result, error) {
 
 	var result Result
 	presentEmails := make([]string, 0, len(entries))
+
+	mailboxEnabled := s.mailboxSyncer != nil && !s.cfg.MailboxResolution.Empty()
+	var groupTuples map[string][]directory.MailboxAssignmentTuple
+	cache := NewDerefCache()
+	if mailboxEnabled {
+		groupTuples, err = s.cfg.MailboxResolution.ResolveGroupSearchAll(searcher)
+		if err != nil {
+			// group_search の失敗はメールボックス反映のみ諦め、ユーザー同期は続行する。
+			// 中途半端な groupTuples で reconcile すると正当な割り当てを誤削除しうるため、
+			// このサイクルの割り当て反映はまるごとスキップする。
+			slog.Error("LDAP同期: group_search 失敗（このサイクルのメールボックス反映をスキップ）", "error", err)
+			result.Errors = append(result.Errors, err)
+			mailboxEnabled = false
+		}
+	}
+
+	// fixed 方式の対象ユーザーは第2パスで処理する（第1パスの解決結果を持ち越す）
+	type pendingFixed struct {
+		userID string
+		email  string
+		tuples []directory.MailboxAssignmentTuple
+	}
+	var pending []pendingFixed
 
 	for _, e := range entries {
 		email := e.FirstAttr(s.cfg.EmailAttr)
@@ -141,26 +174,46 @@ func (s *Syncer) Sync(ctx context.Context, searcher Searcher) (Result, error) {
 		result.Synced++
 		presentEmails = append(presentEmails, email)
 
-		if s.mailboxSyncer != nil {
-			groupCNs := make([]string, len(groupDNs))
-			for i, dn := range groupDNs {
-				groupCNs[i] = ExtractCN(dn)
-			}
-			tuples := s.cfg.MailboxMapper.Resolve(groupCNs)
-			desired := make([]repository.MailboxAssignmentRequest, len(tuples))
-			for i, t := range tuples {
-				desired[i] = repository.MailboxAssignmentRequest{
-					MailboxEmail:       t.MailboxEmail,
-					MailboxDisplayName: t.MailboxDisplayName,
-					Role:               t.Role,
+		if !mailboxEnabled {
+			continue
+		}
+
+		tuples := s.cfg.MailboxResolution.ResolveUserAttribute(searcher, e, cache)
+		tuples = append(tuples, groupTuples[NormalizeDN(e.DN)]...)
+
+		if len(s.cfg.MailboxResolution.FixedRolesForEmail(email)) > 0 {
+			pending = append(pending, pendingFixed{userID: dbUser.ID, email: email, tuples: tuples})
+			continue
+		}
+
+		// desired が空でも呼ぶ。グループから正当に離脱したユーザーの
+		// メールボックス割り当てを剥奪するのに必要なため（0件ガードは不要。
+		// LDAP 検索全体が0件の場合はこのループ自体が回らないため既に保護されている）。
+		if err := s.mailboxSyncer.SyncMailboxAssignmentsForUser(ctx, dbUser.ID, domain.ProvisionedByLDAP, toRequests(tuples)); err != nil {
+			slog.Error("LDAP同期: メールボックス割り当て同期失敗", "email", email, "error", err)
+			result.Errors = append(result.Errors, err)
+		}
+	}
+
+	// 第2パス: fixed 対象ユーザー。第1パスで作成されたメールボックスを含む
+	// DB の一覧（provisioned_by=ldap のみ）に対して fixed ロールを付与する。
+	if mailboxEnabled && len(pending) > 0 {
+		ldapMailboxes, err := s.listLDAPMailboxEmails(ctx)
+		if err != nil {
+			slog.Error("LDAP同期: fixed 用メールボックス一覧取得失敗", "error", err)
+			result.Errors = append(result.Errors, err)
+		} else {
+			for _, p := range pending {
+				tuples := p.tuples
+				for _, fixedRole := range s.cfg.MailboxResolution.FixedRolesForEmail(p.email) {
+					for _, mb := range ldapMailboxes {
+						tuples = append(tuples, directory.MailboxAssignmentTuple{MailboxEmail: mb, Role: fixedRole})
+					}
 				}
-			}
-			// desired が空でも呼ぶ。グループから正当に離脱したユーザーの
-			// メールボックス割り当てを剥奪するのに必要なため（0件ガードは不要。
-			// LDAP 検索全体が0件の場合はこのループ自体が回らないため既に保護されている）。
-			if err := s.mailboxSyncer.SyncMailboxAssignmentsForUser(ctx, dbUser.ID, domain.ProvisionedByLDAP, desired); err != nil {
-				slog.Error("LDAP同期: メールボックス割り当て同期失敗", "email", email, "error", err)
-				result.Errors = append(result.Errors, err)
+				if err := s.mailboxSyncer.SyncMailboxAssignmentsForUser(ctx, p.userID, domain.ProvisionedByLDAP, toRequests(tuples)); err != nil {
+					slog.Error("LDAP同期: fixed メールボックス割り当て同期失敗", "email", p.email, "error", err)
+					result.Errors = append(result.Errors, err)
+				}
 			}
 		}
 	}
@@ -185,6 +238,36 @@ func (s *Syncer) Sync(ctx context.Context, searcher Searcher) (Result, error) {
 		"deactivated", result.Deactivated, "errors", len(result.Errors))
 
 	return result, nil
+}
+
+// toRequests は解決済みタプルを repository の入力形式に変換する。
+func toRequests(tuples []directory.MailboxAssignmentTuple) []repository.MailboxAssignmentRequest {
+	desired := make([]repository.MailboxAssignmentRequest, len(tuples))
+	for i, t := range tuples {
+		desired[i] = repository.MailboxAssignmentRequest{
+			MailboxEmail:       t.MailboxEmail,
+			MailboxDisplayName: t.MailboxDisplayName,
+			Role:               t.Role,
+		}
+	}
+	return desired
+}
+
+// listLDAPMailboxEmails は provisioned_by=ldap のメールボックスのアドレス一覧を返す。
+// fixed 方式の付与対象は「この同期ソースが管理する世界」に限定する
+// （manual のメールボックスは Web UI での手動割り当てに委ねる）。
+func (s *Syncer) listLDAPMailboxEmails(ctx context.Context) ([]string, error) {
+	mailboxes, err := s.mailboxSyncer.ListMailboxes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("メールボックス一覧取得失敗: %w", err)
+	}
+	var emails []string
+	for _, mb := range mailboxes {
+		if mb.ProvisionedBy == domain.ProvisionedByLDAP && mb.IsActive {
+			emails = append(emails, mb.EmailAddress)
+		}
+	}
+	return emails, nil
 }
 
 // ExtractCN は LDAP DN から先頭 RDN（通常 CN）の値を抽出する。

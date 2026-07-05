@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
@@ -81,7 +82,8 @@ func testLDAPBindProvider(t *testing.T, dial dialer, repo *fakeProvisionerRepo) 
 
 // fakeMailboxAssignmentSyncer は SyncMailboxAssignmentsForUser 呼び出しを記録するフェイク。
 type fakeMailboxAssignmentSyncer struct {
-	calls []mailboxSyncCall
+	calls     []mailboxSyncCall
+	mailboxes []repository.Mailbox // ListMailboxes が返す一覧（fixed 方式テスト用）
 }
 
 type mailboxSyncCall struct {
@@ -93,6 +95,10 @@ type mailboxSyncCall struct {
 func (f *fakeMailboxAssignmentSyncer) SyncMailboxAssignmentsForUser(_ context.Context, userID string, source domain.ProvisionedBy, desired []repository.MailboxAssignmentRequest) error {
 	f.calls = append(f.calls, mailboxSyncCall{userID: userID, source: source, desired: desired})
 	return nil
+}
+
+func (f *fakeMailboxAssignmentSyncer) ListMailboxes(_ context.Context) ([]repository.Mailbox, error) {
+	return f.mailboxes, nil
 }
 
 // TestLDAPBindProvider_Login_Success は search+bind の一連の流れとロール解決を確認する。
@@ -227,24 +233,28 @@ func TestLDAPBindProvider_Login_EmptyCredentials(t *testing.T) {
 }
 
 // TestLDAPBindProvider_Login_SyncsMailboxAssignments はログイン時に
-// mailboxSyncer が本人1人分のメールボックス割り当てで呼ばれることを確認する。
+// mailboxSyncer が本人1人分のメールボックス割り当てで呼ばれることを確認する
+// （user_attribute 方式・dereference 無し。memberOf の CN を正規表現で抽出しドメイン補完）。
 func TestLDAPBindProvider_Login_SyncsMailboxAssignments(t *testing.T) {
 	entries := []ldapsync.Entry{
 		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{
 			"mail": {"alice@corp.local"},
 			"memberOf": {
-				"cn=Sales-Team,ou=Groups,dc=corp,dc=local",
+				"cn=mbx-sales,ou=Groups,dc=corp,dc=local",
+				"cn=unrelated,ou=Groups,dc=corp,dc=local",
 			},
 		}},
 	}
 	dial := fakeDialer(t, "cn=svc,dc=corp,dc=local", "svc-pass", entries, "cn=Alice,ou=Users,dc=corp,dc=local", "correct-password", nil)
 	repo := &fakeProvisionerRepo{}
 	p := testLDAPBindProvider(t, dial, repo)
-	p.syncCfg.MailboxMapper = directory.GroupMailboxMapper{
-		Mappings: []directory.GroupMailboxMapping{
-			{Group: "Sales-Team", MailboxEmail: "sales@example.com", Role: domain.AssignmentRoleMember},
-		},
-	}
+	p.syncCfg.MailboxResolution = &ldapsync.MailboxResolution{Roles: []ldapsync.RoleResolution{{
+		Role:            domain.AssignmentRoleMember,
+		Method:          ldapsync.MethodUserAttribute,
+		SourceAttribute: "memberOf",
+		SourceTransform: regexp.MustCompile(`^cn=mbx-(?P<value>[\w-]+),ou=Groups.*$`),
+		MailboxDomain:   "example.com",
+	}}}
 	mboxSyncer := &fakeMailboxAssignmentSyncer{}
 	p.mailboxSyncer = mboxSyncer
 
@@ -265,6 +275,40 @@ func TestLDAPBindProvider_Login_SyncsMailboxAssignments(t *testing.T) {
 	}
 	if call.source != domain.ProvisionedByLDAP {
 		t.Errorf("source = %q, want ldap", call.source)
+	}
+}
+
+// TestLDAPBindProvider_Login_FixedRole は fixed 方式の対象ユーザーがログインしたとき、
+// DB の provisioned_by=ldap メールボックス全件に対してロールが付与されることを確認する。
+func TestLDAPBindProvider_Login_FixedRole(t *testing.T) {
+	entries := []ldapsync.Entry{
+		{DN: "cn=Admin,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{"mail": {"admin@corp.local"}}},
+	}
+	dial := fakeDialer(t, "cn=svc,dc=corp,dc=local", "svc-pass", entries, "cn=Admin,ou=Users,dc=corp,dc=local", "correct-password", nil)
+	p := testLDAPBindProvider(t, dial, &fakeProvisionerRepo{})
+	p.syncCfg.MailboxResolution = &ldapsync.MailboxResolution{Roles: []ldapsync.RoleResolution{{
+		Role:            domain.AssignmentRoleAdmin,
+		Method:          ldapsync.MethodFixed,
+		FixedUserEmails: []string{"admin@corp.local"},
+	}}}
+	mboxSyncer := &fakeMailboxAssignmentSyncer{
+		mailboxes: []repository.Mailbox{
+			{EmailAddress: "sales@example.com", IsActive: true, ProvisionedBy: domain.ProvisionedByLDAP},
+			{EmailAddress: "manual-box@example.com", IsActive: true, ProvisionedBy: domain.ProvisionedByManual},
+		},
+	}
+	p.mailboxSyncer = mboxSyncer
+
+	if _, err := p.Login(context.Background(), "admin@corp.local", "correct-password"); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	if len(mboxSyncer.calls) != 1 {
+		t.Fatalf("呼び出し回数 = %d, want 1", len(mboxSyncer.calls))
+	}
+	desired := mboxSyncer.calls[0].desired
+	if len(desired) != 1 || desired[0].MailboxEmail != "sales@example.com" || desired[0].Role != domain.AssignmentRoleAdmin {
+		t.Errorf("desired = %+v（ldap のメールボックスにのみ admin が付くべき）", desired)
 	}
 }
 

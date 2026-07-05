@@ -3,6 +3,7 @@ package ldap
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/directory"
@@ -11,13 +12,19 @@ import (
 )
 
 // fakeSearcher はテスト用の Searcher 実装。
+// searchFunc が設定されていれば base_dn / filter に応じた応答を返せる
+// （group_search / dereference のように検索先が複数あるテストで使う）。
 type fakeSearcher struct {
-	entries   []Entry
-	searchErr error
-	closed    bool
+	entries    []Entry
+	searchErr  error
+	closed     bool
+	searchFunc func(baseDN, filter string, attrs []string) ([]Entry, error)
 }
 
-func (f *fakeSearcher) SearchUsers(_, _ string, _ []string) ([]Entry, error) {
+func (f *fakeSearcher) SearchUsers(baseDN, filter string, attrs []string) ([]Entry, error) {
+	if f.searchFunc != nil {
+		return f.searchFunc(baseDN, filter, attrs)
+	}
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}
@@ -205,8 +212,9 @@ func TestSyncer_Sync_ProvisionErrorContinues(t *testing.T) {
 
 // fakeMailboxAssignmentSyncer は SyncMailboxAssignmentsForUser 呼び出しを記録するフェイク。
 type fakeMailboxAssignmentSyncer struct {
-	calls []mailboxSyncCall
-	err   error
+	calls     []mailboxSyncCall
+	err       error
+	mailboxes []repository.Mailbox // ListMailboxes が返す一覧（fixed 方式テスト用）
 }
 
 type mailboxSyncCall struct {
@@ -220,29 +228,41 @@ func (f *fakeMailboxAssignmentSyncer) SyncMailboxAssignmentsForUser(_ context.Co
 	return f.err
 }
 
-// TestSyncer_Sync_MailboxAssignments_ExplicitMapping はグループの明示マッピングから
+func (f *fakeMailboxAssignmentSyncer) ListMailboxes(_ context.Context) ([]repository.Mailbox, error) {
+	return f.mailboxes, nil
+}
+
+// userAttrResolution は user_attribute（dereference 無し・CN 抽出 + ドメイン補完）の
+// テスト用 MailboxResolution を返す。グループ CN "mbx-<name>" を <name>@example.com に解決する。
+func userAttrResolution(t *testing.T, role domain.AssignmentRole) *MailboxResolution {
+	t.Helper()
+	re := regexp.MustCompile(`^cn=mbx-(?P<value>[\w-]+),ou=Groups.*$`)
+	return &MailboxResolution{Roles: []RoleResolution{{
+		Role:            role,
+		Method:          MethodUserAttribute,
+		SourceAttribute: "memberOf",
+		SourceTransform: re,
+		MailboxDomain:   "example.com",
+	}}}
+}
+
+// TestSyncer_Sync_MailboxAssignments_UserAttribute は user_attribute 方式（dereference 無し）で
 // メールボックス割り当てが解決され、ユーザーごとに SyncMailboxAssignmentsForUser が
-// 呼ばれることを確認する。CN は DN から抽出される。
-func TestSyncer_Sync_MailboxAssignments_ExplicitMapping(t *testing.T) {
+// 呼ばれることを確認する。
+func TestSyncer_Sync_MailboxAssignments_UserAttribute(t *testing.T) {
 	searcher := &fakeSearcher{entries: []Entry{
-		{DN: "CN=Alice,OU=Users,DC=corp,DC=local", Attributes: map[string][]string{
-			"mail": {"alice@corp.local"},
-			"memberOf": {
-				"CN=Sales-Team,OU=Groups,DC=corp,DC=local",
-			},
+		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{
+			"mail":     {"alice@corp.local"},
+			"memberOf": {"cn=mbx-sales,ou=Groups,dc=corp,dc=local", "cn=unrelated,ou=Groups,dc=corp,dc=local"},
 		}},
-		{DN: "CN=Bob,OU=Users,DC=corp,DC=local", Attributes: map[string][]string{
+		{DN: "cn=Bob,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{
 			"mail": {"bob@corp.local"}, // メールボックスグループには非所属
 		}},
 	}}
 	repo := &fakeProvisionerRepo{}
 	mboxSyncer := &fakeMailboxAssignmentSyncer{}
 	cfg := testSyncConfig()
-	cfg.MailboxMapper = directory.GroupMailboxMapper{
-		Mappings: []directory.GroupMailboxMapping{
-			{Group: "Sales-Team", MailboxEmail: "sales@example.com", MailboxDisplayName: "Sales", Role: domain.AssignmentRoleMember},
-		},
-	}
+	cfg.MailboxResolution = userAttrResolution(t, domain.AssignmentRoleMember)
 	s := NewSyncer(directory.NewProvisioner(repo), &fakeDeactivator{}, mboxSyncer, cfg)
 
 	if _, err := s.Sync(context.Background(), searcher); err != nil {
@@ -270,31 +290,143 @@ func TestSyncer_Sync_MailboxAssignments_ExplicitMapping(t *testing.T) {
 	}
 }
 
-// TestSyncer_Sync_MailboxAssignments_EmptyDesiredStillCalled は、あるユーザーの
-// 解決結果が0件でも SyncMailboxAssignmentsForUser が呼ばれることを確認する
-// （グループから正当に離脱したユーザーの割り当てを剥奪するために必要。
-// 「0件ガード」はユーザー個別の粒度では適用しない）。
-func TestSyncer_Sync_MailboxAssignments_EmptyDesiredStillCalled(t *testing.T) {
-	searcher := &fakeSearcher{entries: []Entry{
-		{DN: "CN=Alice,OU=Users,DC=corp,DC=local", Attributes: map[string][]string{"mail": {"alice@corp.local"}}},
+// TestSyncer_Sync_MailboxAssignments_GroupSearch は group_search 方式の一括検索で
+// グループの member 属性からユーザーへの割り当てが解決されることを確認する。
+// member DN とユーザー DN の表記ゆれ（大文字小文字）も正規化で吸収される。
+func TestSyncer_Sync_MailboxAssignments_GroupSearch(t *testing.T) {
+	userEntries := []Entry{
+		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{"mail": {"alice@corp.local"}}},
+		{DN: "cn=Bob,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{"mail": {"bob@corp.local"}}},
+	}
+	groupEntries := []Entry{
+		{DN: "cn=Sales,ou=Groups,dc=corp,dc=local", Attributes: map[string][]string{
+			"mail": {"sales@example.com"},
+			// 大文字表記（正規化されて alice の DN と一致するべき）
+			"member": {"CN=Alice,OU=Users,DC=corp,DC=local"},
+		}},
+	}
+	searcher := &fakeSearcher{searchFunc: func(baseDN, filter string, _ []string) ([]Entry, error) {
+		if baseDN == "ou=Groups,dc=corp,dc=local" {
+			return groupEntries, nil
+		}
+		return userEntries, nil
 	}}
+
 	mboxSyncer := &fakeMailboxAssignmentSyncer{}
 	cfg := testSyncConfig()
-	cfg.MailboxMapper = directory.GroupMailboxMapper{
-		Mappings: []directory.GroupMailboxMapping{
-			{Group: "Sales-Team", MailboxEmail: "sales@example.com", Role: domain.AssignmentRoleMember},
-		},
-	}
+	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{{
+		Role:            domain.AssignmentRoleOwner,
+		Method:          MethodGroupSearch,
+		BaseDN:          "ou=Groups,dc=corp,dc=local",
+		Filter:          "(mail=*)",
+		MemberAttr:      "member",
+		TargetAttribute: "mail",
+	}}}
 	s := NewSyncer(directory.NewProvisioner(&fakeProvisionerRepo{}), &fakeDeactivator{}, mboxSyncer, cfg)
 
 	if _, err := s.Sync(context.Background(), searcher); err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
-	if len(mboxSyncer.calls) != 1 {
-		t.Fatalf("呼び出し回数 = %d, want 1", len(mboxSyncer.calls))
+
+	if len(mboxSyncer.calls) != 2 {
+		t.Fatalf("呼び出し回数 = %d, want 2", len(mboxSyncer.calls))
 	}
-	if len(mboxSyncer.calls[0].desired) != 0 {
-		t.Errorf("desired = %+v, want 空", mboxSyncer.calls[0].desired)
+	aliceCall := mboxSyncer.calls[0]
+	if len(aliceCall.desired) != 1 || aliceCall.desired[0].MailboxEmail != "sales@example.com" || aliceCall.desired[0].Role != domain.AssignmentRoleOwner {
+		t.Errorf("alice の desired = %+v（group_search で owner が付くべき）", aliceCall.desired)
+	}
+	bobCall := mboxSyncer.calls[1]
+	if len(bobCall.desired) != 0 {
+		t.Errorf("bob の desired = %+v, want 空", bobCall.desired)
+	}
+}
+
+// TestSyncer_Sync_MailboxAssignments_Fixed は fixed 方式の対象ユーザーが第2パスで処理され、
+// DB の provisioned_by=ldap 全メールボックスに対してロールが付与されることを確認する。
+func TestSyncer_Sync_MailboxAssignments_Fixed(t *testing.T) {
+	searcher := &fakeSearcher{entries: []Entry{
+		{DN: "cn=Admin,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{"mail": {"admin@corp.local"}}},
+		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{"mail": {"alice@corp.local"}}},
+	}}
+	mboxSyncer := &fakeMailboxAssignmentSyncer{
+		mailboxes: []repository.Mailbox{
+			{EmailAddress: "sales@example.com", IsActive: true, ProvisionedBy: domain.ProvisionedByLDAP},
+			{EmailAddress: "hr@example.com", IsActive: true, ProvisionedBy: domain.ProvisionedByLDAP},
+			{EmailAddress: "manual-box@example.com", IsActive: true, ProvisionedBy: domain.ProvisionedByManual}, // fixed 対象外
+			{EmailAddress: "inactive@example.com", IsActive: false, ProvisionedBy: domain.ProvisionedByLDAP},    // fixed 対象外
+		},
+	}
+	cfg := testSyncConfig()
+	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{{
+		Role:            domain.AssignmentRoleAdmin,
+		Method:          MethodFixed,
+		FixedUserEmails: []string{"Admin@corp.local"}, // 大文字小文字を無視して一致するべき
+	}}}
+	s := NewSyncer(directory.NewProvisioner(&fakeProvisionerRepo{}), &fakeDeactivator{}, mboxSyncer, cfg)
+
+	if _, err := s.Sync(context.Background(), searcher); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	// alice（第1パス）→ admin（第2パス）の順で呼ばれる
+	if len(mboxSyncer.calls) != 2 {
+		t.Fatalf("呼び出し回数 = %d, want 2", len(mboxSyncer.calls))
+	}
+	if mboxSyncer.calls[0].userID != "u-alice@corp.local" {
+		t.Errorf("第1パスは alice のはず: %q", mboxSyncer.calls[0].userID)
+	}
+	adminCall := mboxSyncer.calls[1]
+	if adminCall.userID != "u-admin@corp.local" {
+		t.Errorf("第2パスは admin のはず: %q", adminCall.userID)
+	}
+	if len(adminCall.desired) != 2 {
+		t.Fatalf("admin の desired = %d 件, want 2（ldap かつ active のメールボックスのみ）: %+v", len(adminCall.desired), adminCall.desired)
+	}
+	got := map[string]bool{}
+	for _, d := range adminCall.desired {
+		if d.Role != domain.AssignmentRoleAdmin {
+			t.Errorf("role = %q, want admin", d.Role)
+		}
+		got[d.MailboxEmail] = true
+	}
+	if !got["sales@example.com"] || !got["hr@example.com"] {
+		t.Errorf("desired に sales/hr が含まれるべき: %+v", adminCall.desired)
+	}
+}
+
+// TestSyncer_Sync_MailboxAssignments_GroupSearchFailureSkipsMailboxSync は
+// group_search の一括検索が失敗した場合、不完全なタプルでの reconcile による
+// 誤削除を避けるため、そのサイクルのメールボックス反映全体をスキップすることを確認する。
+func TestSyncer_Sync_MailboxAssignments_GroupSearchFailureSkipsMailboxSync(t *testing.T) {
+	userEntries := []Entry{
+		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{"mail": {"alice@corp.local"}}},
+	}
+	searcher := &fakeSearcher{searchFunc: func(baseDN, _ string, _ []string) ([]Entry, error) {
+		if baseDN == "ou=Groups,dc=corp,dc=local" {
+			return nil, errors.New("group search failed")
+		}
+		return userEntries, nil
+	}}
+	mboxSyncer := &fakeMailboxAssignmentSyncer{}
+	cfg := testSyncConfig()
+	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{{
+		Role: domain.AssignmentRoleOwner, Method: MethodGroupSearch,
+		BaseDN: "ou=Groups,dc=corp,dc=local", Filter: "(mail=*)", MemberAttr: "member", TargetAttribute: "mail",
+	}}}
+	s := NewSyncer(directory.NewProvisioner(&fakeProvisionerRepo{}), &fakeDeactivator{}, mboxSyncer, cfg)
+
+	result, err := s.Sync(context.Background(), searcher)
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if len(mboxSyncer.calls) != 0 {
+		t.Errorf("group_search 失敗時は reconcile を呼ぶべきではない（誤削除防止）: %d 回呼ばれた", len(mboxSyncer.calls))
+	}
+	if result.Synced != 1 {
+		t.Errorf("ユーザー同期自体は続行されるべき: Synced = %d", result.Synced)
+	}
+	if len(result.Errors) == 0 {
+		t.Error("group_search 失敗は Result.Errors に記録されるべき")
 	}
 }
 
@@ -302,14 +434,10 @@ func TestSyncer_Sync_MailboxAssignments_EmptyDesiredStillCalled(t *testing.T) {
 // メールボックス割り当ての解決・呼び出しを一切行わないことを確認する。
 func TestSyncer_Sync_MailboxAssignments_NilSyncerSkipped(t *testing.T) {
 	searcher := &fakeSearcher{entries: []Entry{
-		{DN: "CN=Alice,OU=Users,DC=corp,DC=local", Attributes: map[string][]string{"mail": {"alice@corp.local"}}},
+		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{"mail": {"alice@corp.local"}}},
 	}}
 	cfg := testSyncConfig()
-	cfg.MailboxMapper = directory.GroupMailboxMapper{
-		Mappings: []directory.GroupMailboxMapping{
-			{Group: "Sales-Team", MailboxEmail: "sales@example.com", Role: domain.AssignmentRoleMember},
-		},
-	}
+	cfg.MailboxResolution = userAttrResolution(t, domain.AssignmentRoleMember)
 	s := NewSyncer(directory.NewProvisioner(&fakeProvisionerRepo{}), &fakeDeactivator{}, nil, cfg)
 
 	if _, err := s.Sync(context.Background(), searcher); err != nil {

@@ -96,25 +96,10 @@ func (p *LDAPBindProvider) Login(ctx context.Context, email, password string) (*
 		return nil, fmt.Errorf("アカウントが無効です")
 	}
 
-	if p.mailboxSyncer != nil {
-		groupCNs := make([]string, len(groups))
-		for i, dn := range groups {
-			groupCNs[i] = ldapsync.ExtractCN(dn)
-		}
-		tuples := p.syncCfg.MailboxMapper.Resolve(groupCNs)
-		desired := make([]repository.MailboxAssignmentRequest, len(tuples))
-		for i, t := range tuples {
-			desired[i] = repository.MailboxAssignmentRequest{
-				MailboxEmail:       t.MailboxEmail,
-				MailboxDisplayName: t.MailboxDisplayName,
-				Role:               t.Role,
-			}
-		}
-		if err := p.mailboxSyncer.SyncMailboxAssignmentsForUser(ctx, dbUser.ID, domain.ProvisionedByLDAP, desired); err != nil {
-			// メールボックス割り当ての反映失敗はログイン自体を失敗させない
-			// （role/認証は既に確定しているため。次回ログインまたは定期同期で再試行される）。
-			slog.Warn("LDAP bind ログイン: メールボックス割り当て同期失敗", "email", email, "error", err)
-		}
+	if p.mailboxSyncer != nil && !p.syncCfg.MailboxResolution.Empty() {
+		// メールボックス割り当ての反映失敗はログイン自体を失敗させない
+		// （role/認証は既に確定しているため。次回ログインまたは定期同期で再試行される）。
+		p.syncMailboxAssignments(ctx, dbUser, entry)
 	}
 
 	return &domain.Session{
@@ -126,6 +111,56 @@ func (p *LDAPBindProvider) Login(ctx context.Context, email, password string) (*
 		Role:      dbUser.Role,
 		ExpiresAt: time.Now().Add(time.Duration(p.sessionCfg.TTLMinutes) * time.Minute),
 	}, nil
+}
+
+// syncMailboxAssignments はログインした本人 1 人分のメールボックス割り当てを JIT 反映する。
+//   - user_attribute / group_search: サービスアカウントで再接続して解決する
+//     （group_search は member 絞り込みフィルタで 1 ロール 1 クエリに抑える）
+//   - fixed: DB の provisioned_by=ldap メールボックス一覧に対して付与する（LDAP 検索不要）
+//
+// 解決用の LDAP 接続に失敗した場合は reconcile 自体を行わない。
+// 不完全なタプル集合で SyncMailboxAssignmentsForUser を呼ぶと、
+// 正当な既存割り当てを誤って削除してしまうため（部分的な結果での上書きより現状維持を選ぶ）。
+func (p *LDAPBindProvider) syncMailboxAssignments(ctx context.Context, dbUser *repository.User, entry ldapsync.Entry) {
+	mr := p.syncCfg.MailboxResolution
+
+	searcher, err := p.dial(p.connCfg)
+	if err != nil {
+		slog.Warn("LDAP bind ログイン: 割り当て解決用の接続失敗（今回の反映をスキップ）", "email", dbUser.Email, "error", err)
+		return
+	}
+	defer searcher.Close()
+
+	tuples := mr.ResolveUserAttribute(searcher, entry, ldapsync.NewDerefCache())
+	tuples = append(tuples, mr.ResolveGroupSearchForUser(searcher, entry.DN)...)
+
+	if fixedRoles := mr.FixedRolesForEmail(dbUser.Email); len(fixedRoles) > 0 {
+		mailboxes, err := p.mailboxSyncer.ListMailboxes(ctx)
+		if err != nil {
+			slog.Warn("LDAP bind ログイン: fixed 用メールボックス一覧取得失敗（今回の反映をスキップ）", "email", dbUser.Email, "error", err)
+			return
+		}
+		for _, mb := range mailboxes {
+			if mb.ProvisionedBy != domain.ProvisionedByLDAP || !mb.IsActive {
+				continue
+			}
+			for _, role := range fixedRoles {
+				tuples = append(tuples, directory.MailboxAssignmentTuple{MailboxEmail: mb.EmailAddress, Role: role})
+			}
+		}
+	}
+
+	desired := make([]repository.MailboxAssignmentRequest, len(tuples))
+	for i, t := range tuples {
+		desired[i] = repository.MailboxAssignmentRequest{
+			MailboxEmail:       t.MailboxEmail,
+			MailboxDisplayName: t.MailboxDisplayName,
+			Role:               t.Role,
+		}
+	}
+	if err := p.mailboxSyncer.SyncMailboxAssignmentsForUser(ctx, dbUser.ID, domain.ProvisionedByLDAP, desired); err != nil {
+		slog.Warn("LDAP bind ログイン: メールボックス割り当て同期失敗", "email", dbUser.Email, "error", err)
+	}
 }
 
 // findUserEntry はサービスアカウントで bind し、email に一致するエントリを検索する。

@@ -299,7 +299,7 @@ func TestDirectoryConfig_EffectiveSource(t *testing.T) {
 	}
 }
 
-func TestLoad_MailboxMappings(t *testing.T) {
+func TestLoad_MailboxProvisioning(t *testing.T) {
 	path := writeYAML(t, `
 server:
   port: 8080
@@ -310,57 +310,51 @@ directory:
   ldap:
     host: ldap.corp.local
     base_dn: "ou=Users,dc=corp,dc=local"
-    mailbox_mappings:
-      list:
-        - group: "Sales-Team"
-          mailbox: "sales@example.com"
-          mailbox_display_name: "Sales"
-          role: member
-        - group: "Sales-Managers"
-          mailbox: "sales@example.com"
-          role: owner
-      pattern:
-        regex: '^mbx-(?P<mailbox>[\w.-]+)-(?P<role>member|owner|admin)$'
-        mailbox_domain: "example.com"
+    mailbox_provisioning:
+      roles:
+        member:
+          method: user_attribute
+          source_attribute: memberOf
+          source_transform: '^cn=(?P<value>[^,]+),.*$'
+          dereference:
+            base_dn: "ou=Groups,dc=corp,dc=local"
+            filter: "(cn={value})"
+          target_attribute: mail
+        owner:
+          method: group_search
+          base_dn: "ou=Groups,dc=corp,dc=local"
+          filter: "(mail=*)"
+          member_attr: owner
+          target_attribute: mail
+        admin:
+          method: fixed
+          fixed_value: "admin@internal.dev; backup@internal.dev"
 `)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	mm := cfg.Directory.LDAP.MailboxMappings
-	if len(mm.List) != 2 {
-		t.Fatalf("MailboxMappings.List = %d 件, want 2", len(mm.List))
+	roles := cfg.Directory.LDAP.MailboxProvisioning.Roles
+	if len(roles) != 3 {
+		t.Fatalf("Roles = %d 件, want 3", len(roles))
 	}
-	if mm.List[0].Group != "Sales-Team" || mm.List[0].Mailbox != "sales@example.com" || mm.List[0].Role != "member" {
-		t.Errorf("List[0] = %+v", mm.List[0])
+	member := roles["member"]
+	if member.Method != "user_attribute" || member.SourceAttribute != "memberOf" {
+		t.Errorf("member = %+v", member)
 	}
-	if mm.Pattern.Regex == "" {
-		t.Error("Pattern.Regex が空です")
+	if member.Dereference.BaseDN != "ou=Groups,dc=corp,dc=local" || member.Dereference.Filter != "(cn={value})" {
+		t.Errorf("member.Dereference = %+v", member.Dereference)
 	}
-	if mm.Pattern.MailboxDomain != "example.com" {
-		t.Errorf("Pattern.MailboxDomain = %q, want example.com", mm.Pattern.MailboxDomain)
+	if member.TargetAttribute != "mail" {
+		t.Errorf("member.TargetAttribute = %q", member.TargetAttribute)
 	}
-}
-
-func TestLoad_MailboxMappings_InvalidPatternFailsAtProviderBuild(t *testing.T) {
-	// config.Load() 自体は YAML の構文だけを見るため、正規表現の意味的な不正
-	// （名前付きキャプチャグループの欠落等）は auth.BuildLDAPConnConfig 側で検出される。
-	// ここでは Load() が正規表現の中身を検証しないことだけ確認する（責務の分離）。
-	path := writeYAML(t, `
-server:
-  port: 8080
-database:
-  host: mariadb
-directory:
-  source: ldap
-  ldap:
-    host: ldap.corp.local
-    mailbox_mappings:
-      pattern:
-        regex: '^mbx-([\w.-]+)-(member|owner|admin)$'
-`)
-	if _, err := Load(path); err != nil {
-		t.Fatalf("Load() 自体はエラーにならないはず（正規表現の意味検証は auth 側の責務）: %v", err)
+	owner := roles["owner"]
+	if owner.Method != "group_search" || owner.MemberAttr != "owner" || owner.Filter != "(mail=*)" {
+		t.Errorf("owner = %+v", owner)
+	}
+	admin := roles["admin"]
+	if admin.Method != "fixed" || admin.FixedValue != "admin@internal.dev; backup@internal.dev" {
+		t.Errorf("admin = %+v", admin)
 	}
 }
