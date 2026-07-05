@@ -81,15 +81,27 @@ directory:
     # sync_interval_minutes: 60
     # deactivate_missing_users: true  # 同期結果に含まれなくなった ldap ユーザーを無効化する
     # メールボックス割り当て（member/owner/admin）をディレクトリ構造から自動反映する（任意）。
-    # ロールごとに解決方式を独立して選べる:
-    #   user_attribute : ユーザー自身の属性（memberOf 等）から解決。
+    # rules はルールのリストで、同じ role に複数のルールを書ける（解決結果は合算される）。
+    # 各ルールの method:
+    #   user_attribute : ユーザー自身の属性から解決。
     #                    source_attribute → source_transform?(正規表現・フィルタ兼抽出)
     #                    → dereference?(再検索・最大1回) → target_attribute → target_transform?
     #   group_search   : メールボックスを表すグループを一括検索し、member_attr の DN を対象ユーザーとする
     #   fixed          : 列挙したユーザーへ、ldap 管理下の全メールボックスに対して当該ロールを付与
+    #
+    # 典型構成: 「全ユーザーの個人メールボックス + 共有メールボックス + 全体管理者」
     # mailbox_provisioning:
-    #   roles:
-    #     member:                              # 例: memberOf → グループ再検索 → グループの mail 属性
+    #   rules:
+    #     # ① 個人メールボックス: 各ユーザー自身の mail 属性がそのままメールボックスになり、
+    #     #    本人が owner として割り当てられる（user01 宛の隔離メールを user01 自身が
+    #     #    閲覧・解放できるようにするための基本設定。ほぼすべての環境で推奨）
+    #     - role: owner
+    #       method: user_attribute
+    #       source_attribute: mail
+    #
+    #     # ② 共有メールボックス（memberOf 起点）: 所属グループを再検索し、
+    #     #    グループ自身の mail 属性をメールボックスとして member 割り当て
+    #     - role: member
     #       method: user_attribute
     #       source_attribute: memberOf
     #       source_transform: '^cn=(?P<value>[^,]+),ou=Groups.*$'
@@ -97,13 +109,19 @@ directory:
     #         base_dn: "ou=Groups,dc=corp,dc=local"
     #         filter: "(cn={value})"           # {value} は自動で LDAP エスケープされる
     #       target_attribute: mail
-    #     owner:                               # 例: mail 属性つきグループの owner 属性（AD なら managedBy）
+    #
+    #     # ③ 共有メールボックス（グループ起点）: mail 属性つきグループを一括検索し、
+    #     #    owner 属性（AD なら managedBy）の DN のユーザーを owner 割り当て。
+    #     #    memberOf overlay の無い素の OpenLDAP でも動く
+    #     - role: owner
     #       method: group_search
     #       base_dn: "ou=Groups,dc=corp,dc=local"
     #       filter: "(mail=*)"
     #       member_attr: owner
     #       target_attribute: mail
-    #     admin:                               # 例: 固定の管理者（複数はカンマ/セミコロン区切り）
+    #
+    #     # ④ 全体管理者の決め打ち（複数はカンマ/セミコロン区切り）
+    #     - role: admin
     #       method: fixed
     #       fixed_value: "admin@internal.dev"
 

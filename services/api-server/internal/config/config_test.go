@@ -311,8 +311,14 @@ directory:
     host: ldap.corp.local
     base_dn: "ou=Users,dc=corp,dc=local"
     mailbox_provisioning:
-      roles:
-        member:
+      rules:
+        # 個人メールボックス: 自分の mail 属性 → 本人が owner
+        - role: owner
+          method: user_attribute
+          source_attribute: mail
+        # 共有メールボックス: memberOf → 再検索 → member（owner ルールと role が別でも、
+        # 下の member 2 ルール目のように同一 role の複数ルールも許容される）
+        - role: member
           method: user_attribute
           source_attribute: memberOf
           source_transform: '^cn=(?P<value>[^,]+),.*$'
@@ -320,13 +326,13 @@ directory:
             base_dn: "ou=Groups,dc=corp,dc=local"
             filter: "(cn={value})"
           target_attribute: mail
-        owner:
+        - role: member
           method: group_search
           base_dn: "ou=Groups,dc=corp,dc=local"
           filter: "(mail=*)"
-          member_attr: owner
+          member_attr: member
           target_attribute: mail
-        admin:
+        - role: admin
           method: fixed
           fixed_value: "admin@internal.dev; backup@internal.dev"
 `)
@@ -335,26 +341,20 @@ directory:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	roles := cfg.Directory.LDAP.MailboxProvisioning.Roles
-	if len(roles) != 3 {
-		t.Fatalf("Roles = %d 件, want 3", len(roles))
+	rules := cfg.Directory.LDAP.MailboxProvisioning.Rules
+	if len(rules) != 4 {
+		t.Fatalf("Rules = %d 件, want 4", len(rules))
 	}
-	member := roles["member"]
-	if member.Method != "user_attribute" || member.SourceAttribute != "memberOf" {
-		t.Errorf("member = %+v", member)
+	if rules[0].Role != "owner" || rules[0].Method != "user_attribute" || rules[0].SourceAttribute != "mail" {
+		t.Errorf("rules[0]（個人メールボックス）= %+v", rules[0])
 	}
-	if member.Dereference.BaseDN != "ou=Groups,dc=corp,dc=local" || member.Dereference.Filter != "(cn={value})" {
-		t.Errorf("member.Dereference = %+v", member.Dereference)
+	if rules[1].Role != "member" || rules[1].Dereference.Filter != "(cn={value})" || rules[1].TargetAttribute != "mail" {
+		t.Errorf("rules[1] = %+v", rules[1])
 	}
-	if member.TargetAttribute != "mail" {
-		t.Errorf("member.TargetAttribute = %q", member.TargetAttribute)
+	if rules[2].Role != "member" || rules[2].Method != "group_search" || rules[2].MemberAttr != "member" {
+		t.Errorf("rules[2]（member の 2 ルール目）= %+v", rules[2])
 	}
-	owner := roles["owner"]
-	if owner.Method != "group_search" || owner.MemberAttr != "owner" || owner.Filter != "(mail=*)" {
-		t.Errorf("owner = %+v", owner)
-	}
-	admin := roles["admin"]
-	if admin.Method != "fixed" || admin.FixedValue != "admin@internal.dev; backup@internal.dev" {
-		t.Errorf("admin = %+v", admin)
+	if rules[3].Role != "admin" || rules[3].Method != "fixed" || rules[3].FixedValue != "admin@internal.dev; backup@internal.dev" {
+		t.Errorf("rules[3] = %+v", rules[3])
 	}
 }

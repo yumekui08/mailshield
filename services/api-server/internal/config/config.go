@@ -90,25 +90,32 @@ type LDAPConfig struct {
 	// LDAP 検索が 0 件を返した場合は誤って全ユーザーを無効化しないよう何もしない。
 	DeactivateMissingUsers bool `mapstructure:"deactivate_missing_users"`
 	// MailboxProvisioning はユーザー・グループのディレクトリ構造からメールボックス割り当て
-	// （member/owner/admin）を自動反映するための設定。ロールごとに解決方式を独立して選べる。
+	// （member/owner/admin）を自動反映するための設定。
 	MailboxProvisioning MailboxProvisioningConfig `mapstructure:"mailbox_provisioning"`
 }
 
 // MailboxProvisioningConfig はメールボックス割り当ての自動反映設定を保持する。
-// Roles のキーは member / owner / admin。設定されたロールだけが自動反映の対象になる。
+// Rules はルールのリストで、同じロールに対して複数のルールを書ける
+// （例: 「個人メールボックスは自分の mail 属性から owner」と「共有メールボックスは
+// memberOf から member」を同時に設定する）。全ルールの解決結果が合算される。
 type MailboxProvisioningConfig struct {
-	Roles map[string]MailboxRoleResolutionConfig `mapstructure:"roles"`
+	Rules []MailboxProvisioningRuleConfig `mapstructure:"rules"`
 }
 
-// MailboxRoleResolutionConfig は 1 ロール分の解決方式を保持する。
+// MailboxProvisioningRuleConfig は 1 ルール分の解決方式を保持する。
+// Role は member / owner / admin のいずれか。
 // Method に応じて対応するフィールド群だけが使われる:
-//   - user_attribute : ユーザー起点。ユーザー自身の属性（memberOf 等）から解決する有界パイプライン
-//     （source_attribute → source_transform? → dereference?(最大1回) → target_attribute → target_transform?）
+//   - user_attribute : ユーザー起点。ユーザー自身の属性から解決する有界パイプライン
+//     （source_attribute → source_transform? → dereference?(最大1回) → target_attribute → target_transform?）。
+//     source_attribute に mail（自分のメールアドレス属性）を指定すれば
+//     「各ユーザー自身のメールアドレスをメールボックスとして登録し本人を割り当てる」
+//     個人メールボックスの自動作成になる
 //   - group_search   : グループ起点。メールボックスを表すグループを一括検索し、
 //     そのグループの member_attr（DN 一覧）を対象ユーザーとみなす
 //   - fixed          : 決め打ち。fixed_value に列挙したメールアドレスのユーザーへ、
 //     この同期ソースが管理する全メールボックスに対して当該ロールを付与する
-type MailboxRoleResolutionConfig struct {
+type MailboxProvisioningRuleConfig struct {
+	Role   string `mapstructure:"role"`
 	Method string `mapstructure:"method"`
 
 	// ─── method: user_attribute ───

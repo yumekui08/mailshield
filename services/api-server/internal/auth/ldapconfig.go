@@ -62,32 +62,33 @@ func BuildLDAPConnConfig(cfg *config.LDAPConfig) (ldapsync.ConnConfig, ldapsync.
 
 // buildMailboxResolution は config.MailboxProvisioningConfig を検証し、
 // コンパイル済みの ldapsync.MailboxResolution を組み立てる。
-// 設定不正（未知の method・正規表現の構文エラー・必須フィールド欠落・
+// 同じロールに対する複数ルールを許容する（全ルールの解決結果が合算される）。
+// 設定不正（未知の role/method・正規表現の構文エラー・必須フィールド欠落・
 // dereference filter の {value} プレースホルダ欠落）はすべて起動時エラーとして返す。
 func buildMailboxResolution(cfg config.MailboxProvisioningConfig) (*ldapsync.MailboxResolution, error) {
-	if len(cfg.Roles) == 0 {
+	if len(cfg.Rules) == 0 {
 		return nil, nil
 	}
 
 	resolution := &ldapsync.MailboxResolution{}
-	for roleName, rc := range cfg.Roles {
-		role := domain.AssignmentRole(roleName)
+	for i, rc := range cfg.Rules {
+		role := domain.AssignmentRole(rc.Role)
 		switch role {
 		case domain.AssignmentRoleMember, domain.AssignmentRoleOwner, domain.AssignmentRoleAdmin:
 		default:
-			return nil, fmt.Errorf("mailbox_provisioning.roles のキーが不正です: %q（member | owner | admin）", roleName)
+			return nil, fmt.Errorf("mailbox_provisioning.rules[%d]: role が不正です: %q（member | owner | admin）", i, rc.Role)
 		}
 
 		rr, err := buildRoleResolution(role, rc)
 		if err != nil {
-			return nil, fmt.Errorf("mailbox_provisioning.roles.%s: %w", roleName, err)
+			return nil, fmt.Errorf("mailbox_provisioning.rules[%d] (role=%s): %w", i, rc.Role, err)
 		}
 		resolution.Roles = append(resolution.Roles, rr)
 	}
 	return resolution, nil
 }
 
-func buildRoleResolution(role domain.AssignmentRole, rc config.MailboxRoleResolutionConfig) (ldapsync.RoleResolution, error) {
+func buildRoleResolution(role domain.AssignmentRole, rc config.MailboxProvisioningRuleConfig) (ldapsync.RoleResolution, error) {
 	rr := ldapsync.RoleResolution{Role: role, Method: rc.Method}
 
 	switch rc.Method {
