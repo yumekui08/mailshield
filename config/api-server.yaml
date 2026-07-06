@@ -54,6 +54,10 @@ auth:
     ttl_minutes: 480
     cookie_name: "mailshield_session"
     cookie_secure: false
+  rate_limit:                           # 認証系エンドポイント（login / setup / forgot-password /
+    enabled: true                       # reset-password / OTP）のクライアント IP 単位レート制限
+    max_attempts: 10                    # ウィンドウあたりの許容リクエスト数
+    window_seconds: 300                 # ウィンドウ長（秒）
 
 # ユーザー情報の真実の源（directory.source）。role・display_name をどこが管理するかを決める。
 #   none : 手動管理。ローカルログインは standalone（メール + bcrypt パスワード）

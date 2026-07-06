@@ -529,6 +529,17 @@ smtp-gateway の `database` セクションと同じキー構成。
 | `session.ttl_minutes` | int | セッション有効期間（分） |
 | `session.cookie_name` | string | セッション Cookie 名 |
 | `session.cookie_secure` | bool | Secure 属性を付与するか（本番環境では `true` 推奨） |
+| `rate_limit.enabled` | bool | 認証系エンドポイントのレート制限を有効にするか（省略時 `true`） |
+| `rate_limit.max_attempts` | int | ウィンドウあたりの許容リクエスト数（省略時 `10`） |
+| `rate_limit.window_seconds` | int | ウィンドウ長・秒（省略時 `300`） |
+
+`rate_limit` はクライアント IP 単位のスライディングウィンドウ方式で、以下のエンドポイントに適用される（上限超過時は `429` と `Retry-After` ヘッダーを返す）:
+
+- `POST /api/v1/auth/login`・`POST /api/v1/auth/setup`
+- `POST /api/v1/auth/forgot-password`・`POST /api/v1/auth/reset-password`
+- `POST /api/v1/public/attachments/{token}/otp/request`・`.../otp/verify`
+
+カウントはプロセス内メモリ保持のため、再起動でリセットされる。複数レプリカ構成では実効上限が `max_attempts × レプリカ数` になる。
 
 ```yaml
 # 例1: デフォルト（standalone のみ）

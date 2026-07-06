@@ -321,6 +321,43 @@ type AuthConfig struct {
 	Providers     AuthProvidersConfig `mapstructure:"providers"`
 	GroupMappings GroupMappingsConfig `mapstructure:"group_mappings"`
 	Session       SessionConfig       `mapstructure:"session"`
+	RateLimit     RateLimitConfig     `mapstructure:"rate_limit"`
+}
+
+// RateLimitConfig は認証系エンドポイント（ログイン・パスワードリセット・OTP 発行）の
+// クライアント IP 単位レート制限の設定を保持する。
+// ブルートフォース攻撃と通知メール送信の濫用を防ぐ。
+type RateLimitConfig struct {
+	// Enabled は省略時 true（明示的に false を指定した場合のみ無効化）。
+	Enabled *bool `mapstructure:"enabled"`
+	// MaxAttempts はウィンドウあたりの許容リクエスト数（省略時 10）。
+	MaxAttempts int `mapstructure:"max_attempts"`
+	// WindowSeconds はウィンドウ長（省略時 300 秒）。
+	WindowSeconds int `mapstructure:"window_seconds"`
+}
+
+// EffectiveEnabled は Enabled の省略時デフォルト（true）を補完して返す。
+func (r RateLimitConfig) EffectiveEnabled() bool {
+	if r.Enabled == nil {
+		return true
+	}
+	return *r.Enabled
+}
+
+// EffectiveMaxAttempts は MaxAttempts の省略時デフォルト（10）を補完して返す。
+func (r RateLimitConfig) EffectiveMaxAttempts() int {
+	if r.MaxAttempts <= 0 {
+		return 10
+	}
+	return r.MaxAttempts
+}
+
+// EffectiveWindowSeconds は WindowSeconds の省略時デフォルト（300）を補完して返す。
+func (r RateLimitConfig) EffectiveWindowSeconds() int {
+	if r.WindowSeconds <= 0 {
+		return 300
+	}
+	return r.WindowSeconds
 }
 
 const (

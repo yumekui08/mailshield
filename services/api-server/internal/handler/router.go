@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -35,6 +36,18 @@ func NewRouter(
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
+	r.Use(middleware.SecurityHeaders)
+
+	// 認証系エンドポイント（ログイン・パスワードリセット・OTP 発行）のレート制限。
+	// ブルートフォース攻撃と通知メール送信の濫用を防ぐ。
+	sensitiveLimit := middleware.PassThrough
+	if cfg.Auth.RateLimit.EffectiveEnabled() {
+		limiter := middleware.NewRateLimiter(
+			cfg.Auth.RateLimit.EffectiveMaxAttempts(),
+			time.Duration(cfg.Auth.RateLimit.EffectiveWindowSeconds())*time.Second,
+		)
+		sensitiveLimit = limiter.Middleware
+	}
 
 	auditLogger := audit.New(repo)
 	apiKeysHandler := NewAPIKeysHandler(repo, auditLogger)
@@ -68,14 +81,14 @@ func NewRouter(
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {
-			// 認証不要
+			// 認証不要（資格情報を受け取るエンドポイントはレート制限付き）
 			r.Get("/providers", authHandler.HandleProviders)
-			r.Post("/login", authHandler.HandleLoginStandalone)
+			r.With(sensitiveLimit).Post("/login", authHandler.HandleLoginStandalone)
 			r.Get("/login/oidc", authHandler.HandleLoginOIDC)
 			r.Get("/callback", authHandler.HandleCallback)
-			r.Post("/setup", authHandler.HandleSetup)
-			r.Post("/forgot-password", authHandler.HandleForgotPassword)
-			r.Post("/reset-password", authHandler.HandleResetPassword)
+			r.With(sensitiveLimit).Post("/setup", authHandler.HandleSetup)
+			r.With(sensitiveLimit).Post("/forgot-password", authHandler.HandleForgotPassword)
+			r.With(sensitiveLimit).Post("/reset-password", authHandler.HandleResetPassword)
 
 			// 認証必要
 			r.Group(func(r chi.Router) {
@@ -137,8 +150,8 @@ func NewRouter(
 		r.Route("/public/attachments", func(r chi.Router) {
 			r.Get("/{token}", attachmentsHandler.HandlePublicList)
 			r.Get("/{token}/{filename}", attachmentsHandler.HandlePublicDownload)
-			r.Post("/{token}/otp/request", attachmentsHandler.HandleOTPRequest)
-			r.Post("/{token}/otp/verify", attachmentsHandler.HandleOTPVerify)
+			r.With(sensitiveLimit).Post("/{token}/otp/request", attachmentsHandler.HandleOTPRequest)
+			r.With(sensitiveLimit).Post("/{token}/otp/verify", attachmentsHandler.HandleOTPVerify)
 		})
 
 		// 添付ファイルエンドポイント

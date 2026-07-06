@@ -309,3 +309,37 @@ DELETE /api/v1/api-keys/{id}    # 即時失効
 | `POST /api/v1/auth/reset-password` | パスワードリセット実行 |
 | `GET /api/v1/public/attachments/*` | 添付ファイルダウンロード（OTP 認証） |
 | `POST /api/v1/public/attachments/*/otp/*` | OTP 申請・検証 |
+
+## レート制限
+
+資格情報を受け取る・通知メールを送信する以下のエンドポイントには、
+クライアント IP 単位のスライディングウィンドウ・レート制限が適用される
+（デフォルト: 10 リクエスト / 300 秒。`auth.rate_limit` で変更・無効化可能）:
+
+- `POST /api/v1/auth/login`・`POST /api/v1/auth/setup`
+- `POST /api/v1/auth/forgot-password`・`POST /api/v1/auth/reset-password`
+- `POST /api/v1/public/attachments/{token}/otp/request`・`.../otp/verify`
+
+上限超過時のレスポンス:
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 300
+
+{"error":{"code":"RATE_LIMITED","message":"リクエストが多すぎます。しばらく待ってから再試行してください"}}
+```
+
+クライアント IP は chi の `RealIP` ミドルウェア経由で解決される
+（リバースプロキシ配下では `X-Forwarded-For` / `X-Real-IP` を信頼する。
+プロキシがこれらのヘッダーを上書きする構成でのみ使用すること）。
+
+## セキュリティヘッダー
+
+全レスポンスに以下のヘッダーが付与される:
+
+| ヘッダー | 値 | 目的 |
+|---------|-----|------|
+| `X-Content-Type-Options` | `nosniff` | MIME スニッフィング防止 |
+| `X-Frame-Options` | `DENY` | クリックジャッキング防止 |
+| `Referrer-Policy` | `no-referrer` | トークン入り URL のリファラー漏洩防止 |
+| `Cache-Control` | `no-store` | 認証済みレスポンスのキャッシュ防止 |
