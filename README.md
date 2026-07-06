@@ -131,6 +131,7 @@ open http://localhost:8025
 | [ストレージ仕様](docs/specs/storage.md) | MinIO オブジェクトパス命名規則 |
 | [キュー仕様](docs/specs/queues.md) | RabbitMQ Exchange・キュー設計 |
 | [API 認証仕様](docs/specs/api-authentication.md) | セッション Cookie / API キー認証の詳細 |
+| [メトリクス仕様](docs/specs/metrics.md) | Prometheus 形式メトリクス・/readyz レディネスチェック |
 | [設計判断記録](docs/decisions/) | ADR（Architecture Decision Records） |
 
 ## 開発コマンド

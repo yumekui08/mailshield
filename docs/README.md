@@ -36,6 +36,7 @@ MailShield OSS の全ドキュメントの索引。初めての場合は [シス
 | [logging.md](specs/logging.md) | 構造化ログのフォーマット・フィールド定義 |
 | [signals.md](specs/signals.md) | SIGTERM / SIGINT / SIGHUP とグレースフルシャットダウン |
 | [api-authentication.md](specs/api-authentication.md) | セッション Cookie / API キー認証 |
+| [metrics.md](specs/metrics.md) | Prometheus 形式メトリクス・/readyz レディネスチェック |
 
 ## ドキュメント更新ポリシー
 

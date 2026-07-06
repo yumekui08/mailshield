@@ -23,6 +23,7 @@ import (
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/deliver"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/logging"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/metrics"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/notify"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/pipeline"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/policy"
@@ -331,6 +332,8 @@ func main() {
 		slog.Info("隔離即時通知: 無効")
 	}
 
+	mtr := metrics.New(version)
+
 	handler := &mailHandler{
 		storage:        emlStorage,
 		archiveStorage: archiveStorage,
@@ -341,6 +344,7 @@ func main() {
 		cfg:            &cfg.Server,
 		approvalCfg:    cfg.Approval,
 		notifier:       quarantineNotifier,
+		metrics:        mtr,
 	}
 
 	smtpServer := smtp.New(smtp.Options{
@@ -362,6 +366,21 @@ func main() {
 		fmt.Fprint(w, "ok")
 	})
 	healthMux.HandleFunc("/simulate", handler.handleSimulate)
+	healthMux.Handle("/metrics", mtr.Handler())
+	// /readyz は依存サービス（MariaDB）への疎通を含むレディネスチェック。
+	// /healthz はプロセス生存確認のみ（liveness）として残す。
+	healthMux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if err := repo.Ping(ctx); err != nil {
+			slog.Warn("/readyz: DB 疎通失敗", "error", err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprint(w, "db unreachable")
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
 	healthAddr := fmt.Sprintf(":%d", cfg.Server.HealthPort)
 	httpServer := &http.Server{Addr: healthAddr, Handler: healthMux}
 	go func() {
@@ -436,11 +455,15 @@ type mailHandler struct {
 	cfg            *config.ServerConfig
 	approvalCfg    config.ApprovalConfig
 	notifier       *notify.QuarantineNotifier // nil の場合は通知しない
+	metrics        *metrics.Metrics
 	archiveWg      sync.WaitGroup
 }
 
 func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	start := time.Now()
+	defer func() {
+		h.metrics.ObserveProcessing(time.Since(start).Seconds())
+	}()
 	log := slog.With(
 		"message_id", mail.MessageID,
 		"from", mail.FromAddress,
@@ -451,6 +474,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	// 1. ルート解決（MAIL FROM / RCPT TO の正規表現マッチ）
 	route, ok := h.router.Resolve(mail.FromAddress, mail.ToAddresses)
 	if !ok {
+		h.metrics.IncUnrouted()
 		log.Warn("マッチするルートなし（メール拒否）",
 			"from", mail.FromAddress,
 			"to", mail.ToAddresses,
@@ -459,6 +483,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	}
 	rh := h.routeHandlers[route.Name]
 	mail.Direction = domain.Direction(route.Direction)
+	h.metrics.IncReceived(route.Name)
 
 	log.Info("[1/7] メール受信",
 		"route", route.Name,
@@ -474,6 +499,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		path, err := h.storage.Save(saveCtx, mail.MessageID, mail.RawEML, mail.ReceivedAt)
 		saveCancel()
 		if err != nil {
+			h.metrics.IncError("storage_save")
 			log.Error("[2/7] EML 保存失敗（451 を返す）", "error", err)
 			return fmt.Errorf("EML 保存失敗: %w", err)
 		}
@@ -518,6 +544,9 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 			"detected", r.Detected,
 			"score", r.Score,
 		)
+		if r.Detected {
+			h.metrics.IncDetected(route.Name, r.WorkerName)
+		}
 		if err := h.repo.SaveInspectResult(ctx, r, mail.MessageID); err != nil {
 			log.Warn("[5/7] 検査結果 DB 保存失敗（続行）",
 				"worker", r.WorkerName, "error", err)
@@ -532,6 +561,8 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		// sanitize / urlrewrite 等の効果が得られないまま配送するとセキュリティリスクになる。
 		log.Error("[6/7] 変換パイプライン失敗: 未処理メールの配送を防ぐため隔離します",
 			"route", route.Name, "error", err)
+		h.metrics.IncError("transform")
+		h.metrics.IncAction(route.Name, string(policy.ActionQuarantine))
 		if uerr := h.repo.UpdateMessageStatus(ctx, mail.MessageID, domain.StatusQuarantined); uerr != nil {
 			log.Warn("ステータス更新失敗（続行）", "error", uerr)
 		}
@@ -555,16 +586,19 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	log.Info("[7/7] ポリシー評価開始", "route", route.Name)
 	action, err := rh.policy.EvaluateAndAct(ctx, transformed, inspectResults)
 	if err != nil {
+		h.metrics.IncError("policy")
 		log.Error("[7/7] ポリシーエンジンエラー", "error", err)
 		return fmt.Errorf("ポリシー実行失敗: %w", err)
 	}
 
 	// B-3: マッチするルールがない場合はメールを消失させず 550 を返す
 	if action == "" {
+		h.metrics.IncError("no_rule")
 		log.Error("[7/7] マッチするポリシールールがありません。policy.yaml にデフォルトルールを追加してください",
 			"route", route.Name, "message_id", mail.MessageID)
 		return domain.ErrNoRuleMatched
 	}
+	h.metrics.IncAction(route.Name, string(action))
 
 	actionStatusMap := map[policy.ActionType]domain.MessageStatus{
 		policy.ActionDeliver:    domain.StatusDelivered,

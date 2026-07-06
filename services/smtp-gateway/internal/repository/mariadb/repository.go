@@ -71,6 +71,11 @@ func (r *Repository) Close() error {
 	return r.db.Close()
 }
 
+// Ping はDB疎通を確認する。/readyz のレディネスチェックに使用する。
+func (r *Repository) Ping(ctx context.Context) error {
+	return r.db.PingContext(ctx)
+}
+
 // SaveMessage はメールメタデータを mail_messages テーブルに保存する。
 func (r *Repository) SaveMessage(ctx context.Context, msg *domain.Mail) error {
 	toJSON, err := json.Marshal(msg.ToAddresses)
