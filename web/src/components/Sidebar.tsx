@@ -1,7 +1,18 @@
 import { NavLink } from "react-router-dom";
-import { Shield, LogOut, Users, Inbox, LayoutDashboard, Mail, ClipboardList, Key, FlaskConical, ClipboardCheck } from "lucide-react";
+import {
+  Shield,
+  LogOut,
+  Users,
+  Inbox,
+  LayoutDashboard,
+  Mail,
+  ClipboardList,
+  Key,
+  FlaskConical,
+  ClipboardCheck,
+  ShieldAlert,
+} from "lucide-react";
 import { cn } from "../lib/utils";
-import { Badge } from "./ui/badge";
 import { useMe, useLogout } from "../hooks/useAuth";
 import type { Role } from "../types";
 
@@ -11,178 +22,125 @@ const roleLabel: Record<Role, string> = {
   viewer: "閲覧者",
 };
 
+interface NavItem {
+  to: string;
+  label: string;
+  icon: React.ElementType;
+  end?: boolean;
+  roles?: Role[]; // 省略時は全ロール
+}
+
+interface NavGroup {
+  heading?: string;
+  items: NavItem[];
+}
+
+const navGroups: NavGroup[] = [
+  {
+    items: [{ to: "/", label: "ダッシュボード", icon: LayoutDashboard, end: true }],
+  },
+  {
+    heading: "メールフロー",
+    items: [
+      { to: "/messages", label: "処理ログ", icon: Mail },
+      { to: "/quarantine", label: "隔離メール", icon: ShieldAlert },
+      { to: "/approvals", label: "承認フロー", icon: ClipboardCheck },
+    ],
+  },
+  {
+    heading: "運用",
+    items: [
+      { to: "/mailboxes", label: "メールボックス", icon: Inbox, roles: ["admin", "operator"] },
+      { to: "/simulate", label: "ポリシーシミュレーター", icon: FlaskConical, roles: ["admin", "operator"] },
+    ],
+  },
+  {
+    heading: "システム管理",
+    items: [
+      { to: "/users", label: "ユーザー", icon: Users, roles: ["admin"] },
+      { to: "/api-keys", label: "API キー", icon: Key, roles: ["admin"] },
+      { to: "/audit-logs", label: "監査ログ", icon: ClipboardList, roles: ["admin"] },
+    ],
+  },
+];
+
 export function Sidebar() {
   const { data: user } = useMe();
   const logout = useLogout();
 
+  const visibleGroups = navGroups
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((item) => !item.roles || (user && item.roles.includes(user.role))),
+    }))
+    .filter((g) => g.items.length > 0);
+
   return (
-    <aside className="flex h-full w-60 flex-col bg-slate-900 text-slate-100">
-      <div className="flex items-center gap-2 px-5 py-5 border-b border-slate-700">
-        <Shield className="h-6 w-6 text-blue-400 shrink-0" />
+    <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-surface">
+      <div className="flex items-center gap-2.5 px-5 pb-5 pt-6">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600">
+          <Shield className="h-[18px] w-[18px] text-white" />
+        </div>
         <div>
-          <div className="font-bold text-white leading-tight">MailShield</div>
-          <div className="text-xs text-slate-400">v0.1.0</div>
+          <div className="text-sm font-bold leading-tight tracking-wide text-gray-900">
+            MailShield
+          </div>
+          <div className="text-[11px] text-gray-400">Mail Gateway v0.1.0</div>
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        <NavLink
-          to="/"
-          end
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-              isActive
-                ? "bg-slate-700 text-white"
-                : "text-slate-300 hover:bg-slate-800 hover:text-white"
-            )
-          }
-        >
-          <LayoutDashboard className="h-4 w-4" />
-          ダッシュボード
-        </NavLink>
-
-        <NavLink
-          to="/messages"
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-              isActive
-                ? "bg-slate-700 text-white"
-                : "text-slate-300 hover:bg-slate-800 hover:text-white"
-            )
-          }
-        >
-          <Mail className="h-4 w-4" />
-          メール処理ログ
-        </NavLink>
-
-        <NavLink
-          to="/quarantine"
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-              isActive
-                ? "bg-slate-700 text-white"
-                : "text-slate-300 hover:bg-slate-800 hover:text-white"
-            )
-          }
-        >
-          <Shield className="h-4 w-4" />
-          隔離メール
-        </NavLink>
-
-        <NavLink
-          to="/approvals"
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-              isActive
-                ? "bg-slate-700 text-white"
-                : "text-slate-300 hover:bg-slate-800 hover:text-white"
-            )
-          }
-        >
-          <ClipboardCheck className="h-4 w-4" />
-          承認フロー
-        </NavLink>
-
-        {(user?.role === "admin" || user?.role === "operator") && (
-          <NavLink
-            to="/mailboxes"
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
-              )
-            }
-          >
-            <Inbox className="h-4 w-4" />
-            メールボックス
-          </NavLink>
-        )}
-
-        {user?.role === "admin" && (
-          <NavLink
-            to="/users"
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
-              )
-            }
-          >
-            <Users className="h-4 w-4" />
-            ユーザー管理
-          </NavLink>
-        )}
-
-        {(user?.role === "admin" || user?.role === "operator") && (
-          <NavLink
-            to="/simulate"
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
-              )
-            }
-          >
-            <FlaskConical className="h-4 w-4" />
-            ポリシーシミュレーター
-          </NavLink>
-        )}
-
-        {user?.role === "admin" && (
-          <NavLink
-            to="/audit-logs"
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
-              )
-            }
-          >
-            <ClipboardList className="h-4 w-4" />
-            監査ログ
-          </NavLink>
-        )}
-
-        {user?.role === "admin" && (
-          <NavLink
-            to="/api-keys"
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
-              )
-            }
-          >
-            <Key className="h-4 w-4" />
-            API キー
-          </NavLink>
-        )}
-
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+        {visibleGroups.map((group, gi) => (
+          <div key={gi}>
+            {group.heading && (
+              <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+                {group.heading}
+              </div>
+            )}
+            <div className="space-y-0.5">
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    cn(
+                      "relative flex items-center gap-2.5 rounded-md px-3 py-2 text-[13px] transition-colors",
+                      isActive
+                        ? "bg-blue-50 font-medium text-blue-800"
+                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    )
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && (
+                        <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-blue-600" />
+                      )}
+                      <item.icon
+                        className={cn("h-4 w-4 shrink-0", isActive ? "text-blue-700" : "text-gray-400")}
+                      />
+                      {item.label}
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {user && (
-        <div className="border-t border-slate-700 px-4 py-4 space-y-2">
-          <div className="text-xs text-slate-400 truncate">{user.email}</div>
-          <div className="flex items-center justify-between">
-            <Badge variant="slate">{roleLabel[user.role]}</Badge>
+        <div className="border-t border-gray-200 px-4 py-3.5">
+          <div className="truncate text-xs text-gray-700">{user.email}</div>
+          <div className="mt-1.5 flex items-center justify-between">
+            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600">
+              {roleLabel[user.role]}
+            </span>
             <button
               onClick={() => logout.mutate()}
               disabled={logout.isPending}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+              className="flex items-center gap-1 text-xs text-gray-400 transition-colors hover:text-gray-700 disabled:opacity-50"
               aria-label="ログアウト"
             >
               <LogOut className="h-3.5 w-3.5" />

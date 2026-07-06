@@ -54,15 +54,15 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50">
       <Card className="w-full max-w-sm">
         <CardContent className="pt-8 pb-8 px-8 flex flex-col items-center gap-6">
           <div className="flex flex-col items-center gap-3">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600">
-              <Shield className="h-8 w-8 text-white" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600">
+              <Shield className="h-6 w-6 text-white" />
             </div>
             <div className="text-center">
-              <h1 className="text-2xl font-bold text-gray-900">MailShield</h1>
+              <h1 className="text-xl font-bold tracking-wide text-gray-900">MailShield</h1>
               <p className="text-sm text-gray-500 mt-1">セキュアなメールゲートウェイ</p>
             </div>
           </div>

@@ -115,6 +115,14 @@ export interface Stats {
   week: StatsPeriod;
 }
 
+export interface StatsTimeseriesPoint {
+  date: string;
+  delivered: number;
+  quarantined: number;
+  rejected: number;
+  total: number;
+}
+
 export interface AssignmentRecord {
   id: string;
   mailbox_id: string;

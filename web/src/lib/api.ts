@@ -8,6 +8,7 @@ import type {
   Message,
   MessageDetail,
   Stats,
+  StatsTimeseriesPoint,
   AuditLog,
   AuditLogParams,
   APIKey,
@@ -200,6 +201,14 @@ export async function removeAssignment(
 
 export async function getStats(): Promise<Stats> {
   return request<Stats>("/stats");
+}
+
+export async function getStatsTimeseries(
+  days: number
+): Promise<{ data: StatsTimeseriesPoint[] }> {
+  return request<{ data: StatsTimeseriesPoint[] }>(
+    `/stats/timeseries?days=${days}`
+  );
 }
 
 // ─── 隔離メール ────────────────────────────────────────────
