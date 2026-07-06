@@ -948,6 +948,69 @@ func (r *Repository) GetStats(ctx context.Context, filter *domain.MailboxVisibil
 	return &domain.Stats{Today: *today, Week: *week}, nil
 }
 
+// GetStatsTimeseries は直近 days 日分（当日含む・UTC 日付単位）の日別処理件数を返す。
+func (r *Repository) GetStatsTimeseries(ctx context.Context, days int, filter *domain.MailboxVisibilityFilter) ([]domain.StatsTimeseriesPoint, error) {
+	now := time.Now().UTC()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	since := todayStart.AddDate(0, 0, -(days - 1))
+
+	visClause, visArgs := buildVisibilityClause(filter)
+	q := "SELECT DATE(received_at), status, COUNT(*) FROM mail_messages WHERE received_at >= ?"
+	if visClause != "" {
+		q += " AND " + visClause
+	}
+	q += " GROUP BY DATE(received_at), status"
+	args := append([]any{since}, visArgs...)
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("日別統計クエリ失敗: %w", err)
+	}
+	defer rows.Close()
+
+	byDate := make(map[string]*domain.StatsTimeseriesPoint, days)
+	for rows.Next() {
+		var (
+			date   time.Time
+			status domain.MessageStatus
+			count  int
+		)
+		if err := rows.Scan(&date, &status, &count); err != nil {
+			return nil, fmt.Errorf("日別統計スキャン失敗: %w", err)
+		}
+		key := date.Format("2006-01-02")
+		p := byDate[key]
+		if p == nil {
+			p = &domain.StatsTimeseriesPoint{Date: key}
+			byDate[key] = p
+		}
+		switch status {
+		case domain.StatusDelivered:
+			p.Delivered += count
+		case domain.StatusQuarantined:
+			p.Quarantined += count
+		case domain.StatusRejected:
+			p.Rejected += count
+		}
+		p.Total += count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("日別統計読み取り失敗: %w", err)
+	}
+
+	// メールがない日も件数 0 で埋め、古い日付から順に days 要素を返す
+	points := make([]domain.StatsTimeseriesPoint, 0, days)
+	for d := since; !d.After(todayStart); d = d.AddDate(0, 0, 1) {
+		key := d.Format("2006-01-02")
+		if p := byDate[key]; p != nil {
+			points = append(points, *p)
+		} else {
+			points = append(points, domain.StatsTimeseriesPoint{Date: key})
+		}
+	}
+	return points, nil
+}
+
 func (r *Repository) getStatsPeriod(ctx context.Context, since time.Time, filter *domain.MailboxVisibilityFilter) (*domain.StatsPeriod, error) {
 	baseArgs := []any{since.UTC()}
 	visClause, visArgs := buildVisibilityClause(filter)

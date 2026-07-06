@@ -9,6 +9,7 @@ import (
 
 type mockRepository struct {
 	getStatsFunc                      func(ctx context.Context, filter *domain.MailboxVisibilityFilter) (*domain.Stats, error)
+	getStatsTimeseriesFunc            func(ctx context.Context, days int, filter *domain.MailboxVisibilityFilter) ([]domain.StatsTimeseriesPoint, error)
 	listMessagesFunc                  func(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error)
 	getMessageFunc                    func(ctx context.Context, id string) (*domain.MessageDetail, error)
 	listQuarantineFunc                func(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error)
@@ -201,6 +202,13 @@ func (m *mockRepository) GetStats(ctx context.Context, filter *domain.MailboxVis
 		return m.getStatsFunc(ctx, filter)
 	}
 	return &domain.Stats{}, nil
+}
+
+func (m *mockRepository) GetStatsTimeseries(ctx context.Context, days int, filter *domain.MailboxVisibilityFilter) ([]domain.StatsTimeseriesPoint, error) {
+	if m.getStatsTimeseriesFunc != nil {
+		return m.getStatsTimeseriesFunc(ctx, days, filter)
+	}
+	return []domain.StatsTimeseriesPoint{}, nil
 }
 
 func (m *mockRepository) ListAttachmentsByMessage(_ context.Context, _ string) ([]domain.Attachment, error) {

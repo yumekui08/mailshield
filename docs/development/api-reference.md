@@ -105,16 +105,33 @@ api-server のデフォルトポートは 8081。
 
 ### `GET /api/v1/stats`
 
-ダッシュボード用の処理統計。`viewer` 以上。
+ダッシュボード用の処理統計。`viewer` 以上（viewer はメールボックス可視性でフィルタされる）。
 
 **レスポンス:**
 ```json
 {
-  "total": 1234,
-  "delivered": 1100,
-  "quarantined": 120,
-  "rejected": 14,
-  "last_24h": {"total": 56, "quarantined": 3}
+  "today": {"delivered": 56, "quarantined": 3, "rejected": 1, "total": 60},
+  "week":  {"delivered": 1100, "quarantined": 120, "rejected": 14, "total": 1234}
+}
+```
+
+### `GET /api/v1/stats/timeseries`
+
+日別の処理件数（ダッシュボードのチャート用）。`viewer` 以上（viewer はメールボックス可視性でフィルタされる）。
+
+**クエリパラメータ:**
+
+| パラメータ | 説明 |
+|-----------|------|
+| `days` | 取得日数（デフォルト 14・最大 90）。当日を含む UTC 日付単位 |
+
+**レスポンス:** 古い日付から順。メールがない日も件数 0 で含まれる。
+```json
+{
+  "data": [
+    {"date": "2026-07-05", "delivered": 42, "quarantined": 2, "rejected": 1, "total": 45},
+    {"date": "2026-07-06", "delivered": 56, "quarantined": 3, "rejected": 0, "total": 59}
+  ]
 }
 ```
 

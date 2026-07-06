@@ -103,6 +103,7 @@ func NewRouter(
 			r.Use(authMW)
 			r.Use(middleware.RequireRole(domain.RoleViewer, domain.RoleOperator, domain.RoleAdmin))
 			r.Get("/", statsHandler.HandleGet)
+			r.Get("/timeseries", statsHandler.HandleTimeseries)
 		})
 
 		// メッセージエンドポイント（viewer以上）

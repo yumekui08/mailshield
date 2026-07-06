@@ -151,6 +151,9 @@ func (s *serviceRepository) GetMailboxAddressesForUser(_ context.Context, _ stri
 func (s *serviceRepository) GetStats(_ context.Context, _ *domain.MailboxVisibilityFilter) (*domain.Stats, error) {
 	return nil, nil
 }
+func (s *serviceRepository) GetStatsTimeseries(_ context.Context, _ int, _ *domain.MailboxVisibilityFilter) ([]domain.StatsTimeseriesPoint, error) {
+	return nil, nil
+}
 func (s *serviceRepository) ListAttachmentsByMessage(_ context.Context, _ string) ([]domain.Attachment, error) {
 	return nil, nil
 }

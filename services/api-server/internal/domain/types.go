@@ -156,6 +156,16 @@ type Stats struct {
 	Week  StatsPeriod `json:"week"`
 }
 
+// StatsTimeseriesPoint は日別のメール処理件数を表す。
+// Date は UTC 基準の日付（YYYY-MM-DD）。
+type StatsTimeseriesPoint struct {
+	Date        string `json:"date"`
+	Delivered   int    `json:"delivered"`
+	Quarantined int    `json:"quarantined"`
+	Rejected    int    `json:"rejected"`
+	Total       int    `json:"total"`
+}
+
 // StorageBackend は添付ファイルの保存先を表す。
 type StorageBackend string
 

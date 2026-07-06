@@ -86,6 +86,11 @@ type Repository interface {
 	// filter が指定された場合はメールボックス可視性で絞り込んだ統計を返す（viewer 向け）。
 	GetStats(ctx context.Context, filter *domain.MailboxVisibilityFilter) (*domain.Stats, error)
 
+	// GetStatsTimeseries は直近 days 日分（当日含む・UTC 日付単位）の日別処理件数を
+	// 古い日付から順に返す。メールが1通もない日も件数 0 で埋めて必ず days 要素を返す。
+	// filter の扱いは GetStats と同じ。
+	GetStatsTimeseries(ctx context.Context, days int, filter *domain.MailboxVisibilityFilter) ([]domain.StatsTimeseriesPoint, error)
+
 	// ListAttachmentsByMessage はメッセージに紐づく添付ファイル一覧を返す（削除済み除く）。
 	ListAttachmentsByMessage(ctx context.Context, messageID string) ([]domain.Attachment, error)
 	// ListAttachmentsByToken は download_token に紐づく添付ファイル一覧を返す（削除済み除く）。
