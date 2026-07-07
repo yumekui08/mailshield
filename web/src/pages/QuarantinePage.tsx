@@ -312,7 +312,7 @@ export function QuarantinePage() {
       )}
 
       {isError && (
-        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           {error instanceof ApiError && error.status === 403
             ? "隔離メールの閲覧には operator 以上の権限が必要です。管理者にロールの付与を依頼してください。"
             : `エラーが発生しました: ${error instanceof Error ? error.message : "不明なエラー"}`}

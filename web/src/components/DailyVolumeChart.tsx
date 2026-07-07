@@ -1,10 +1,10 @@
 import type { StatsTimeseriesPoint } from "../types";
 
-// 系列色は tailwind.config.js の chart.* と同値（dataviz バリデーター検証済み）
+// 系列色はテーマ対応の CSS 変数（src/index.css で定義・dataviz バリデーター検証済み）
 const SERIES = [
-  { key: "delivered", label: "配送", color: "#0e8a4f" },
-  { key: "quarantined", label: "隔離", color: "#d24343" },
-  { key: "rejected", label: "拒否", color: "#3d72ad" },
+  { key: "delivered", label: "配送", color: "var(--chart-delivered)" },
+  { key: "quarantined", label: "隔離", color: "var(--chart-quarantined)" },
+  { key: "rejected", label: "拒否", color: "var(--chart-rejected)" },
 ] as const;
 
 // 軸目盛り用に max を切りのよい数に切り上げる

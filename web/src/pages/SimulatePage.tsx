@@ -43,7 +43,7 @@ export function SimulatePage() {
   if (me && me.role === "viewer") {
     return (
       <div className="p-6">
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           この画面は operator / admin のみアクセスできます。
         </div>
       </div>
@@ -61,7 +61,7 @@ export function SimulatePage() {
       <div className="space-y-2">
         <label className="text-sm font-medium text-slate-700">EML（生メール）</label>
         <textarea
-          className="w-full h-64 rounded-md border border-slate-300 bg-white p-3 font-mono text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+          className="w-full h-64 rounded-md border border-slate-300 bg-surface p-3 font-mono text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
           value={eml}
           onChange={(e) => setEml(e.target.value)}
           placeholder="ここに EML を貼り付けてください..."
@@ -79,7 +79,7 @@ export function SimulatePage() {
       </Button>
 
       {simulate.isError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           エラー: {(simulate.error as Error)?.message ?? "不明なエラー"}
         </div>
       )}
@@ -125,7 +125,7 @@ export function SimulatePage() {
                 {result.inspect_results.map((r) => (
                   <div
                     key={r.worker}
-                    className="flex items-center gap-3 rounded-md bg-white border border-slate-200 px-3 py-2 text-sm"
+                    className="flex items-center gap-3 rounded-md bg-surface border border-slate-200 px-3 py-2 text-sm"
                   >
                     {r.detected ? (
                       <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />

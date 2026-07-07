@@ -103,7 +103,7 @@ export function APIKeysPage() {
           <p className="text-sm text-yellow-700">
             このキーは一度しか表示されません。必ずコピーして安全な場所に保管してください。
           </p>
-          <div className="flex items-center font-mono text-sm bg-white border rounded px-3 py-2">
+          <div className="flex items-center font-mono text-sm bg-surface border rounded px-3 py-2">
             <span className="break-all">{newKey}</span>
             <CopyButton value={newKey} />
           </div>

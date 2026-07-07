@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
+import { ThemeProvider, useTheme } from "./lib/theme";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { SetupPage } from "./pages/SetupPage";
@@ -29,9 +30,17 @@ const queryClient = new QueryClient({
   },
 });
 
+// Toaster はテーマに追従させる（sonner の theme プロパティ）
+function ThemedToaster() {
+  const { theme } = useTheme();
+  const isDark = theme === "dark" || theme === "dark-gray";
+  return <Toaster richColors position="top-right" theme={isDark ? "dark" : "light"} />;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -55,7 +64,8 @@ export function App() {
           </Route>
         </Routes>
       </BrowserRouter>
-      <Toaster richColors position="top-right" />
+      <ThemedToaster />
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

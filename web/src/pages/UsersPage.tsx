@@ -77,7 +77,7 @@ export function UsersPage() {
   if (me && me.role !== "admin") {
     return (
       <div className="p-6">
-        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           この画面は管理者（admin）のみアクセスできます。
         </div>
       </div>
@@ -203,7 +203,7 @@ export function UsersPage() {
       />
 
       {isError && (
-        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           ユーザー一覧の取得に失敗しました。
         </div>
       )}

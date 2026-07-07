@@ -30,7 +30,7 @@ function PageButton({
       className={cn(
         "flex h-7 min-w-7 items-center justify-center rounded border px-1.5 text-xs tabular-nums transition-colors",
         active
-          ? "border-blue-700 bg-blue-700 font-medium text-white"
+          ? "border-blue-600 bg-blue-600 font-medium text-white"
           : "border-gray-300 bg-surface text-gray-600 hover:bg-gray-100 hover:text-gray-900",
         "disabled:pointer-events-none disabled:opacity-40"
       )}

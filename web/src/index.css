@@ -2,14 +2,240 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * テーマ定義
+ *
+ * すべての色は CSS 変数で定義し、tailwind.config.js がユーティリティに割り当てる。
+ * <html data-theme="..."> の切替だけで全画面のテーマが変わる。
+ *
+ * ランプの意味論（全テーマ共通の契約）:
+ *   50/100   : 淡い背景（ダーク系では暗いティント）
+ *   200/300  : ボーダー
+ *   400/500  : アイコン・補助テキスト
+ *   600      : ソリッド塗り（白文字を載せる。全テーマで中間トーン）
+ *   700      : ソリッドのホバー / リンクテキスト
+ *   800      : ティント背景上のテキスト（ダーク系では明るい色になる）
+ *   900/950  : 最強調テキスト
+ * gray はページ骨格用: 50=ページ背景, 200=ヘアライン, 500=補助文字, 900=本文。
+ * ダーク系テーマでは gray ランプ全体を反転させることで、既存の
+ * text-gray-900（本文）等がそのまま「明るい文字」になる。
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ページ骨格（ウォームニュートラル） */
+  --c-surface: #fdfdfb;
+  --c-gray-50: #f7f6f2;
+  --c-gray-100: #efede6;
+  --c-gray-200: #e3e0d6;
+  --c-gray-300: #cfcbbe;
+  --c-gray-400: #a8a496;
+  --c-gray-500: #8a8578;
+  --c-gray-600: #6b675c;
+  --c-gray-700: #524f46;
+  --c-gray-800: #37352e;
+  --c-gray-900: #23221c;
+  --c-gray-950: #171610;
+
+  /* ブランド（深いティール） */
+  --c-blue-50: #eef7f5;
+  --c-blue-100: #d7ece8;
+  --c-blue-200: #b0d9d2;
+  --c-blue-300: #7fbfb5;
+  --c-blue-400: #4a9d92;
+  --c-blue-500: #2d8177;
+  --c-blue-600: #196b62;
+  --c-blue-700: #14574f;
+  --c-blue-800: #12463f;
+  --c-blue-900: #103a35;
+  --c-blue-950: #082220;
+
+  --c-red-50: #fef2f2;
+  --c-red-100: #fee2e2;
+  --c-red-200: #fecaca;
+  --c-red-300: #fca5a5;
+  --c-red-400: #f87171;
+  --c-red-500: #ef4444;
+  --c-red-600: #dc2626;
+  --c-red-700: #b91c1c;
+  --c-red-800: #991b1b;
+  --c-red-900: #7f1d1d;
+  --c-red-950: #450a0a;
+
+  --c-green-50: #f0fdf4;
+  --c-green-100: #dcfce7;
+  --c-green-200: #bbf7d0;
+  --c-green-300: #86efac;
+  --c-green-400: #4ade80;
+  --c-green-500: #22c55e;
+  --c-green-600: #16a34a;
+  --c-green-700: #15803d;
+  --c-green-800: #166534;
+  --c-green-900: #14532d;
+  --c-green-950: #052e16;
+
+  --c-yellow-50: #fefce8;
+  --c-yellow-100: #fef9c3;
+  --c-yellow-200: #fef08a;
+  --c-yellow-300: #fde047;
+  --c-yellow-400: #facc15;
+  --c-yellow-500: #eab308;
+  --c-yellow-600: #ca8a04;
+  --c-yellow-700: #a16207;
+  --c-yellow-800: #854d0e;
+  --c-yellow-900: #713f12;
+  --c-yellow-950: #422006;
+
+  --c-slate-50: #f8fafc;
+  --c-slate-100: #f1f5f9;
+  --c-slate-200: #e2e8f0;
+  --c-slate-300: #cbd5e1;
+  --c-slate-400: #94a3b8;
+  --c-slate-500: #64748b;
+  --c-slate-600: #475569;
+  --c-slate-700: #334155;
+  --c-slate-800: #1e293b;
+  --c-slate-900: #0f172a;
+  --c-slate-950: #020617;
+
+  /* チャート系列色（dataviz バリデーター検証済み・ライトサーフェス） */
+  --chart-delivered: #0e8a4f;
+  --chart-quarantined: #d24343;
+  --chart-rejected: #3d72ad;
+
+  --selection-bg: #d7ece8;
+}
+
+/* ライトグレー: 骨格のみクールなニュートラルに差し替え（アクセントはライトと共通） */
+:root[data-theme="light-gray"] {
+  --c-surface: #ffffff;
+  --c-gray-50: #f4f5f6;
+  --c-gray-100: #e9ebed;
+  --c-gray-200: #dcdfe2;
+  --c-gray-300: #c6cacf;
+  --c-gray-400: #9aa0a6;
+  --c-gray-500: #7d838a;
+  --c-gray-600: #5f646b;
+  --c-gray-700: #494d53;
+  --c-gray-800: #33363b;
+  --c-gray-900: #1f2226;
+  --c-gray-950: #131518;
+}
+
+/* ダーク系共通（dark / dark-gray）: 全ランプを反転 */
+:root[data-theme="dark"],
+:root[data-theme="dark-gray"] {
+  color-scheme: dark;
+
+  --c-blue-50: #12332e;
+  --c-blue-100: #16403a;
+  --c-blue-200: #1d534b;
+  --c-blue-300: #26685e;
+  --c-blue-400: #3c9183;
+  --c-blue-500: #4aa799;
+  --c-blue-600: #219084;
+  --c-blue-700: #2aa093;
+  --c-blue-800: #8fd6ca;
+  --c-blue-900: #b5e6dd;
+  --c-blue-950: #d8f3ee;
+
+  --c-red-50: #3b1615;
+  --c-red-100: #4a1c1b;
+  --c-red-200: #602726;
+  --c-red-300: #7c3230;
+  --c-red-400: #e07b78;
+  --c-red-500: #e88f8c;
+  --c-red-600: #c94a4a;
+  --c-red-700: #d15c5a;
+  --c-red-800: #f1a8a5;
+  --c-red-900: #f8cac8;
+  --c-red-950: #fde8e7;
+
+  --c-green-50: #12301c;
+  --c-green-100: #163a22;
+  --c-green-200: #1d4c2c;
+  --c-green-300: #266137;
+  --c-green-400: #4fbf72;
+  --c-green-500: #63cc84;
+  --c-green-600: #1f9950;
+  --c-green-700: #2cab5e;
+  --c-green-800: #97dfae;
+  --c-green-900: #c0edcd;
+  --c-green-950: #e2f8e8;
+
+  --c-yellow-50: #382b0d;
+  --c-yellow-100: #453512;
+  --c-yellow-200: #5a4517;
+  --c-yellow-300: #74591d;
+  --c-yellow-400: #e3b341;
+  --c-yellow-500: #eec35b;
+  --c-yellow-600: #b98a1d;
+  --c-yellow-700: #cf9d2a;
+  --c-yellow-800: #f0d08a;
+  --c-yellow-900: #f7e3b6;
+  --c-yellow-950: #fcf3dd;
+
+  --c-slate-50: #1c2128;
+  --c-slate-100: #232933;
+  --c-slate-200: #2f3742;
+  --c-slate-300: #3d4653;
+  --c-slate-400: #7c8898;
+  --c-slate-500: #939eae;
+  --c-slate-600: #aab4c2;
+  --c-slate-700: #c3cbd6;
+  --c-slate-800: #dbe1e9;
+  --c-slate-900: #edf1f5;
+  --c-slate-950: #f8fafc;
+
+  /* チャート系列色（ダークサーフェス向けに検証済み） */
+  --chart-delivered: #27a562;
+  --chart-quarantined: #e66767;
+  --chart-rejected: #5c8fc9;
+
+  --selection-bg: #1d534b;
+}
+
+/* ダーク: 黒に近いウォームニュートラル */
+:root[data-theme="dark"] {
+  --c-surface: #1c1b19;
+  --c-gray-50: #151412;
+  --c-gray-100: #1e1d1a;
+  --c-gray-200: #2b2a26;
+  --c-gray-300: #403e38;
+  --c-gray-400: #6e6a5f;
+  --c-gray-500: #8b8679;
+  --c-gray-600: #a6a195;
+  --c-gray-700: #c2bdb0;
+  --c-gray-800: #dcd8cc;
+  --c-gray-900: #efece4;
+  --c-gray-950: #faf9f5;
+}
+
+/* ダークグレー: ダークより明確に一段明るいニュートラルグレー */
+:root[data-theme="dark-gray"] {
+  --c-surface: #383838;
+  --c-gray-50: #2e2e2e;
+  --c-gray-100: #3a3a3a;
+  --c-gray-200: #484848;
+  --c-gray-300: #565656;
+  --c-gray-400: #8a8a8a;
+  --c-gray-500: #a0a0a0;
+  --c-gray-600: #b4b4b4;
+  --c-gray-700: #c9c9c9;
+  --c-gray-800: #dedede;
+  --c-gray-900: #f1f1f1;
+  --c-gray-950: #fbfbfb;
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  background-color: #f7f6f2;
-  color: #23221c;
+  background-color: var(--c-gray-50);
+  color: var(--c-gray-900);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
     "Hiragino Kaku Gothic ProN", "Noto Sans JP", Roboto, "Helvetica Neue",
     Arial, sans-serif;
@@ -20,5 +246,5 @@ body {
 }
 
 ::selection {
-  background-color: #d7ece8;
+  background-color: var(--selection-bg);
 }

@@ -94,7 +94,7 @@ function AssignmentsPanel({ mailbox, onClose }: { mailbox: MailboxRecord; onClos
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="fixed inset-0 bg-black/30" onClick={onClose} aria-hidden="true" />
-      <div className="relative z-10 w-full max-w-lg bg-white shadow-xl flex flex-col h-full overflow-y-auto">
+      <div className="relative z-10 w-full max-w-lg bg-surface border-l border-gray-200 flex flex-col h-full overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
             <div className="font-semibold text-gray-900">{mailbox.email_address}</div>
@@ -161,7 +161,7 @@ function AssignmentsPanel({ mailbox, onClose }: { mailbox: MailboxRecord; onClos
               {assignments.map((a) => (
                 <div
                   key={a.id}
-                  className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 bg-white"
+                  className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 bg-surface"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <Badge variant={roleBadgeVariant[a.role]}>{a.role}</Badge>
@@ -269,7 +269,7 @@ export function MailboxesPage() {
       />
 
       {isError && (
-        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           メールボックス一覧の取得に失敗しました。
         </div>
       )}

@@ -48,7 +48,7 @@ export function AuditLogsPage() {
   if (me && me.role !== "admin") {
     return (
       <div className="p-6">
-        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           この画面は管理者（admin）のみアクセスできます。
         </div>
       </div>
@@ -126,7 +126,7 @@ export function AuditLogsPage() {
       </div>
 
       {isError && (
-        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           監査ログの取得に失敗しました。
         </div>
       )}

@@ -8,9 +8,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-blue-700 text-white hover:bg-blue-800",
-        destructive: "bg-red-700 text-white hover:bg-red-800",
-        success: "bg-green-700 text-white hover:bg-green-800",
+        // ソリッド塗りは 600、ホバーは 700（テーマ側で 700 が常に「ホバーに適した色」になる）
+        default: "bg-blue-600 text-white hover:bg-blue-700",
+        destructive: "bg-red-600 text-white hover:bg-red-700",
+        success: "bg-green-600 text-white hover:bg-green-700",
         outline:
           "border border-gray-300 bg-surface text-gray-700 hover:bg-gray-100 hover:text-gray-900",
         ghost: "text-gray-600 hover:bg-gray-100 hover:text-gray-900",

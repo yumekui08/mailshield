@@ -51,7 +51,7 @@ function AttachmentList({
             <a
               href={downloadURL(att.filename)}
               download={att.filename}
-              className="shrink-0 inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50 transition-colors"
+              className="shrink-0 inline-flex items-center gap-1 rounded-md border border-gray-200 bg-surface px-3 py-1.5 text-xs font-medium hover:bg-gray-50 transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
               ダウンロード

@@ -11,9 +11,11 @@ import {
   FlaskConical,
   ClipboardCheck,
   ShieldAlert,
+  SunMoon,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useMe, useLogout } from "../hooks/useAuth";
+import { useTheme, THEMES, type Theme } from "../lib/theme";
 import type { Role } from "../types";
 
 const roleLabel: Record<Role, string> = {
@@ -67,6 +69,7 @@ const navGroups: NavGroup[] = [
 export function Sidebar() {
   const { data: user } = useMe();
   const logout = useLogout();
+  const { theme, setTheme } = useTheme();
 
   const visibleGroups = navGroups
     .map((g) => ({
@@ -129,6 +132,22 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
+
+      <div className="flex items-center gap-2 border-t border-gray-200 px-4 py-2.5">
+        <SunMoon className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
+        <select
+          value={theme}
+          onChange={(e) => setTheme(e.target.value as Theme)}
+          aria-label="テーマ"
+          className="h-6 w-full rounded border border-gray-200 bg-surface px-1 text-[11px] text-gray-600 focus-visible:border-blue-500 focus-visible:outline-none"
+        >
+          {THEMES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {user && (
         <div className="border-t border-gray-200 px-4 py-3.5">

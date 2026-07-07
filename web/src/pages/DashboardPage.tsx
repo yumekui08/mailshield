@@ -70,19 +70,19 @@ export function DashboardPage() {
             label="配送"
             today={stats.today.delivered}
             week={stats.week.delivered}
-            accent="#0e8a4f"
+            accent="var(--chart-delivered)"
           />
           <StatTile
             label="隔離"
             today={stats.today.quarantined}
             week={stats.week.quarantined}
-            accent="#d24343"
+            accent="var(--chart-quarantined)"
           />
           <StatTile
             label="拒否"
             today={stats.today.rejected}
             week={stats.week.rejected}
-            accent="#3d72ad"
+            accent="var(--chart-rejected)"
           />
         </div>
       )}
