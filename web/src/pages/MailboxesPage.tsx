@@ -11,6 +11,9 @@ import {
   useRemoveAssignment,
 } from "../hooks/useMailboxes";
 import { useUsers } from "../hooks/useUsers";
+import { usePagedList } from "../hooks/usePagedList";
+import { PageHeader } from "../components/PageHeader";
+import { Pagination } from "../components/Pagination";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
@@ -194,6 +197,8 @@ export function MailboxesPage() {
   const [dialog, setDialog] = useState<MainDialog>(null);
   const [assignMailbox, setAssignMailbox] = useState<MailboxRecord | null>(null);
 
+  const { pageItems: pagedMailboxes, meta, setPage } = usePagedList(data?.data, 20);
+
   const [createEmail, setCreateEmail] = useState("");
   const [createDisplayName, setCreateDisplayName] = useState("");
   const [editDisplayName, setEditDisplayName] = useState("");
@@ -249,28 +254,27 @@ export function MailboxesPage() {
     });
   }
 
-  const mailboxes = data?.data ?? [];
-
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-gray-900">メールボックス管理</h1>
-          {data && <Badge variant="blue">{data.meta.total} 件</Badge>}
-        </div>
-        <Button onClick={() => { setCreateEmail(""); setCreateDisplayName(""); setDialog({ type: "create" }); }}>
-          <MailPlus className="h-4 w-4 mr-2" />
-          メールボックス追加
-        </Button>
-      </div>
+    <div className="p-6 space-y-4">
+      <PageHeader
+        title="メールボックス管理"
+        description="隔離メールの閲覧・解放権限を割り当てるメールボックス"
+        count={data?.meta.total}
+        actions={
+          <Button onClick={() => { setCreateEmail(""); setCreateDisplayName(""); setDialog({ type: "create" }); }}>
+            <MailPlus className="h-4 w-4 mr-2" />
+            メールボックス追加
+          </Button>
+        }
+      />
 
       {isError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           メールボックス一覧の取得に失敗しました。
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+      <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
@@ -286,7 +290,7 @@ export function MailboxesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mailboxes.length === 0 ? (
+              {pagedMailboxes.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center text-gray-500 py-10">
                     <div className="flex flex-col items-center gap-2">
@@ -296,7 +300,7 @@ export function MailboxesPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                mailboxes.map((mailbox) => (
+                pagedMailboxes.map((mailbox) => (
                   <TableRow key={mailbox.id}>
                     <TableCell className="text-sm font-medium">{mailbox.email_address}</TableCell>
                     <TableCell className="text-sm text-gray-600">{mailbox.display_name}</TableCell>
@@ -339,6 +343,13 @@ export function MailboxesPage() {
             </TableBody>
           </Table>
         )}
+        {data && (
+          <Pagination
+            meta={meta}
+            onPageChange={setPage}
+            className="border-t border-gray-200 bg-gray-50 px-3 py-2"
+          />
+        )}
       </div>
 
       {/* 作成ダイアログ */}
@@ -347,7 +358,7 @@ export function MailboxesPage() {
           <DialogTitle>メールボックスを追加</DialogTitle>
           <DialogDescription>新しい内部メールアドレスを登録します。</DialogDescription>
         </DialogHeader>
-        <div className="px-6 pb-4 space-y-3">
+        <div className="px-5 py-4 space-y-3">
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">メールアドレス *</label>
             <Input
@@ -382,7 +393,7 @@ export function MailboxesPage() {
             {dialog?.type === "edit" && dialog.mailbox.email_address}
           </DialogDescription>
         </DialogHeader>
-        <div className="px-6 pb-4 space-y-3">
+        <div className="px-5 py-4 space-y-3">
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">表示名</label>
             <Input value={editDisplayName} onChange={(e) => setEditDisplayName(e.target.value)} />

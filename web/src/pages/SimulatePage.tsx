@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { FlaskConical, Play, CheckCircle, AlertTriangle } from "lucide-react";
+import { Play, CheckCircle, AlertTriangle } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { simulatePolicy } from "../lib/api";
 import type { SimulateResult } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
+import { PageHeader } from "../components/PageHeader";
 import { useMe } from "../hooks/useAuth";
 
 const DEFAULT_EML = `From: sender@external.example.com
@@ -50,15 +51,11 @@ export function SimulatePage() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
-      <div className="flex items-center gap-2">
-        <FlaskConical className="h-5 w-5 text-slate-600" />
-        <h1 className="text-xl font-semibold text-slate-900">ポリシーシミュレーター</h1>
-      </div>
-      <p className="text-sm text-slate-600">
-        EML を貼り付けて、現在のワーカー設定・ポリシーでどのように処理されるか確認できます。
-        実際の配送・保存は行いません。
-      </p>
+    <div className="p-6 space-y-4 max-w-4xl">
+      <PageHeader
+        title="ポリシーシミュレーター"
+        description="EML を貼り付けて、現在のワーカー設定・ポリシーでどう処理されるかを確認できます（実際の配送・保存は行いません）"
+      />
 
       {/* EML 入力エリア */}
       <div className="space-y-2">

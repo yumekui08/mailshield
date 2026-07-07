@@ -12,11 +12,11 @@ export function Dialog({ open, onClose, children }: DialogProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        className="fixed inset-0 bg-black/50"
+        className="fixed inset-0 bg-black/40"
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative z-10 w-full max-w-md rounded-lg bg-white shadow-xl">
+      <div className="relative z-10 w-full max-w-md rounded-lg border border-gray-300 bg-surface">
         {children}
       </div>
     </div>
@@ -28,7 +28,10 @@ export function DialogHeader({
   ...props
 }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn("flex flex-col space-y-1.5 p-6", className)} {...props} />
+    <div
+      className={cn("flex flex-col space-y-1 border-b border-gray-100 px-5 py-4", className)}
+      {...props}
+    />
   );
 }
 
@@ -38,7 +41,7 @@ export function DialogTitle({
 }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h2
-      className={cn("text-lg font-semibold leading-none tracking-tight", className)}
+      className={cn("text-base font-semibold leading-tight text-gray-900", className)}
       {...props}
     />
   );
@@ -59,7 +62,7 @@ export function DialogFooter({
 }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex justify-end gap-3 p-6 pt-0", className)}
+      className={cn("flex justify-end gap-2 px-5 py-4 pt-2", className)}
       {...props}
     />
   );

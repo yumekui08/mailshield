@@ -1,8 +1,11 @@
 import { useNavigate } from "react-router-dom";
 import { ClipboardCheck } from "lucide-react";
 import { useApprovalList } from "../hooks/useApprovals";
+import { usePagedList } from "../hooks/usePagedList";
 import { Skeleton } from "../components/ui/skeleton";
 import { Badge } from "../components/ui/badge";
+import { PageHeader } from "../components/PageHeader";
+import { Pagination } from "../components/Pagination";
 import {
   Table,
   TableBody,
@@ -40,21 +43,23 @@ export function ApprovalsPage() {
   const { data, isLoading, isError } = useApprovalList();
 
   const items = data?.items ?? [];
+  const { pageItems, meta, setPage } = usePagedList(data ? items : undefined, 20);
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold text-gray-900">承認フロー</h1>
-        {data && <Badge variant="blue">{items.length} 件</Badge>}
-      </div>
+    <div className="p-6 space-y-4">
+      <PageHeader
+        title="承認フロー"
+        description="送信ポリシーにより承認者の判断を待っているメール"
+        count={data ? items.length : undefined}
+      />
 
       {isError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           承認依頼一覧の取得に失敗しました。
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+      <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -73,7 +78,7 @@ export function ApprovalsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.length === 0 ? (
+              {pageItems.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={5}
@@ -86,7 +91,7 @@ export function ApprovalsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                items.map((item) => (
+                pageItems.map((item) => (
                   <TableRow
                     key={item.id}
                     className="cursor-pointer hover:bg-gray-50"
@@ -112,6 +117,13 @@ export function ApprovalsPage() {
               )}
             </TableBody>
           </Table>
+        )}
+        {data && (
+          <Pagination
+            meta={meta}
+            onPageChange={setPage}
+            className="border-t border-gray-200 bg-gray-50 px-3 py-2"
+          />
         )}
       </div>
     </div>

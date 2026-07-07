@@ -12,7 +12,7 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Skeleton } from "../components/ui/skeleton";
 import { StatusBadge } from "../components/StatusBadge";
-import { Badge } from "../components/ui/badge";
+import { PageHeader } from "../components/PageHeader";
 import { Pagination } from "../components/Pagination";
 import {
   Table,
@@ -109,13 +109,14 @@ export function MessagesPage() {
   });
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold text-gray-900">メール処理ログ</h1>
-        {data && <Badge variant="blue">{data.meta.total} 件</Badge>}
-      </div>
+    <div className="p-6 space-y-4">
+      <PageHeader
+        title="メール処理ログ"
+        description="ゲートウェイを通過したすべてのメールの処理履歴"
+        count={data?.meta.total}
+      />
 
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <Input
           placeholder="送信元で絞り込み"
           value={fromFilter}
@@ -153,12 +154,12 @@ export function MessagesPage() {
       </div>
 
       {isError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           メール一覧の取得に失敗しました。
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+      <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
@@ -201,11 +202,14 @@ export function MessagesPage() {
             </TableBody>
           </Table>
         )}
+        {data && (
+          <Pagination
+            meta={data.meta}
+            onPageChange={setPage}
+            className="border-t border-gray-200 bg-gray-50 px-3 py-2"
+          />
+        )}
       </div>
-
-      {data && data.meta.total_pages > 1 && (
-        <Pagination meta={data.meta} onPageChange={setPage} />
-      )}
     </div>
   );
 }

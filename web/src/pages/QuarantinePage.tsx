@@ -29,7 +29,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "../components/ui/dialog";
-import { Badge } from "../components/ui/badge";
+import { PageHeader } from "../components/PageHeader";
 import { Pagination } from "../components/Pagination";
 import { formatDate, formatBytes } from "../lib/utils";
 import { ApiError } from "../lib/api";
@@ -227,15 +227,14 @@ export function QuarantinePage() {
   const selectedCount = selectedIds.length;
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold text-gray-900">隔離メール</h1>
-        {data && (
-          <Badge variant="red">{data.meta.total} 件</Badge>
-        )}
-      </div>
+    <div className="p-6 space-y-4">
+      <PageHeader
+        title="隔離メール"
+        description="ポリシーにより配送を保留しているメール。解放すると配送されます"
+        count={data?.meta.total}
+      />
 
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <Input
           placeholder="送信元で絞り込み"
           value={fromFilter}
@@ -274,7 +273,7 @@ export function QuarantinePage() {
 
       {/* 一括操作バー */}
       {selectedCount > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5">
+        <div className="flex items-center gap-3 rounded border border-blue-200 bg-blue-50 px-4 py-2">
           <span className="text-sm font-medium text-blue-800">
             {selectedCount} 件選択中
           </span>
@@ -313,14 +312,14 @@ export function QuarantinePage() {
       )}
 
       {isError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error instanceof ApiError && error.status === 403
             ? "隔離メールの閲覧には operator 以上の権限が必要です。管理者にロールの付与を依頼してください。"
             : `エラーが発生しました: ${error instanceof Error ? error.message : "不明なエラー"}`}
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+      <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -375,11 +374,14 @@ export function QuarantinePage() {
             </TableBody>
           </Table>
         )}
+        {data && (
+          <Pagination
+            meta={data.meta}
+            onPageChange={(p) => { setPage(p); setRowSelection({}); }}
+            className="border-t border-gray-200 bg-gray-50 px-3 py-2"
+          />
+        )}
       </div>
-
-      {data && data.meta.total_pages > 1 && (
-        <Pagination meta={data.meta} onPageChange={(p) => { setPage(p); setRowSelection({}); }} />
-      )}
 
       <Dialog
         open={confirmAction !== null}

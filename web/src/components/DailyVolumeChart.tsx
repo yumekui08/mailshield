@@ -50,7 +50,7 @@ export function DailyVolumeChart({ points }: DailyVolumeChartProps) {
         {SERIES.map((s) => (
           <span key={s.key} className="flex items-center gap-1.5 text-xs text-gray-600">
             <span
-              className="inline-block h-2.5 w-2.5 rounded-[3px]"
+              className="inline-block h-2.5 w-2.5 rounded-sm"
               style={{ backgroundColor: s.color }}
               aria-hidden
             />
@@ -97,18 +97,16 @@ export function DailyVolumeChart({ points }: DailyVolumeChartProps) {
                   className="group relative flex h-full flex-1 items-end justify-center"
                 >
                   {/* ホバーの当たり判定は列全体。ホバー時に淡いウォッシュを敷く */}
-                  <div className="absolute inset-0 rounded-sm bg-gray-100 opacity-0 transition-opacity group-hover:opacity-60" />
+                  <div className="absolute inset-0 bg-gray-100 opacity-0 transition-opacity group-hover:opacity-60" />
 
                   {/* 積み上げバー（下から 配送 → 隔離 → 拒否、セグメント間 2px ギャップ） */}
                   <div className="relative flex h-full w-full max-w-[22px] flex-col-reverse gap-[2px] pb-px">
-                    {SERIES.map((s, si) => {
+                    {SERIES.map((s) => {
                       const value = p[s.key];
                       if (value === 0) return null;
-                      const isTop = SERIES.slice(si + 1).every((t) => p[t.key] === 0);
                       return (
                         <div
                           key={s.key}
-                          className={isTop ? "rounded-t-[3px]" : ""}
                           style={{
                             backgroundColor: s.color,
                             height: `${(value / yMax) * 100}%`,
@@ -121,7 +119,7 @@ export function DailyVolumeChart({ points }: DailyVolumeChartProps) {
 
                   {/* ツールチップ */}
                   <div
-                    className={`pointer-events-none absolute bottom-full z-10 mb-1.5 hidden min-w-[132px] rounded-md border border-gray-200 bg-surface px-3 py-2 text-xs shadow-sm group-hover:block ${
+                    className={`pointer-events-none absolute bottom-full z-10 mb-1.5 hidden min-w-[132px] rounded border border-gray-300 bg-surface px-3 py-2 text-xs group-hover:block ${
                       isRightHalf ? "right-0" : "left-0"
                     }`}
                   >
@@ -130,7 +128,7 @@ export function DailyVolumeChart({ points }: DailyVolumeChartProps) {
                       <div key={s.key} className="flex items-center justify-between gap-3 leading-5">
                         <span className="flex items-center gap-1.5 text-gray-600">
                           <span
-                            className="inline-block h-2 w-2 rounded-[2px]"
+                            className="inline-block h-2 w-2 rounded-sm"
                             style={{ backgroundColor: s.color }}
                             aria-hidden
                           />

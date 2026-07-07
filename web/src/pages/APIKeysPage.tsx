@@ -1,7 +1,11 @@
 import { useState } from "react";
-import { Key, Plus, Trash2, Copy, Check } from "lucide-react";
+import { Plus, Trash2, Copy, Check } from "lucide-react";
 import { useAPIKeys, useCreateAPIKey, useRevokeAPIKey } from "../hooks/useAPIKeys";
+import { usePagedList } from "../hooks/usePagedList";
 import { useMe } from "../hooks/useAuth";
+import { PageHeader } from "../components/PageHeader";
+import { Pagination } from "../components/Pagination";
+import { Select } from "../components/ui/select";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
@@ -54,6 +58,8 @@ export function APIKeysPage() {
   const [expiresAt, setExpiresAt] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
 
+  const { pageItems: pagedKeys, meta, setPage } = usePagedList(data?.data, 20);
+
   if (me?.role !== "admin") {
     return (
       <div className="p-6 text-gray-500">この画面は管理者のみ表示できます。</div>
@@ -77,23 +83,22 @@ export function APIKeysPage() {
     revokeMutation.mutate(id);
   };
 
-  const keys = data?.data ?? [];
-
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Key size={20} className="text-gray-500" />
-          <h1 className="text-xl font-semibold">API キー管理</h1>
-        </div>
-        <Button size="sm" onClick={() => setShowForm(!showForm)}>
-          <Plus size={14} className="mr-1" />
-          新規発行
-        </Button>
-      </div>
+    <div className="p-6 space-y-4">
+      <PageHeader
+        title="API キー管理"
+        description="REST API を機械間連携で利用するための Bearer トークン"
+        count={data ? data.data.length : undefined}
+        actions={
+          <Button onClick={() => setShowForm(!showForm)}>
+            <Plus size={14} className="mr-1" />
+            新規発行
+          </Button>
+        }
+      />
 
       {newKey && (
-        <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 space-y-2">
+        <div className="bg-yellow-50 border border-yellow-300 rounded p-4 space-y-2">
           <p className="font-semibold text-yellow-800">API キーが発行されました</p>
           <p className="text-sm text-yellow-700">
             このキーは一度しか表示されません。必ずコピーして安全な場所に保管してください。
@@ -109,7 +114,7 @@ export function APIKeysPage() {
       )}
 
       {showForm && (
-        <div className="border rounded-lg p-4 space-y-4 bg-gray-50">
+        <div className="border border-gray-200 rounded-lg p-4 space-y-4 bg-surface">
           <p className="font-medium text-sm">新しい API キーを発行</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
@@ -122,15 +127,11 @@ export function APIKeysPage() {
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">ロール</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as Role)}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-              >
+              <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
                 <option value="viewer">viewer</option>
                 <option value="operator">operator</option>
                 <option value="admin">admin</option>
-              </select>
+              </Select>
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">有効期限（任意）</label>
@@ -156,7 +157,7 @@ export function APIKeysPage() {
         </div>
       )}
 
-      <div className="border rounded-lg overflow-hidden">
+      <div className="border border-gray-200 rounded-lg bg-surface overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -180,14 +181,14 @@ export function APIKeysPage() {
                   ))}
                 </TableRow>
               ))
-            ) : keys.length === 0 ? (
+            ) : pagedKeys.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-gray-400 py-8">
                   API キーがありません
                 </TableCell>
               </TableRow>
             ) : (
-              keys.map((k) => (
+              pagedKeys.map((k) => (
                 <TableRow key={k.id} className={k.revoked_at ? "opacity-50" : ""}>
                   <TableCell className="font-medium">{k.name}</TableCell>
                   <TableCell>{roleBadge(k.role)}</TableCell>
@@ -217,6 +218,13 @@ export function APIKeysPage() {
             )}
           </TableBody>
         </Table>
+        {data && (
+          <Pagination
+            meta={meta}
+            onPageChange={setPage}
+            className="border-t border-gray-200 bg-gray-50 px-3 py-2"
+          />
+        )}
       </div>
     </div>
   );

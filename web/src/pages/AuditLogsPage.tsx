@@ -6,6 +6,7 @@ import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Skeleton } from "../components/ui/skeleton";
+import { PageHeader } from "../components/PageHeader";
 import { Pagination } from "../components/Pagination";
 import {
   Table,
@@ -47,7 +48,7 @@ export function AuditLogsPage() {
   if (me && me.role !== "admin") {
     return (
       <div className="p-6">
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           この画面は管理者（admin）のみアクセスできます。
         </div>
       </div>
@@ -73,15 +74,15 @@ export function AuditLogsPage() {
   const logs = data?.data ?? [];
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center gap-3">
-        <ClipboardList className="h-5 w-5 text-gray-500" />
-        <h1 className="text-xl font-semibold text-gray-900">監査ログ</h1>
-        {data && <Badge variant="blue">{data.meta.total} 件</Badge>}
-      </div>
+    <div className="p-6 space-y-4">
+      <PageHeader
+        title="監査ログ"
+        description="ログイン・隔離操作・設定変更などの操作履歴"
+        count={data?.meta.total}
+      />
 
       {/* フィルターバー */}
-      <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+      <div className="rounded-lg border border-gray-200 bg-surface p-4 space-y-3">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-600">イベントタイプ（前方一致）</label>
@@ -125,12 +126,12 @@ export function AuditLogsPage() {
       </div>
 
       {isError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           監査ログの取得に失敗しました。
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+      <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -193,11 +194,14 @@ export function AuditLogsPage() {
             </TableBody>
           </Table>
         )}
+        {data && (
+          <Pagination
+            meta={data.meta}
+            onPageChange={(p) => setPage(p)}
+            className="border-t border-gray-200 bg-gray-50 px-3 py-2"
+          />
+        )}
       </div>
-
-      {data && data.meta.total_pages > 1 && (
-        <Pagination meta={data.meta} onPageChange={(p) => setPage(p)} />
-      )}
     </div>
   );
 }

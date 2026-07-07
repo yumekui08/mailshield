@@ -115,7 +115,7 @@ export function Sidebar() {
                   {({ isActive }) => (
                     <>
                       {isActive && (
-                        <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-blue-600" />
+                        <span className="absolute inset-y-1 left-0 w-0.5 bg-blue-600" />
                       )}
                       <item.icon
                         className={cn("h-4 w-4 shrink-0", isActive ? "text-blue-700" : "text-gray-400")}
@@ -134,7 +134,7 @@ export function Sidebar() {
         <div className="border-t border-gray-200 px-4 py-3.5">
           <div className="truncate text-xs text-gray-700">{user.email}</div>
           <div className="mt-1.5 flex items-center justify-between">
-            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600">
+            <span className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[11px] text-gray-600">
               {roleLabel[user.role]}
             </span>
             <button

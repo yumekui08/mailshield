@@ -2,6 +2,19 @@
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
+    // 角丸スケールを全体で抑える（フラットデザイン方針）。
+    // 既存コードの rounded-md / rounded-lg 等はそのまま小さな角丸に落ちる。
+    borderRadius: {
+      none: "0",
+      sm: "1px",
+      DEFAULT: "2px",
+      md: "2px",
+      lg: "3px",
+      xl: "4px",
+      "2xl": "6px",
+      "3xl": "8px",
+      full: "9999px",
+    },
     extend: {
       colors: {
         // 既存ページの gray-* / blue-* ユーティリティを一括で
