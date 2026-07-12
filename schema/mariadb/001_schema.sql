@@ -162,7 +162,12 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE TABLE IF NOT EXISTS approval_requests (
     id                CHAR(36)                                              NOT NULL,
     message_id        CHAR(36)                                              NOT NULL,
-    approver_id       CHAR(36)                                              NOT NULL,
+    -- 承認者の指定方法は 2 通り（必ずどちらか一方が入る）:
+    --   approver_id   : ユーザー個人を承認者に指定（users.approver_id 経由の解決）
+    --   mailbox_email : メールボックスを指定。そのメールボックスに role=admin で
+    --                   割り当てられたユーザー全員が承認・却下できる（先に決定した人が有効）
+    approver_id       CHAR(36)                                              NULL DEFAULT NULL,
+    mailbox_email     VARCHAR(320)                                          NULL DEFAULT NULL,
     status            ENUM('pending','approved','rejected','expired')        NOT NULL DEFAULT 'pending',
     comment           TEXT                                                   NULL DEFAULT NULL,
     notification_sent TINYINT(1)                                            NOT NULL DEFAULT 0,
@@ -174,11 +179,13 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     PRIMARY KEY (id),
     KEY idx_approval_requests_message        (message_id),
     KEY idx_approval_requests_approver_status (approver_id, status),
+    KEY idx_approval_requests_mailbox_status  (mailbox_email, status),
     KEY idx_approval_requests_pending_notify  (notification_sent, status),
     KEY idx_approval_requests_result_notify   (result_notified, status),
     KEY idx_approval_requests_expires         (expires_at, status),
     CONSTRAINT fk_approval_requests_message  FOREIGN KEY (message_id)  REFERENCES mail_messages (id),
-    CONSTRAINT fk_approval_requests_approver FOREIGN KEY (approver_id) REFERENCES users (id)
+    CONSTRAINT fk_approval_requests_approver FOREIGN KEY (approver_id) REFERENCES users (id),
+    CONSTRAINT chk_approval_requests_target  CHECK (approver_id IS NOT NULL OR mailbox_email IS NOT NULL)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- API キーテーブル

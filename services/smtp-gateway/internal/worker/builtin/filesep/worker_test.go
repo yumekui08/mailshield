@@ -67,6 +67,9 @@ func (r *stubRepository) FindUserIDByEmail(_ context.Context, _ string) (string,
 func (r *stubRepository) SaveApprovalRequest(_ context.Context, _ *domain.ApprovalRequest) error {
 	return nil
 }
+func (r *stubRepository) CountMailboxAdmins(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
 
 // ─── ヘルパー ─────────────────────────────────────────────────
 

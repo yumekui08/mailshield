@@ -37,6 +37,9 @@ type mockRepository struct {
 
 	// 承認フロー
 	listApprovalRequestsFunc    func(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error)
+	isMailboxAdminFunc          func(ctx context.Context, userID, mailboxEmail string) (bool, error)
+	listMailboxAdminEmailsFunc  func(ctx context.Context, mailboxEmail string) ([]string, error)
+	claimApprovalRequestFunc    func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) (bool, error)
 	listAllApprovalRequestsFunc func(ctx context.Context) ([]domain.ApprovalRequest, error)
 	getApprovalRequestFunc      func(ctx context.Context, id string) (*domain.ApprovalRequest, error)
 	updateApprovalStatusFunc    func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error
@@ -282,6 +285,18 @@ func (m *mockRepository) ListApprovalRequests(ctx context.Context, approverID st
 	}
 	return nil, nil
 }
+func (m *mockRepository) IsMailboxAdmin(ctx context.Context, userID, mailboxEmail string) (bool, error) {
+	if m.isMailboxAdminFunc != nil {
+		return m.isMailboxAdminFunc(ctx, userID, mailboxEmail)
+	}
+	return false, nil
+}
+func (m *mockRepository) ListMailboxAdminEmails(ctx context.Context, mailboxEmail string) ([]string, error) {
+	if m.listMailboxAdminEmailsFunc != nil {
+		return m.listMailboxAdminEmailsFunc(ctx, mailboxEmail)
+	}
+	return nil, nil
+}
 func (m *mockRepository) ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error) {
 	if m.listAllApprovalRequestsFunc != nil {
 		return m.listAllApprovalRequestsFunc(ctx)
@@ -299,6 +314,20 @@ func (m *mockRepository) UpdateApprovalStatus(ctx context.Context, id string, st
 		return m.updateApprovalStatusFunc(ctx, id, status, comment)
 	}
 	return nil
+}
+
+// ClaimApprovalRequest はデフォルトで updateApprovalStatusFunc に委譲し true を返す
+// （既存テストが「決定＝ステータス更新」の検証に updateApprovalStatusFunc を使うため）。
+func (m *mockRepository) ClaimApprovalRequest(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) (bool, error) {
+	if m.claimApprovalRequestFunc != nil {
+		return m.claimApprovalRequestFunc(ctx, id, status, comment)
+	}
+	if m.updateApprovalStatusFunc != nil {
+		if err := m.updateApprovalStatusFunc(ctx, id, status, comment); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 func (m *mockRepository) MarkApprovalNotificationSent(_ context.Context, _ string) error {
 	return nil

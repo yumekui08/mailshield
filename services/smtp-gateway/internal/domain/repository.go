@@ -6,11 +6,15 @@ import (
 )
 
 // ApprovalRequest は承認依頼レコードを表す。
+// ApproverID と MailboxEmail はどちらか一方のみ設定する:
+//   - ApproverID   : ユーザー個人を承認者に指定（users.approver_id 経由の解決）
+//   - MailboxEmail : メールボックスを指定。role=admin の割り当てユーザー全員が承認できる
 type ApprovalRequest struct {
-	ID         string
-	MessageID  string
-	ApproverID string
-	ExpiresAt  time.Time
+	ID           string
+	MessageID    string
+	ApproverID   string
+	MailboxEmail string
+	ExpiresAt    time.Time
 }
 
 // MailRepository はDBへのアクセスを抽象化するインターフェースである。
@@ -30,6 +34,9 @@ type MailRepository interface {
 	FindApproverForSender(ctx context.Context, fromAddress string) (approverID string, err error)
 	// FindUserIDByEmail はメールアドレスからユーザーIDを返す。承認者フォールバック解決に使用する。
 	FindUserIDByEmail(ctx context.Context, email string) (userID string, err error)
+	// CountMailboxAdmins は指定メールボックスに role=admin で割り当てられた
+	// 有効ユーザー数を返す。メールボックス承認者の解決に使用する。
+	CountMailboxAdmins(ctx context.Context, mailboxEmail string) (int, error)
 	// SaveApprovalRequest は承認依頼レコードを approval_requests テーブルに保存する。
 	SaveApprovalRequest(ctx context.Context, req *ApprovalRequest) error
 }

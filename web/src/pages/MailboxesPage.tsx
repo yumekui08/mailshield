@@ -134,9 +134,12 @@ function AssignmentsPanel({ mailbox, onClose }: { mailbox: MailboxRecord; onClos
             </Button>
           </div>
           <div className="mt-2 text-xs text-gray-500 space-y-0.5">
-            <div>member: 受信隔離の閲覧権限（to_address が一致）</div>
-            <div>owner: 送信隔離の閲覧権限（from_address が一致）</div>
-            <div>admin: 隔離の解放権限（policy 設定に依存）</div>
+            <div>member: 受信メールの権限（受信隔離の閲覧など。to_address が一致）</div>
+            <div>owner: 送信メールの権限（送信隔離の閲覧など。from_address が一致）</div>
+            <div>
+              admin: このメールボックスの承認者。承認フローに回ったメールの配送許可・却下と、
+              隔離の解放（mailbox_policy 設定に依存）ができる
+            </div>
           </div>
         </div>
 

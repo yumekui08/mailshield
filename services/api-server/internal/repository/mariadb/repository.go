@@ -1437,21 +1437,72 @@ func (r *Repository) UpdateAPIKeyLastUsed(ctx context.Context, id string) error 
 
 // ─── 承認フロー ──────────────────────────────────────────────────────────────
 
-// ListApprovalRequests は指定承認者の pending 承認依頼一覧を返す。
-func (r *Repository) ListApprovalRequests(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error) {
+// ListApprovalRequests は指定ユーザーが承認できる pending 承認依頼一覧を返す。
+// 「自分が承認者（approver_id）の依頼」と「自分が role=admin で割り当てられた
+// メールボックス宛の依頼（mailbox_email）」の両方を含む。
+func (r *Repository) ListApprovalRequests(ctx context.Context, userID string) ([]domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, status, comment,
+		SELECT id, message_id, approver_id, mailbox_email, status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
-		WHERE approver_id = ? AND status = 'pending'
+		WHERE status = 'pending'
+		  AND (approver_id = ?
+		       OR mailbox_email IN (
+		           SELECT m.email_address
+		             FROM mailbox_assignments a
+		             JOIN mailboxes m ON m.id = a.mailbox_id
+		            WHERE a.user_id = ? AND a.role = 'admin'))
 		ORDER BY created_at DESC`
-	return r.scanApprovalRequests(ctx, q, approverID)
+	return r.scanApprovalRequests(ctx, q, userID, userID)
+}
+
+// IsMailboxAdmin は userID が指定メールボックスに role=admin で割り当てられているかを返す。
+func (r *Repository) IsMailboxAdmin(ctx context.Context, userID, mailboxEmail string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		   FROM mailbox_assignments a
+		   JOIN mailboxes m ON m.id = a.mailbox_id
+		  WHERE a.user_id = ? AND a.role = 'admin' AND m.email_address = ?`,
+		userID, mailboxEmail,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("メールボックス承認者判定失敗 (mailbox=%s): %w", mailboxEmail, err)
+	}
+	return count > 0, nil
+}
+
+// ListMailboxAdminEmails は指定メールボックスに role=admin で割り当てられた
+// 有効ユーザーのメールアドレス一覧を返す（承認依頼通知の宛先）。
+func (r *Repository) ListMailboxAdminEmails(ctx context.Context, mailboxEmail string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT u.email
+		   FROM mailbox_assignments a
+		   JOIN mailboxes m ON m.id = a.mailbox_id
+		   JOIN users u     ON u.id = a.user_id
+		  WHERE m.email_address = ? AND a.role = 'admin' AND u.is_active = 1`,
+		mailboxEmail,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("メールボックス承認者一覧取得失敗 (mailbox=%s): %w", mailboxEmail, err)
+	}
+	defer rows.Close()
+
+	var emails []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, fmt.Errorf("承認者メールアドレススキャン失敗: %w", err)
+		}
+		emails = append(emails, email)
+	}
+	return emails, rows.Err()
 }
 
 // ListAllApprovalRequests は全承認依頼を返す（admin 向け）。
 func (r *Repository) ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, status, comment,
+		SELECT id, message_id, approver_id, mailbox_email, status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
 		ORDER BY created_at DESC`
@@ -1461,7 +1512,7 @@ func (r *Repository) ListAllApprovalRequests(ctx context.Context) ([]domain.Appr
 // GetApprovalRequest は指定 ID の承認依頼を返す。
 func (r *Repository) GetApprovalRequest(ctx context.Context, id string) (*domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, status, comment,
+		SELECT id, message_id, approver_id, mailbox_email, status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
 		WHERE id = ?`
@@ -1480,7 +1531,7 @@ func (r *Repository) GetApprovalRequest(ctx context.Context, id string) (*domain
 	return &list[0], nil
 }
 
-// UpdateApprovalStatus は承認依頼の状態・決定日時・コメントを更新する。
+// UpdateApprovalStatus は承認依頼の状態・決定日時・コメントを無条件に更新する。
 func (r *Repository) UpdateApprovalStatus(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE approval_requests SET status = ?, comment = ?, decided_at = ? WHERE id = ?`,
@@ -1490,6 +1541,24 @@ func (r *Repository) UpdateApprovalStatus(ctx context.Context, id string, status
 		return fmt.Errorf("承認ステータス更新失敗 (id=%s): %w", id, err)
 	}
 	return nil
+}
+
+// ClaimApprovalRequest は status=pending の依頼を原子的に status へ更新する。
+// 複数承認者の同時決定では最初の 1 人だけが true を得る。
+func (r *Repository) ClaimApprovalRequest(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE approval_requests SET status = ?, comment = ?, decided_at = ?
+		  WHERE id = ? AND status = 'pending'`,
+		string(status), comment, time.Now().UTC(), id,
+	)
+	if err != nil {
+		return false, fmt.Errorf("承認依頼クレーム失敗 (id=%s): %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("承認依頼クレーム結果取得失敗 (id=%s): %w", id, err)
+	}
+	return n > 0, nil
 }
 
 // MarkApprovalNotificationSent は notification_sent = 1 にする。
@@ -1511,7 +1580,7 @@ func (r *Repository) MarkApprovalResultNotified(ctx context.Context, id string) 
 // ListPendingUnnotified は notification_sent=false かつ status=pending の依頼を返す。
 func (r *Repository) ListPendingUnnotified(ctx context.Context) ([]domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, status, comment,
+		SELECT id, message_id, approver_id, mailbox_email, status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
 		WHERE notification_sent = 0 AND status = 'pending'`
@@ -1521,7 +1590,7 @@ func (r *Repository) ListPendingUnnotified(ctx context.Context) ([]domain.Approv
 // ListResultUnnotified は result_notified=false かつ approved/rejected の依頼を返す。
 func (r *Repository) ListResultUnnotified(ctx context.Context) ([]domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, status, comment,
+		SELECT id, message_id, approver_id, mailbox_email, status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
 		WHERE result_notified = 0 AND status IN ('approved', 'rejected')`
@@ -1621,7 +1690,7 @@ func scanApprovalRows(rows *sql.Rows) ([]domain.ApprovalRequest, error) {
 		var a domain.ApprovalRequest
 		var notifSentInt, resultNotifiedInt int
 		if err := rows.Scan(
-			&a.ID, &a.MessageID, &a.ApproverID, &a.Status, &a.Comment,
+			&a.ID, &a.MessageID, &a.ApproverID, &a.MailboxEmail, &a.Status, &a.Comment,
 			&notifSentInt, &resultNotifiedInt,
 			&a.DecidedAt, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt,
 		); err != nil {

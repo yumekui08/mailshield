@@ -220,16 +220,42 @@ func (r *Repository) FindUserIDByEmail(ctx context.Context, email string) (strin
 }
 
 // SaveApprovalRequest は承認依頼レコードを approval_requests テーブルに保存する。
+// ApproverID / MailboxEmail は空文字を NULL として保存する（必ずどちらか一方が入る）。
 func (r *Repository) SaveApprovalRequest(ctx context.Context, req *domain.ApprovalRequest) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO approval_requests (id, message_id, approver_id, expires_at)
-		 VALUES (?, ?, ?, ?)`,
-		req.ID, req.MessageID, req.ApproverID, req.ExpiresAt.UTC(),
+		`INSERT INTO approval_requests (id, message_id, approver_id, mailbox_email, expires_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		req.ID, req.MessageID, nullIfEmpty(req.ApproverID), nullIfEmpty(req.MailboxEmail), req.ExpiresAt.UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("approval_requests 保存失敗 (message_id=%s): %w", req.MessageID, err)
 	}
 	return nil
+}
+
+// CountMailboxAdmins は指定メールボックスに role=admin で割り当てられた有効ユーザー数を返す。
+func (r *Repository) CountMailboxAdmins(ctx context.Context, mailboxEmail string) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		   FROM mailbox_assignments a
+		   JOIN mailboxes m ON m.id = a.mailbox_id
+		   JOIN users u     ON u.id = a.user_id
+		  WHERE m.email_address = ? AND m.is_active = 1
+		    AND a.role = 'admin' AND u.is_active = 1`,
+		mailboxEmail,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("メールボックス承認者数取得失敗 (mailbox=%s): %w", mailboxEmail, err)
+	}
+	return count, nil
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func boolToInt(b bool) int {

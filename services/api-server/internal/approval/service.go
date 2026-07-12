@@ -135,10 +135,34 @@ type templateData struct {
 	Comment     string
 }
 
-func (s *Service) sendRequestNotification(ctx context.Context, req domain.ApprovalRequest) error {
-	approver, err := s.repo.GetUser(ctx, req.ApproverID)
+// resolveNotificationRecipients は承認依頼通知の宛先を解決する。
+//   - approver_id 指定: 承認者本人 1 名
+//   - mailbox_email 指定: そのメールボックスの admin 全員
+func (s *Service) resolveNotificationRecipients(ctx context.Context, req domain.ApprovalRequest) ([]string, error) {
+	if req.MailboxEmail != nil && *req.MailboxEmail != "" {
+		emails, err := s.repo.ListMailboxAdminEmails(ctx, *req.MailboxEmail)
+		if err != nil {
+			return nil, fmt.Errorf("メールボックス承認者一覧取得失敗 (mailbox=%s): %w", *req.MailboxEmail, err)
+		}
+		if len(emails) == 0 {
+			return nil, fmt.Errorf("メールボックスに承認者がいません (mailbox=%s)", *req.MailboxEmail)
+		}
+		return emails, nil
+	}
+	if req.ApproverID == nil || *req.ApproverID == "" {
+		return nil, fmt.Errorf("承認依頼に承認者が設定されていません (approval_id=%s)", req.ID)
+	}
+	approver, err := s.repo.GetUser(ctx, *req.ApproverID)
 	if err != nil || approver == nil {
-		return fmt.Errorf("承認者情報取得失敗 (approver_id=%s): %w", req.ApproverID, err)
+		return nil, fmt.Errorf("承認者情報取得失敗 (approver_id=%s): %w", *req.ApproverID, err)
+	}
+	return []string{approver.Email}, nil
+}
+
+func (s *Service) sendRequestNotification(ctx context.Context, req domain.ApprovalRequest) error {
+	recipients, err := s.resolveNotificationRecipients(ctx, req)
+	if err != nil {
+		return err
 	}
 	msg, err := s.repo.GetMessage(ctx, req.MessageID)
 	if err != nil || msg == nil {
@@ -168,7 +192,21 @@ func (s *Service) sendRequestNotification(ctx context.Context, req domain.Approv
 	if fromName == "" {
 		fromName = "MailShield"
 	}
-	return s.sendMail(ctx, approver.Email, subject, body, fromName)
+
+	// 複数承認者（mailbox admin）には全員へ送る。一部失敗しても 1 人以上に届いていれば
+	// 成功扱いにする（リトライによる重複送信を避ける。失敗分はログで追跡できる）。
+	var sent int
+	for _, to := range recipients {
+		if err := s.sendMail(ctx, to, subject, body, fromName); err != nil {
+			slog.Warn("承認依頼通知の個別送信失敗", "approval_id", req.ID, "to", to, "error", err)
+			continue
+		}
+		sent++
+	}
+	if sent == 0 {
+		return fmt.Errorf("承認依頼通知を誰にも送信できませんでした (approval_id=%s)", req.ID)
+	}
+	return nil
 }
 
 func (s *Service) sendResultNotification(ctx context.Context, req domain.ApprovalRequest) error {

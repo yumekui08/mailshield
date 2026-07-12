@@ -64,7 +64,7 @@ rules:
 | `deliver` | `destination` で指定した MTA へ SMTP 送信する |
 | `quarantine` | メールを隔離する。受信者に即時通知メールを送信（設定による） |
 | `reject` | 送信者にバウンスを返す |
-| `approval` | 承認キューに保留する |
+| `approval` | 承認キューに保留する。承認者はメールボックスの admin 割り当て（優先）→ ユーザー個人の `approver_id` → `approval.global_approver_email` の順で解決される（詳細: [設定リファレンスの approval](../specs/configuration.md#approval)） |
 
 ### `deliver` の `destination`
 

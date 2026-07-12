@@ -127,14 +127,26 @@ type Repository interface {
 
 	// ─── 承認フロー ──────────────────────────────────────────────────────────
 
-	// ListApprovalRequests は指定承認者の承認依頼一覧を返す（status=pending のみ）。
-	ListApprovalRequests(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error)
+	// ListApprovalRequests は指定ユーザーが承認できる承認依頼一覧を返す（status=pending のみ）。
+	// 「自分が承認者（approver_id）」と「自分が role=admin のメールボックス宛（mailbox_email）」
+	// の両方を含む。
+	ListApprovalRequests(ctx context.Context, userID string) ([]domain.ApprovalRequest, error)
+	// IsMailboxAdmin は userID が指定メールボックスに role=admin で割り当てられているかを返す。
+	IsMailboxAdmin(ctx context.Context, userID, mailboxEmail string) (bool, error)
+	// ListMailboxAdminEmails は指定メールボックスに role=admin で割り当てられた
+	// 有効ユーザーのメールアドレス一覧を返す（承認依頼通知の宛先解決）。
+	ListMailboxAdminEmails(ctx context.Context, mailboxEmail string) ([]string, error)
 	// ListAllApprovalRequests は全ての承認依頼を返す（admin 向け）。
 	ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error)
 	// GetApprovalRequest は指定 ID の承認依頼を返す。
 	GetApprovalRequest(ctx context.Context, id string) (*domain.ApprovalRequest, error)
-	// UpdateApprovalStatus は承認依頼の状態と決定日時・コメントを更新する。
+	// UpdateApprovalStatus は承認依頼の状態と決定日時・コメントを無条件に更新する
+	//（ClaimApprovalRequest 失敗時のロールバック用）。
 	UpdateApprovalStatus(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error
+	// ClaimApprovalRequest は status=pending の依頼を原子的に status へ更新する。
+	// 更新できた場合 true を返す。false は他の承認者が先に決定済み（またはすでに期限切れ）。
+	// 複数承認者（メールボックス admin）の同時決定による二重配送を防ぐ。
+	ClaimApprovalRequest(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) (bool, error)
 	// MarkApprovalNotificationSent は notification_sent フラグを true にする。
 	MarkApprovalNotificationSent(ctx context.Context, id string) error
 	// MarkApprovalResultNotified は result_notified フラグを true にする。

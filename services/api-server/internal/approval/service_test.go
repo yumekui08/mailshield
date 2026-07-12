@@ -83,6 +83,8 @@ func (s *stubRepository) FindUserByEmailInternal(ctx context.Context, email stri
 // 内部インターフェースに適合させるため、repository.Repository の残りのメソッドは空スタブ
 type serviceRepository struct {
 	stubRepository
+	// mailboxAdminEmails は ListMailboxAdminEmails の返り値（mailboxEmail → 承認者メール一覧）
+	mailboxAdminEmails map[string][]string
 }
 
 // approval.Service が使う repository.Repository を満たすための残りのスタブ群
@@ -188,6 +190,18 @@ func (s *serviceRepository) FindAPIKeyByHash(_ context.Context, _ string) (*doma
 func (s *serviceRepository) RevokeAPIKey(_ context.Context, _ string) error         { return nil }
 func (s *serviceRepository) UpdateAPIKeyLastUsed(_ context.Context, _ string) error { return nil }
 func (s *serviceRepository) ListApprovalRequests(_ context.Context, _ string) ([]domain.ApprovalRequest, error) {
+	return nil, nil
+}
+func (s *serviceRepository) IsMailboxAdmin(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (s *serviceRepository) ClaimApprovalRequest(_ context.Context, _ string, _ domain.ApprovalStatus, _ *string) (bool, error) {
+	return true, nil
+}
+func (s *serviceRepository) ListMailboxAdminEmails(_ context.Context, mailboxEmail string) ([]string, error) {
+	if s.mailboxAdminEmails != nil {
+		return s.mailboxAdminEmails[mailboxEmail], nil
+	}
 	return nil, nil
 }
 func (s *serviceRepository) ListAllApprovalRequests(_ context.Context) ([]domain.ApprovalRequest, error) {
@@ -320,6 +334,69 @@ func TestSendResultNotifications_Disabled_SkipsAll(t *testing.T) {
 
 	if callCount != 0 {
 		t.Errorf("ResultEnabled=false のとき ListResultUnnotified は呼ばれてはいけない")
+	}
+}
+
+// ─── resolveNotificationRecipients ───────────────────────────────────────────
+
+func strPtr(s string) *string { return &s }
+
+func TestResolveNotificationRecipients_MailboxAdmins(t *testing.T) {
+	repo := &serviceRepository{
+		mailboxAdminEmails: map[string][]string{
+			"sales@internal.test": {"admin1@internal.test", "admin2@internal.test"},
+		},
+	}
+	svc := New(repo, config.ApprovalConfig{}, config.NotificationConfig{})
+
+	req := domain.ApprovalRequest{ID: "apr-1", MailboxEmail: strPtr("sales@internal.test")}
+	got, err := svc.resolveNotificationRecipients(context.Background(), req)
+	if err != nil {
+		t.Fatalf("解決失敗: %v", err)
+	}
+	if len(got) != 2 || got[0] != "admin1@internal.test" || got[1] != "admin2@internal.test" {
+		t.Errorf("宛先 期待: admin1/admin2, 実際: %v", got)
+	}
+}
+
+func TestResolveNotificationRecipients_MailboxWithoutAdmins_Error(t *testing.T) {
+	repo := &serviceRepository{mailboxAdminEmails: map[string][]string{}}
+	svc := New(repo, config.ApprovalConfig{}, config.NotificationConfig{})
+
+	req := domain.ApprovalRequest{ID: "apr-2", MailboxEmail: strPtr("empty@internal.test")}
+	if _, err := svc.resolveNotificationRecipients(context.Background(), req); err == nil {
+		t.Error("承認者不在のメールボックスはエラーを返すべき")
+	}
+}
+
+func TestResolveNotificationRecipients_IndividualApprover(t *testing.T) {
+	repo := &serviceRepository{
+		stubRepository: stubRepository{
+			getUserFunc: func(_ context.Context, id string) (*repository.User, error) {
+				if id == "user-1" {
+					return &repository.User{ID: id, Email: "approver@internal.test"}, nil
+				}
+				return nil, nil
+			},
+		},
+	}
+	svc := New(repo, config.ApprovalConfig{}, config.NotificationConfig{})
+
+	req := domain.ApprovalRequest{ID: "apr-3", ApproverID: strPtr("user-1")}
+	got, err := svc.resolveNotificationRecipients(context.Background(), req)
+	if err != nil {
+		t.Fatalf("解決失敗: %v", err)
+	}
+	if len(got) != 1 || got[0] != "approver@internal.test" {
+		t.Errorf("宛先 期待: approver@internal.test, 実際: %v", got)
+	}
+}
+
+func TestResolveNotificationRecipients_NoTarget_Error(t *testing.T) {
+	svc := New(&serviceRepository{}, config.ApprovalConfig{}, config.NotificationConfig{})
+	req := domain.ApprovalRequest{ID: "apr-4"}
+	if _, err := svc.resolveNotificationRecipients(context.Background(), req); err == nil {
+		t.Error("承認者未設定の依頼はエラーを返すべき")
 	}
 }
 

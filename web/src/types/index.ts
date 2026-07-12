@@ -12,7 +12,10 @@ export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 export interface ApprovalRequest {
   id: string;
   message_id: string;
-  approver_id: string;
+  /** ユーザー個人が承認者の場合のユーザー ID（mailbox_email 方式では null） */
+  approver_id: string | null;
+  /** メールボックス承認の場合の対象アドレス（admin 割り当てユーザー全員が承認可） */
+  mailbox_email: string | null;
   status: ApprovalStatus;
   comment: string | null;
   notification_sent: boolean;

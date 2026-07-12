@@ -216,6 +216,58 @@ api-server のデフォルトポートは 8081。
 
 ---
 
+## 承認フロー
+
+policy アクション `approval` で保留されたメールの承認 API。承認依頼には 2 方式ある:
+
+- **メールボックス承認**（`mailbox_email` が非 null）: 対象メールボックスに role=admin で割り当てられたユーザー全員が決定できる（先に決定した人が有効）
+- **個人承認**（`approver_id` が非 null）: 指定された承認者本人のみ決定できる
+
+### `GET /api/v1/approvals`
+
+承認依頼一覧。`viewer` は「自分が承認できる pending の依頼」（個人承認で自分が承認者のもの + 自分が admin のメールボックス宛のもの）のみ。`operator` / `admin` は全件。
+
+**レスポンス:**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "message_id": "uuid",
+      "approver_id": null,
+      "mailbox_email": "sales@example.com",
+      "status": "pending",
+      "expires_at": "2026-07-10T00:00:00Z",
+      "created_at": "2026-07-07T00:00:00Z"
+    }
+  ]
+}
+```
+
+### `GET /api/v1/approvals/{id}`
+
+承認依頼詳細（対象メールの情報を含む）。`viewer` は自分が承認できる依頼のみ。
+
+### `POST /api/v1/approvals/{id}/approve`
+
+承認して配送する（EML を再インジェクト）。`viewer` は自分が承認できる依頼のみ。処理済みの依頼には `409` を返す。
+
+**リクエスト（任意）:**
+```json
+{"comment": "確認済み"}
+```
+
+### `POST /api/v1/approvals/{id}/reject`
+
+却下する（配送しない）。権限・リクエスト形式は approve と同じ。
+
+### `GET/PUT /api/v1/users/{id}/approver`
+
+ユーザー個人の承認者（`users.approver_id`）の取得・設定。`admin` のみ。
+メールボックス承認者（role=admin の割り当て）はメールボックス管理 API（`/api/v1/mailboxes/{id}/assignments`）で管理する。
+
+---
+
 ## 添付ファイル（認証済みユーザー向け）
 
 ### `GET /api/v1/attachments/{token}`

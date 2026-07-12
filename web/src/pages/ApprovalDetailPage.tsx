@@ -220,6 +220,22 @@ export function ApprovalDetailPage() {
                 </Badge>
               </dd>
             </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">承認対象</dt>
+              <dd className="text-sm text-gray-900 mt-0.5">
+                {data.mailbox_email ? (
+                  <>
+                    メールボックス承認{" "}
+                    <span className="font-mono text-gray-700">{data.mailbox_email}</span>
+                    <span className="ml-1 text-xs text-gray-400">
+                      （admin 割り当てユーザーの誰でも決定可）
+                    </span>
+                  </>
+                ) : (
+                  "個人承認（指定された承認者のみ決定可）"
+                )}
+              </dd>
+            </div>
             {data.comment && (
               <div className="sm:col-span-2">
                 <dt className="text-xs font-medium text-gray-500">コメント</dt>

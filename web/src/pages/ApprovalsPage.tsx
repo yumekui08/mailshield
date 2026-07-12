@@ -71,6 +71,7 @@ export function ApprovalsPage() {
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>メール ID</TableHead>
+                <TableHead>承認対象</TableHead>
                 <TableHead>状態</TableHead>
                 <TableHead>期限</TableHead>
                 <TableHead>依頼日時</TableHead>
@@ -81,7 +82,7 @@ export function ApprovalsPage() {
               {pageItems.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={6}
                     className="text-center text-gray-500 py-10"
                   >
                     <div className="flex flex-col items-center gap-2">
@@ -99,6 +100,11 @@ export function ApprovalsPage() {
                   >
                     <TableCell className="text-sm font-mono text-gray-700">
                       {item.message_id.slice(0, 8)}…
+                    </TableCell>
+                    <TableCell className="text-sm text-gray-700">
+                      {item.mailbox_email ?? (
+                        <span className="text-gray-400">個人承認</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <ApprovalStatusBadge status={item.status} />

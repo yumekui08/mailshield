@@ -82,11 +82,19 @@ func (h *ApprovalHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 閲覧権限チェック: viewer は自分が承認者の依頼のみ
+	// 閲覧権限チェック: viewer は自分が承認できる依頼のみ
 	session := middleware.GetSession(r.Context())
-	if session != nil && session.Role == domain.RoleViewer && req.ApproverID != session.User.Sub {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
+	if session != nil && session.Role == domain.RoleViewer {
+		ok, err := h.canActOn(r.Context(), session.User.Sub, req)
+		if err != nil {
+			slog.Error("承認権限判定失敗", "id", id, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 	}
 
 	msg, err := h.repo.GetMessage(r.Context(), req.MessageID)
@@ -140,10 +148,18 @@ func (h *ApprovalHandler) decide(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 
-	// 操作権限チェック: viewer は自分が承認者の依頼のみ
-	if session.Role == domain.RoleViewer && req.ApproverID != session.User.Sub {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
+	// 操作権限チェック: viewer は自分が承認できる依頼のみ
+	if session.Role == domain.RoleViewer {
+		ok, err := h.canActOn(r.Context(), session.User.Sub, req)
+		if err != nil {
+			slog.Error("承認権限判定失敗", "id", id, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 	}
 
 	var body struct {
@@ -155,18 +171,30 @@ func (h *ApprovalHandler) decide(w http.ResponseWriter, r *http.Request, status 
 		comment = &body.Comment
 	}
 
+	// 先に依頼を原子的にクレームする（pending の場合のみ更新される）。
+	// メールボックス承認では複数の承認者が同時に決定できるため、
+	// クレームに勝った 1 人だけが配送を実行し、二重配送を防ぐ。
+	claimed, err := h.repo.ClaimApprovalRequest(r.Context(), id, status, comment)
+	if err != nil {
+		slog.Error("承認ステータス更新失敗", "id", id, "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if !claimed {
+		http.Error(w, "approval request is not pending", http.StatusConflict)
+		return
+	}
+
 	if status == domain.ApprovalStatusApproved {
 		if err := h.approveAndReinject(r.Context(), req); err != nil {
+			// 配送に失敗したら依頼を pending に戻し、再試行できるようにする
+			if rbErr := h.repo.UpdateApprovalStatus(r.Context(), id, domain.ApprovalStatusPending, nil); rbErr != nil {
+				slog.Error("承認ステータスのロールバック失敗（手動対応が必要）", "id", id, "error", rbErr)
+			}
 			slog.Error("承認・再インジェクト失敗", "approval_id", id, "error", err)
 			http.Error(w, "failed to reinject mail", http.StatusInternalServerError)
 			return
 		}
-	}
-
-	if err := h.repo.UpdateApprovalStatus(r.Context(), id, status, comment); err != nil {
-		slog.Error("承認ステータス更新失敗", "id", id, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
 	}
 
 	h.auditLogger.Log(domain.AuditLog{
@@ -179,6 +207,19 @@ func (h *ApprovalHandler) decide(w http.ResponseWriter, r *http.Request, status 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": string(status)})
+}
+
+// canActOn は userID がこの承認依頼を閲覧・決定できるかを返す。
+//   - approver_id 指定の依頼: 自分が承認者本人
+//   - mailbox_email 指定の依頼: 自分がそのメールボックスの admin 割り当てを持つ
+func (h *ApprovalHandler) canActOn(ctx context.Context, userID string, req *domain.ApprovalRequest) (bool, error) {
+	if req.ApproverID != nil && *req.ApproverID == userID {
+		return true, nil
+	}
+	if req.MailboxEmail != nil && *req.MailboxEmail != "" {
+		return h.repo.IsMailboxAdmin(ctx, userID, *req.MailboxEmail)
+	}
+	return false, nil
 }
 
 // approveAndReinject は承認時に EML を MinIO から取得して Postfix へ再インジェクトする。

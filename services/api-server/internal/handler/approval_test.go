@@ -49,7 +49,7 @@ func sampleApprovalRequest(id, messageID, approverID string) domain.ApprovalRequ
 	return domain.ApprovalRequest{
 		ID:         id,
 		MessageID:  messageID,
-		ApproverID: approverID,
+		ApproverID: &approverID,
 		Status:     domain.ApprovalStatusPending,
 		ExpiresAt:  now.Add(72 * time.Hour),
 		CreatedAt:  now,
@@ -317,6 +317,126 @@ func TestApprovalHandleReject_Viewer_Forbidden(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("ステータスコード 期待: 403, 実際: %d", rr.Code)
+	}
+}
+
+// ─── メールボックス承認（mailbox_email 方式） ─────────────────────────────────
+
+// sampleMailboxApprovalRequest は mailbox_email 方式の承認依頼を返す。
+func sampleMailboxApprovalRequest(id, messageID, mailboxEmail string) domain.ApprovalRequest {
+	now := time.Now().Truncate(time.Second)
+	return domain.ApprovalRequest{
+		ID:           id,
+		MessageID:    messageID,
+		MailboxEmail: &mailboxEmail,
+		Status:       domain.ApprovalStatusPending,
+		ExpiresAt:    now.Add(72 * time.Hour),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+}
+
+func TestApprovalHandleReject_Viewer_MailboxAdmin_Allowed(t *testing.T) {
+	apr := sampleMailboxApprovalRequest("apr-mb-1", "msg-mb-1", "sales@internal.test")
+
+	var capturedStatus domain.ApprovalStatus
+	repo := &mockRepository{
+		getApprovalRequestFunc: func(_ context.Context, _ string) (*domain.ApprovalRequest, error) {
+			return &apr, nil
+		},
+		isMailboxAdminFunc: func(_ context.Context, userID, mailboxEmail string) (bool, error) {
+			return userID == "viewer-admin" && mailboxEmail == "sales@internal.test", nil
+		},
+		updateApprovalStatusFunc: func(_ context.Context, _ string, s domain.ApprovalStatus, _ *string) error {
+			capturedStatus = s
+			return nil
+		},
+	}
+	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
+	req := requestWithSessionAndURLParam(http.MethodPost, "/api/v1/approvals/apr-mb-1/reject", "id", "apr-mb-1", viewerSession("viewer-admin"))
+	rr := httptest.NewRecorder()
+	h.HandleReject(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ステータスコード 期待: 200, 実際: %d (body=%s)", rr.Code, rr.Body.String())
+	}
+	if capturedStatus != domain.ApprovalStatusRejected {
+		t.Errorf("ステータス 期待: rejected, 実際: %s", capturedStatus)
+	}
+}
+
+func TestApprovalHandleReject_Viewer_NotMailboxAdmin_Forbidden(t *testing.T) {
+	apr := sampleMailboxApprovalRequest("apr-mb-2", "msg-mb-2", "sales@internal.test")
+	repo := &mockRepository{
+		getApprovalRequestFunc: func(_ context.Context, _ string) (*domain.ApprovalRequest, error) {
+			return &apr, nil
+		},
+		isMailboxAdminFunc: func(_ context.Context, _, _ string) (bool, error) {
+			return false, nil
+		},
+	}
+	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
+	req := requestWithSessionAndURLParam(http.MethodPost, "/api/v1/approvals/apr-mb-2/reject", "id", "apr-mb-2", viewerSession("viewer-other"))
+	rr := httptest.NewRecorder()
+	h.HandleReject(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("ステータスコード 期待: 403, 実際: %d", rr.Code)
+	}
+}
+
+func TestApprovalHandleApprove_ClaimLost_Conflict(t *testing.T) {
+	// 2 人の承認者が同時に決定した場合、クレームに負けた側は 409 を受け、配送は行われない
+	apr := sampleMailboxApprovalRequest("apr-mb-race", "msg-mb-race", "sales@internal.test")
+
+	reinjectAttempted := false
+	repo := &mockRepository{
+		getApprovalRequestFunc: func(_ context.Context, _ string) (*domain.ApprovalRequest, error) {
+			return &apr, nil
+		},
+		claimApprovalRequestFunc: func(_ context.Context, _ string, _ domain.ApprovalStatus, _ *string) (bool, error) {
+			return false, nil // 他の承認者が先に決定済み
+		},
+		getMessageFunc: func(_ context.Context, id string) (*domain.MessageDetail, error) {
+			reinjectAttempted = true
+			msg := sampleApprovalMessage(id)
+			return &domain.MessageDetail{Message: msg}, nil
+		},
+	}
+	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
+	req := requestWithSessionAndURLParam(http.MethodPost, "/api/v1/approvals/apr-mb-race/approve", "id", "apr-mb-race", adminSession())
+	rr := httptest.NewRecorder()
+	h.HandleApprove(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("ステータスコード 期待: 409, 実際: %d", rr.Code)
+	}
+	if reinjectAttempted {
+		t.Error("クレームに負けた側が配送処理を開始してはいけない")
+	}
+}
+
+func TestApprovalHandleGet_Viewer_MailboxAdmin_Allowed(t *testing.T) {
+	apr := sampleMailboxApprovalRequest("apr-mb-3", "msg-mb-3", "sales@internal.test")
+	repo := &mockRepository{
+		getApprovalRequestFunc: func(_ context.Context, _ string) (*domain.ApprovalRequest, error) {
+			return &apr, nil
+		},
+		isMailboxAdminFunc: func(_ context.Context, _, _ string) (bool, error) {
+			return true, nil
+		},
+		getMessageFunc: func(_ context.Context, id string) (*domain.MessageDetail, error) {
+			msg := sampleApprovalMessage(id)
+			return &domain.MessageDetail{Message: msg}, nil
+		},
+	}
+	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
+	req := requestWithSessionAndURLParam(http.MethodGet, "/api/v1/approvals/apr-mb-3", "id", "apr-mb-3", viewerSession("viewer-admin"))
+	rr := httptest.NewRecorder()
+	h.HandleGet(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ステータスコード 期待: 200, 実際: %d", rr.Code)
 	}
 }
 
