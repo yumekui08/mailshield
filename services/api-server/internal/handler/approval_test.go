@@ -326,13 +326,13 @@ func TestApprovalHandleReject_Viewer_Forbidden(t *testing.T) {
 func sampleMailboxApprovalRequest(id, messageID, mailboxEmail string) domain.ApprovalRequest {
 	now := time.Now().Truncate(time.Second)
 	return domain.ApprovalRequest{
-		ID:           id,
-		MessageID:    messageID,
-		MailboxEmail: &mailboxEmail,
-		Status:       domain.ApprovalStatusPending,
-		ExpiresAt:    now.Add(72 * time.Hour),
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:            id,
+		MessageID:     messageID,
+		MailboxEmails: []string{mailboxEmail},
+		Status:        domain.ApprovalStatusPending,
+		ExpiresAt:     now.Add(72 * time.Hour),
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 }
 

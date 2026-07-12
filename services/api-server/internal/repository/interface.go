@@ -128,7 +128,7 @@ type Repository interface {
 	// ─── 承認フロー ──────────────────────────────────────────────────────────
 
 	// ListApprovalRequests は指定ユーザーが承認できる承認依頼一覧を返す（status=pending のみ）。
-	// 「自分が承認者（approver_id）」と「自分が role=admin のメールボックス宛（mailbox_email）」
+	// 「自分が承認者（approver_id）」と「自分が role=admin の対象メールボックスを持つ依頼」
 	// の両方を含む。
 	ListApprovalRequests(ctx context.Context, userID string) ([]domain.ApprovalRequest, error)
 	// IsMailboxAdmin は userID が指定メールボックスに role=admin で割り当てられているかを返す。
@@ -136,6 +136,19 @@ type Repository interface {
 	// ListMailboxAdminEmails は指定メールボックスに role=admin で割り当てられた
 	// 有効ユーザーのメールアドレス一覧を返す（承認依頼通知の宛先解決）。
 	ListMailboxAdminEmails(ctx context.Context, mailboxEmail string) ([]string, error)
+
+	// ─── 承認依頼通知（宛先ごとの送信状態管理） ────────────────────────────
+	// 通知は宛先ごとに approval_notifications で管理し、一部の宛先だけ送信に
+	// 失敗した場合は失敗した宛先のみ再送する（attempts が上限に達したら諦める）。
+
+	// EnsureApprovalNotifications は依頼の通知宛先行を冪等に作成する。
+	EnsureApprovalNotifications(ctx context.Context, approvalID string, recipients []string) error
+	// ListPendingNotificationRecipients は未送信かつ試行回数が maxAttempts 未満の宛先を返す。
+	ListPendingNotificationRecipients(ctx context.Context, approvalID string, maxAttempts int) ([]string, error)
+	// MarkApprovalNotificationResult は宛先ごとの送信結果を記録する。
+	MarkApprovalNotificationResult(ctx context.Context, approvalID, recipient string, sent bool, sendErr string) error
+	// CountRemainingNotifications は再送対象として残っている宛先数を返す。
+	CountRemainingNotifications(ctx context.Context, approvalID string, maxAttempts int) (int, error)
 	// ListAllApprovalRequests は全ての承認依頼を返す（admin 向け）。
 	ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error)
 	// GetApprovalRequest は指定 ID の承認依頼を返す。

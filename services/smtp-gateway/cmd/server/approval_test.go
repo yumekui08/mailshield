@@ -77,28 +77,34 @@ func TestCreateApprovalRequest_MailboxAdminOutbound(t *testing.T) {
 	if repo.saved == nil {
 		t.Fatal("承認依頼が保存されていない")
 	}
-	if repo.saved.MailboxEmail != "sales@internal.test" {
-		t.Errorf("MailboxEmail = %q, want sales@internal.test", repo.saved.MailboxEmail)
+	if len(repo.saved.MailboxEmails) != 1 || repo.saved.MailboxEmails[0] != "sales@internal.test" {
+		t.Errorf("MailboxEmails = %v, want [sales@internal.test]", repo.saved.MailboxEmails)
 	}
 	if repo.saved.ApproverID != "" {
 		t.Errorf("ApproverID = %q, want 空（mailbox 方式が優先）", repo.saved.ApproverID)
 	}
 }
 
-func TestCreateApprovalRequest_MailboxAdminInboundSecondRecipient(t *testing.T) {
-	// 宛先が複数の場合、admin がいる最初のメールボックスに紐づく
+func TestCreateApprovalRequest_MailboxAdminInboundAllRecipients(t *testing.T) {
+	// 宛先が複数の場合、admin がいるすべてのメールボックスが対象になる
+	// （admin がいない宛先は対象外）
 	repo := &approvalStubRepo{
-		mailboxAdmins: map[string]int{"second@internal.test": 1},
+		mailboxAdmins: map[string]int{
+			"second@internal.test": 1,
+			"third@internal.test":  2,
+		},
 	}
 	h := newApprovalHandler(repo, "")
 
 	mail := testMail(domain.DirectionInbound, "ext@external.test",
-		[]string{"first@internal.test", "second@internal.test"})
+		[]string{"first@internal.test", "second@internal.test", "third@internal.test"})
 	if err := h.createApprovalRequest(context.Background(), mail, slog.Default()); err != nil {
 		t.Fatalf("createApprovalRequest 失敗: %v", err)
 	}
-	if repo.saved.MailboxEmail != "second@internal.test" {
-		t.Errorf("MailboxEmail = %q, want second@internal.test", repo.saved.MailboxEmail)
+	want := []string{"second@internal.test", "third@internal.test"}
+	if len(repo.saved.MailboxEmails) != 2 ||
+		repo.saved.MailboxEmails[0] != want[0] || repo.saved.MailboxEmails[1] != want[1] {
+		t.Errorf("MailboxEmails = %v, want %v", repo.saved.MailboxEmails, want)
 	}
 }
 
@@ -116,8 +122,8 @@ func TestCreateApprovalRequest_FallbackToUserApprover(t *testing.T) {
 	if repo.saved.ApproverID != "user-approver-1" {
 		t.Errorf("ApproverID = %q, want user-approver-1", repo.saved.ApproverID)
 	}
-	if repo.saved.MailboxEmail != "" {
-		t.Errorf("MailboxEmail = %q, want 空", repo.saved.MailboxEmail)
+	if len(repo.saved.MailboxEmails) != 0 {
+		t.Errorf("MailboxEmails = %v, want 空", repo.saved.MailboxEmails)
 	}
 }
 

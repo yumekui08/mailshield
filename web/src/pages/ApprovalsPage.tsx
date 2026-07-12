@@ -102,7 +102,9 @@ export function ApprovalsPage() {
                       {item.message_id.slice(0, 8)}…
                     </TableCell>
                     <TableCell className="text-sm text-gray-700">
-                      {item.mailbox_email ?? (
+                      {item.mailbox_emails && item.mailbox_emails.length > 0 ? (
+                        item.mailbox_emails.join(", ")
+                      ) : (
                         <span className="text-gray-400">個人承認</span>
                       )}
                     </TableCell>

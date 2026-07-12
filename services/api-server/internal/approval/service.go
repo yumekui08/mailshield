@@ -137,17 +137,27 @@ type templateData struct {
 
 // resolveNotificationRecipients は承認依頼通知の宛先を解決する。
 //   - approver_id 指定: 承認者本人 1 名
-//   - mailbox_email 指定: そのメールボックスの admin 全員
+//   - メールボックス承認: 対象メールボックス全体の admin の和集合（重複排除）
 func (s *Service) resolveNotificationRecipients(ctx context.Context, req domain.ApprovalRequest) ([]string, error) {
-	if req.MailboxEmail != nil && *req.MailboxEmail != "" {
-		emails, err := s.repo.ListMailboxAdminEmails(ctx, *req.MailboxEmail)
-		if err != nil {
-			return nil, fmt.Errorf("メールボックス承認者一覧取得失敗 (mailbox=%s): %w", *req.MailboxEmail, err)
+	if len(req.MailboxEmails) > 0 {
+		seen := make(map[string]bool)
+		var recipients []string
+		for _, mailbox := range req.MailboxEmails {
+			emails, err := s.repo.ListMailboxAdminEmails(ctx, mailbox)
+			if err != nil {
+				return nil, fmt.Errorf("メールボックス承認者一覧取得失敗 (mailbox=%s): %w", mailbox, err)
+			}
+			for _, email := range emails {
+				if !seen[email] {
+					seen[email] = true
+					recipients = append(recipients, email)
+				}
+			}
 		}
-		if len(emails) == 0 {
-			return nil, fmt.Errorf("メールボックスに承認者がいません (mailbox=%s)", *req.MailboxEmail)
+		if len(recipients) == 0 {
+			return nil, fmt.Errorf("対象メールボックスに承認者がいません (approval_id=%s)", req.ID)
 		}
-		return emails, nil
+		return recipients, nil
 	}
 	if req.ApproverID == nil || *req.ApproverID == "" {
 		return nil, fmt.Errorf("承認依頼に承認者が設定されていません (approval_id=%s)", req.ID)
@@ -159,8 +169,25 @@ func (s *Service) resolveNotificationRecipients(ctx context.Context, req domain.
 	return []string{approver.Email}, nil
 }
 
+// maxNotificationAttempts は宛先ごとの通知送信の最大試行回数。
+// 超過した宛先は諦める（承認者は Web UI からも依頼を確認できる）。
+const maxNotificationAttempts = 5
+
+// sendRequestNotification は承認依頼通知を宛先ごとの送信状態管理付きで送る。
+//  1. 宛先を解決して approval_notifications に冪等に登録
+//  2. 未送信（かつ試行上限未満）の宛先にのみ送信し、結果を宛先ごとに記録
+//  3. 再送対象が残っていなければ依頼レベルの notification_sent を立てて完了
+//
+// 一部の宛先だけ失敗した場合、次回サイクルで失敗分のみ再送される（成功済みには重複しない）。
 func (s *Service) sendRequestNotification(ctx context.Context, req domain.ApprovalRequest) error {
 	recipients, err := s.resolveNotificationRecipients(ctx, req)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.EnsureApprovalNotifications(ctx, req.ID, recipients); err != nil {
+		return err
+	}
+	pending, err := s.repo.ListPendingNotificationRecipients(ctx, req.ID, maxNotificationAttempts)
 	if err != nil {
 		return err
 	}
@@ -193,18 +220,29 @@ func (s *Service) sendRequestNotification(ctx context.Context, req domain.Approv
 		fromName = "MailShield"
 	}
 
-	// 複数承認者（mailbox admin）には全員へ送る。一部失敗しても 1 人以上に届いていれば
-	// 成功扱いにする（リトライによる重複送信を避ける。失敗分はログで追跡できる）。
-	var sent int
-	for _, to := range recipients {
-		if err := s.sendMail(ctx, to, subject, body, fromName); err != nil {
-			slog.Warn("承認依頼通知の個別送信失敗", "approval_id", req.ID, "to", to, "error", err)
-			continue
+	for _, to := range pending {
+		sendErr := s.sendMail(ctx, to, subject, body, fromName)
+		if sendErr != nil {
+			slog.Warn("承認依頼通知の個別送信失敗（次回サイクルで再送）",
+				"approval_id", req.ID, "to", to, "error", sendErr)
 		}
-		sent++
+		errMsg := ""
+		if sendErr != nil {
+			errMsg = sendErr.Error()
+		}
+		if err := s.repo.MarkApprovalNotificationResult(ctx, req.ID, to, sendErr == nil, errMsg); err != nil {
+			slog.Warn("承認通知結果の記録失敗", "approval_id", req.ID, "to", to, "error", err)
+		}
 	}
-	if sent == 0 {
-		return fmt.Errorf("承認依頼通知を誰にも送信できませんでした (approval_id=%s)", req.ID)
+
+	// 再送対象（未送信かつ試行上限未満）が残っている間は依頼レベルでは未完了扱いにし、
+	// 次回サイクルで失敗宛先のみ再送する。
+	remaining, err := s.repo.CountRemainingNotifications(ctx, req.ID, maxNotificationAttempts)
+	if err != nil {
+		return err
+	}
+	if remaining > 0 {
+		return fmt.Errorf("承認依頼通知に未送達の宛先が残っています (approval_id=%s, remaining=%d)", req.ID, remaining)
 	}
 	return nil
 }

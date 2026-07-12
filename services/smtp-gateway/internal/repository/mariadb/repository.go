@@ -219,16 +219,36 @@ func (r *Repository) FindUserIDByEmail(ctx context.Context, email string) (strin
 	return userID, nil
 }
 
-// SaveApprovalRequest は承認依頼レコードを approval_requests テーブルに保存する。
-// ApproverID / MailboxEmail は空文字を NULL として保存する（必ずどちらか一方が入る）。
+// SaveApprovalRequest は承認依頼レコードと対象メールボックス（0..n）を
+// トランザクションで保存する。ApproverID は空文字を NULL として保存する。
 func (r *Repository) SaveApprovalRequest(ctx context.Context, req *domain.ApprovalRequest) error {
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO approval_requests (id, message_id, approver_id, mailbox_email, expires_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		req.ID, req.MessageID, nullIfEmpty(req.ApproverID), nullIfEmpty(req.MailboxEmail), req.ExpiresAt.UTC(),
-	)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("approval_requests トランザクション開始失敗: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // コミット後の Rollback は no-op
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO approval_requests (id, message_id, approver_id, expires_at)
+		 VALUES (?, ?, ?, ?)`,
+		req.ID, req.MessageID, nullIfEmpty(req.ApproverID), req.ExpiresAt.UTC(),
+	); err != nil {
 		return fmt.Errorf("approval_requests 保存失敗 (message_id=%s): %w", req.MessageID, err)
+	}
+
+	for _, mailbox := range req.MailboxEmails {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO approval_request_mailboxes (id, approval_request_id, mailbox_email)
+			 VALUES (?, ?, ?)`,
+			uuid.New().String(), req.ID, mailbox,
+		); err != nil {
+			return fmt.Errorf("approval_request_mailboxes 保存失敗 (message_id=%s, mailbox=%s): %w",
+				req.MessageID, mailbox, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("approval_requests コミット失敗 (message_id=%s): %w", req.MessageID, err)
 	}
 	return nil
 }

@@ -211,13 +211,19 @@ func (h *ApprovalHandler) decide(w http.ResponseWriter, r *http.Request, status 
 
 // canActOn は userID がこの承認依頼を閲覧・決定できるかを返す。
 //   - approver_id 指定の依頼: 自分が承認者本人
-//   - mailbox_email 指定の依頼: 自分がそのメールボックスの admin 割り当てを持つ
+//   - メールボックス承認の依頼: 対象メールボックスのいずれかに admin 割り当てを持つ
 func (h *ApprovalHandler) canActOn(ctx context.Context, userID string, req *domain.ApprovalRequest) (bool, error) {
 	if req.ApproverID != nil && *req.ApproverID == userID {
 		return true, nil
 	}
-	if req.MailboxEmail != nil && *req.MailboxEmail != "" {
-		return h.repo.IsMailboxAdmin(ctx, userID, *req.MailboxEmail)
+	for _, mailbox := range req.MailboxEmails {
+		ok, err := h.repo.IsMailboxAdmin(ctx, userID, mailbox)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
 	}
 	return false, nil
 }

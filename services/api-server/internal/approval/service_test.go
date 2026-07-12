@@ -85,6 +85,10 @@ type serviceRepository struct {
 	stubRepository
 	// mailboxAdminEmails は ListMailboxAdminEmails の返り値（mailboxEmail → 承認者メール一覧）
 	mailboxAdminEmails map[string][]string
+	// 通知トラッキングの記録（approvalID → 宛先一覧 / "approvalID|宛先" → 送信済み）
+	ensuredNotifications map[string][]string
+	sentNotifications    map[string]bool
+	notificationAttempts int
 }
 
 // approval.Service が使う repository.Repository を満たすための残りのスタブ群
@@ -197,6 +201,51 @@ func (s *serviceRepository) IsMailboxAdmin(_ context.Context, _, _ string) (bool
 }
 func (s *serviceRepository) ClaimApprovalRequest(_ context.Context, _ string, _ domain.ApprovalStatus, _ *string) (bool, error) {
 	return true, nil
+}
+func (s *serviceRepository) EnsureApprovalNotifications(_ context.Context, approvalID string, recipients []string) error {
+	if s.ensuredNotifications == nil {
+		s.ensuredNotifications = map[string][]string{}
+	}
+	// 冪等: 既存宛先を保ちつつ新規のみ追加
+	seen := map[string]bool{}
+	for _, r := range s.ensuredNotifications[approvalID] {
+		seen[r] = true
+	}
+	for _, r := range recipients {
+		if !seen[r] {
+			s.ensuredNotifications[approvalID] = append(s.ensuredNotifications[approvalID], r)
+			seen[r] = true
+		}
+	}
+	return nil
+}
+func (s *serviceRepository) ListPendingNotificationRecipients(_ context.Context, approvalID string, _ int) ([]string, error) {
+	var pending []string
+	for _, r := range s.ensuredNotifications[approvalID] {
+		if !s.sentNotifications[approvalID+"|"+r] {
+			pending = append(pending, r)
+		}
+	}
+	return pending, nil
+}
+func (s *serviceRepository) MarkApprovalNotificationResult(_ context.Context, approvalID, recipient string, sent bool, _ string) error {
+	if s.sentNotifications == nil {
+		s.sentNotifications = map[string]bool{}
+	}
+	if sent {
+		s.sentNotifications[approvalID+"|"+recipient] = true
+	}
+	s.notificationAttempts++
+	return nil
+}
+func (s *serviceRepository) CountRemainingNotifications(_ context.Context, approvalID string, _ int) (int, error) {
+	count := 0
+	for _, r := range s.ensuredNotifications[approvalID] {
+		if !s.sentNotifications[approvalID+"|"+r] {
+			count++
+		}
+	}
+	return count, nil
 }
 func (s *serviceRepository) ListMailboxAdminEmails(_ context.Context, mailboxEmail string) ([]string, error) {
 	if s.mailboxAdminEmails != nil {
@@ -349,7 +398,7 @@ func TestResolveNotificationRecipients_MailboxAdmins(t *testing.T) {
 	}
 	svc := New(repo, config.ApprovalConfig{}, config.NotificationConfig{})
 
-	req := domain.ApprovalRequest{ID: "apr-1", MailboxEmail: strPtr("sales@internal.test")}
+	req := domain.ApprovalRequest{ID: "apr-1", MailboxEmails: []string{"sales@internal.test"}}
 	got, err := svc.resolveNotificationRecipients(context.Background(), req)
 	if err != nil {
 		t.Fatalf("解決失敗: %v", err)
@@ -359,11 +408,40 @@ func TestResolveNotificationRecipients_MailboxAdmins(t *testing.T) {
 	}
 }
 
+func TestResolveNotificationRecipients_MultipleMailboxes_Dedup(t *testing.T) {
+	// 複数の対象メールボックスの admin を和集合にし、重複は 1 通にまとめる
+	repo := &serviceRepository{
+		mailboxAdminEmails: map[string][]string{
+			"sales@internal.test":   {"admin1@internal.test", "shared@internal.test"},
+			"support@internal.test": {"shared@internal.test", "admin2@internal.test"},
+		},
+	}
+	svc := New(repo, config.ApprovalConfig{}, config.NotificationConfig{})
+
+	req := domain.ApprovalRequest{
+		ID:            "apr-multi",
+		MailboxEmails: []string{"sales@internal.test", "support@internal.test"},
+	}
+	got, err := svc.resolveNotificationRecipients(context.Background(), req)
+	if err != nil {
+		t.Fatalf("解決失敗: %v", err)
+	}
+	want := []string{"admin1@internal.test", "shared@internal.test", "admin2@internal.test"}
+	if len(got) != len(want) {
+		t.Fatalf("宛先数 期待: %d, 実際: %d (%v)", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("宛先[%d] 期待: %s, 実際: %s", i, want[i], got[i])
+		}
+	}
+}
+
 func TestResolveNotificationRecipients_MailboxWithoutAdmins_Error(t *testing.T) {
 	repo := &serviceRepository{mailboxAdminEmails: map[string][]string{}}
 	svc := New(repo, config.ApprovalConfig{}, config.NotificationConfig{})
 
-	req := domain.ApprovalRequest{ID: "apr-2", MailboxEmail: strPtr("empty@internal.test")}
+	req := domain.ApprovalRequest{ID: "apr-2", MailboxEmails: []string{"empty@internal.test"}}
 	if _, err := svc.resolveNotificationRecipients(context.Background(), req); err == nil {
 		t.Error("承認者不在のメールボックスはエラーを返すべき")
 	}

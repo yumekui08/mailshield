@@ -297,6 +297,18 @@ func (m *mockRepository) ListMailboxAdminEmails(ctx context.Context, mailboxEmai
 	}
 	return nil, nil
 }
+func (m *mockRepository) EnsureApprovalNotifications(_ context.Context, _ string, _ []string) error {
+	return nil
+}
+func (m *mockRepository) ListPendingNotificationRecipients(_ context.Context, _ string, _ int) ([]string, error) {
+	return nil, nil
+}
+func (m *mockRepository) MarkApprovalNotificationResult(_ context.Context, _, _ string, _ bool, _ string) error {
+	return nil
+}
+func (m *mockRepository) CountRemainingNotifications(_ context.Context, _ string, _ int) (int, error) {
+	return 0, nil
+}
 func (m *mockRepository) ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error) {
 	if m.listAllApprovalRequestsFunc != nil {
 		return m.listAllApprovalRequestsFunc(ctx)

@@ -6,15 +6,16 @@ import (
 )
 
 // ApprovalRequest は承認依頼レコードを表す。
-// ApproverID と MailboxEmail はどちらか一方のみ設定する:
-//   - ApproverID   : ユーザー個人を承認者に指定（users.approver_id 経由の解決）
-//   - MailboxEmail : メールボックスを指定。role=admin の割り当てユーザー全員が承認できる
+// ApproverID と MailboxEmails はどちらか一方のみ設定する:
+//   - ApproverID     : ユーザー個人を承認者に指定（users.approver_id 経由の解決）
+//   - MailboxEmails  : メールボックス承認。対象メールボックス（1..n）のいずれかに
+//     role=admin で割り当てられたユーザー全員が承認できる
 type ApprovalRequest struct {
-	ID           string
-	MessageID    string
-	ApproverID   string
-	MailboxEmail string
-	ExpiresAt    time.Time
+	ID            string
+	MessageID     string
+	ApproverID    string
+	MailboxEmails []string
+	ExpiresAt     time.Time
 }
 
 // MailRepository はDBへのアクセスを抽象化するインターフェースである。

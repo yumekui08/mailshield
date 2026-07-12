@@ -223,12 +223,14 @@ export function ApprovalDetailPage() {
             <div>
               <dt className="text-xs font-medium text-gray-500">承認対象</dt>
               <dd className="text-sm text-gray-900 mt-0.5">
-                {data.mailbox_email ? (
+                {data.mailbox_emails && data.mailbox_emails.length > 0 ? (
                   <>
                     メールボックス承認{" "}
-                    <span className="font-mono text-gray-700">{data.mailbox_email}</span>
+                    <span className="font-mono text-gray-700">
+                      {data.mailbox_emails.join(", ")}
+                    </span>
                     <span className="ml-1 text-xs text-gray-400">
-                      （admin 割り当てユーザーの誰でも決定可）
+                      （いずれかのメールボックスの admin が決定可）
                     </span>
                   </>
                 ) : (

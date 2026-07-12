@@ -194,15 +194,15 @@ const (
 )
 
 // ApprovalRequest は承認依頼レコードを表す。
-// ApproverID と MailboxEmail はどちらか一方のみ設定される:
-//   - ApproverID   : ユーザー個人が承認者（users.approver_id 経由の解決）
-//   - MailboxEmail : メールボックス承認。そのメールボックスに role=admin で
-//     割り当てられたユーザー全員が承認・却下できる（先に決定した人が有効）
+// ApproverID と MailboxEmails はどちらか一方のみ設定される:
+//   - ApproverID    : ユーザー個人が承認者（users.approver_id 経由の解決）
+//   - MailboxEmails : メールボックス承認。対象メールボックス（1..n）のいずれかに
+//     role=admin で割り当てられたユーザー全員が承認・却下できる（先に決定した人が有効）
 type ApprovalRequest struct {
 	ID               string         `json:"id"`
 	MessageID        string         `json:"message_id"`
 	ApproverID       *string        `json:"approver_id"`
-	MailboxEmail     *string        `json:"mailbox_email"`
+	MailboxEmails    []string       `json:"mailbox_emails"`
 	Status           ApprovalStatus `json:"status"`
 	Comment          *string        `json:"comment,omitempty"`
 	NotificationSent bool           `json:"-"`

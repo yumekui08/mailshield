@@ -1442,16 +1442,22 @@ func (r *Repository) UpdateAPIKeyLastUsed(ctx context.Context, id string) error 
 // メールボックス宛の依頼（mailbox_email）」の両方を含む。
 func (r *Repository) ListApprovalRequests(ctx context.Context, userID string) ([]domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, mailbox_email, status, comment,
+		SELECT id, message_id, approver_id,
+		       (SELECT GROUP_CONCAT(arm.mailbox_email ORDER BY arm.mailbox_email SEPARATOR '\n')
+		          FROM approval_request_mailboxes arm
+		         WHERE arm.approval_request_id = approval_requests.id) AS mailbox_emails,
+		       status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
 		WHERE status = 'pending'
 		  AND (approver_id = ?
-		       OR mailbox_email IN (
-		           SELECT m.email_address
-		             FROM mailbox_assignments a
-		             JOIN mailboxes m ON m.id = a.mailbox_id
-		            WHERE a.user_id = ? AND a.role = 'admin'))
+		       OR EXISTS (
+		           SELECT 1
+		             FROM approval_request_mailboxes arm
+		             JOIN mailboxes m           ON m.email_address = arm.mailbox_email
+		             JOIN mailbox_assignments a ON a.mailbox_id = m.id
+		            WHERE arm.approval_request_id = approval_requests.id
+		              AND a.user_id = ? AND a.role = 'admin'))
 		ORDER BY created_at DESC`
 	return r.scanApprovalRequests(ctx, q, userID, userID)
 }
@@ -1502,7 +1508,11 @@ func (r *Repository) ListMailboxAdminEmails(ctx context.Context, mailboxEmail st
 // ListAllApprovalRequests は全承認依頼を返す（admin 向け）。
 func (r *Repository) ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, mailbox_email, status, comment,
+		SELECT id, message_id, approver_id,
+		       (SELECT GROUP_CONCAT(arm.mailbox_email ORDER BY arm.mailbox_email SEPARATOR '\n')
+		          FROM approval_request_mailboxes arm
+		         WHERE arm.approval_request_id = approval_requests.id) AS mailbox_emails,
+		       status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
 		ORDER BY created_at DESC`
@@ -1512,7 +1522,11 @@ func (r *Repository) ListAllApprovalRequests(ctx context.Context) ([]domain.Appr
 // GetApprovalRequest は指定 ID の承認依頼を返す。
 func (r *Repository) GetApprovalRequest(ctx context.Context, id string) (*domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, mailbox_email, status, comment,
+		SELECT id, message_id, approver_id,
+		       (SELECT GROUP_CONCAT(arm.mailbox_email ORDER BY arm.mailbox_email SEPARATOR '\n')
+		          FROM approval_request_mailboxes arm
+		         WHERE arm.approval_request_id = approval_requests.id) AS mailbox_emails,
+		       status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
 		WHERE id = ?`
@@ -1580,7 +1594,11 @@ func (r *Repository) MarkApprovalResultNotified(ctx context.Context, id string) 
 // ListPendingUnnotified は notification_sent=false かつ status=pending の依頼を返す。
 func (r *Repository) ListPendingUnnotified(ctx context.Context) ([]domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, mailbox_email, status, comment,
+		SELECT id, message_id, approver_id,
+		       (SELECT GROUP_CONCAT(arm.mailbox_email ORDER BY arm.mailbox_email SEPARATOR '\n')
+		          FROM approval_request_mailboxes arm
+		         WHERE arm.approval_request_id = approval_requests.id) AS mailbox_emails,
+		       status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
 		WHERE notification_sent = 0 AND status = 'pending'`
@@ -1590,7 +1608,11 @@ func (r *Repository) ListPendingUnnotified(ctx context.Context) ([]domain.Approv
 // ListResultUnnotified は result_notified=false かつ approved/rejected の依頼を返す。
 func (r *Repository) ListResultUnnotified(ctx context.Context) ([]domain.ApprovalRequest, error) {
 	const q = `
-		SELECT id, message_id, approver_id, mailbox_email, status, comment,
+		SELECT id, message_id, approver_id,
+		       (SELECT GROUP_CONCAT(arm.mailbox_email ORDER BY arm.mailbox_email SEPARATOR '\n')
+		          FROM approval_request_mailboxes arm
+		         WHERE arm.approval_request_id = approval_requests.id) AS mailbox_emails,
+		       status, comment,
 		       notification_sent, result_notified, decided_at, expires_at, created_at, updated_at
 		FROM approval_requests
 		WHERE result_notified = 0 AND status IN ('approved', 'rejected')`
@@ -1599,39 +1621,139 @@ func (r *Repository) ListResultUnnotified(ctx context.Context) ([]domain.Approva
 
 // ExpireApprovals は expires_at を超えた pending 依頼を expired に更新し、
 // 対象の message_id 一覧を返す。
+// SELECT ... FOR UPDATE で対象行をロックしてから更新するため、
+// 同時に走る承認決定（ClaimApprovalRequest）と競合しても
+// 「承認済みの依頼を期限切れとして報告する」ことはない。
 func (r *Repository) ExpireApprovals(ctx context.Context) ([]string, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT message_id FROM approval_requests WHERE status = 'pending' AND expires_at <= ?`,
-		time.Now().UTC(),
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("期限切れ処理トランザクション開始失敗: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // コミット後の Rollback は no-op
+
+	now := time.Now().UTC()
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, message_id FROM approval_requests
+		  WHERE status = 'pending' AND expires_at <= ? FOR UPDATE`,
+		now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("期限切れ承認依頼取得失敗: %w", err)
 	}
-	defer rows.Close()
 
-	var messageIDs []string
+	var ids, messageIDs []string
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("message_id スキャン失敗: %w", err)
+		var id, msgID string
+		if err := rows.Scan(&id, &msgID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("期限切れ承認依頼スキャン失敗: %w", err)
 		}
-		messageIDs = append(messageIDs, id)
+		ids = append(ids, id)
+		messageIDs = append(messageIDs, msgID)
 	}
-	if err := rows.Err(); err != nil {
+	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	if len(messageIDs) == 0 {
+	if len(ids) == 0 {
 		return nil, nil
 	}
 
-	_, err = r.db.ExecContext(ctx,
-		`UPDATE approval_requests SET status = 'expired' WHERE status = 'pending' AND expires_at <= ?`,
-		time.Now().UTC(),
-	)
-	if err != nil {
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	if _, err := tx.ExecContext(ctx,
+		fmt.Sprintf(`UPDATE approval_requests SET status = 'expired' WHERE id IN (%s)`, placeholders),
+		args...,
+	); err != nil {
 		return nil, fmt.Errorf("承認依頼期限切れ更新失敗: %w", err)
 	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("期限切れ処理コミット失敗: %w", err)
+	}
 	return messageIDs, nil
+}
+
+// ─── 承認依頼通知（宛先ごとの送信状態管理） ─────────────────────────────────
+
+// EnsureApprovalNotifications は依頼の通知宛先行を冪等に作成する
+// （既存の宛先行は変更しない）。
+func (r *Repository) EnsureApprovalNotifications(ctx context.Context, approvalID string, recipients []string) error {
+	for _, recipient := range recipients {
+		_, err := r.db.ExecContext(ctx,
+			`INSERT IGNORE INTO approval_notifications (id, approval_request_id, recipient_email)
+			 VALUES (?, ?, ?)`,
+			uuid.New().String(), approvalID, recipient,
+		)
+		if err != nil {
+			return fmt.Errorf("承認通知宛先作成失敗 (approval_id=%s, to=%s): %w", approvalID, recipient, err)
+		}
+	}
+	return nil
+}
+
+// ListPendingNotificationRecipients は未送信かつ試行回数が maxAttempts 未満の宛先を返す。
+func (r *Repository) ListPendingNotificationRecipients(ctx context.Context, approvalID string, maxAttempts int) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT recipient_email FROM approval_notifications
+		  WHERE approval_request_id = ? AND sent = 0 AND attempts < ?`,
+		approvalID, maxAttempts,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("未送信通知宛先取得失敗 (approval_id=%s): %w", approvalID, err)
+	}
+	defer rows.Close()
+
+	var recipients []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, fmt.Errorf("通知宛先スキャン失敗: %w", err)
+		}
+		recipients = append(recipients, email)
+	}
+	return recipients, rows.Err()
+}
+
+// MarkApprovalNotificationResult は宛先ごとの送信結果を記録する。
+// 成功時は sent=1、失敗時は attempts を加算し last_error を残す。
+func (r *Repository) MarkApprovalNotificationResult(ctx context.Context, approvalID, recipient string, sent bool, sendErr string) error {
+	var lastError any
+	if sendErr != "" {
+		lastError = sendErr
+	}
+	sentInt := 0
+	if sent {
+		sentInt = 1
+	}
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE approval_notifications
+		    SET sent = ?, attempts = attempts + 1, last_error = ?
+		  WHERE approval_request_id = ? AND recipient_email = ?`,
+		sentInt, lastError, approvalID, recipient,
+	)
+	if err != nil {
+		return fmt.Errorf("承認通知結果更新失敗 (approval_id=%s, to=%s): %w", approvalID, recipient, err)
+	}
+	return nil
+}
+
+// CountRemainingNotifications は再送対象として残っている宛先数を返す
+// （sent=0 かつ attempts < maxAttempts）。0 になったら依頼レベルの通知処理は完了。
+func (r *Repository) CountRemainingNotifications(ctx context.Context, approvalID string, maxAttempts int) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM approval_notifications
+		  WHERE approval_request_id = ? AND sent = 0 AND attempts < ?`,
+		approvalID, maxAttempts,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("残通知宛先数取得失敗 (approval_id=%s): %w", approvalID, err)
+	}
+	return count, nil
 }
 
 // ─── ユーザー承認者設定 ──────────────────────────────────────────────────────
@@ -1689,12 +1811,16 @@ func scanApprovalRows(rows *sql.Rows) ([]domain.ApprovalRequest, error) {
 	for rows.Next() {
 		var a domain.ApprovalRequest
 		var notifSentInt, resultNotifiedInt int
+		var mailboxEmails sql.NullString
 		if err := rows.Scan(
-			&a.ID, &a.MessageID, &a.ApproverID, &a.MailboxEmail, &a.Status, &a.Comment,
+			&a.ID, &a.MessageID, &a.ApproverID, &mailboxEmails, &a.Status, &a.Comment,
 			&notifSentInt, &resultNotifiedInt,
 			&a.DecidedAt, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("承認依頼スキャン失敗: %w", err)
+		}
+		if mailboxEmails.Valid && mailboxEmails.String != "" {
+			a.MailboxEmails = strings.Split(mailboxEmails.String, "\n")
 		}
 		a.NotificationSent = notifSentInt == 1
 		a.ResultNotified = resultNotifiedInt == 1

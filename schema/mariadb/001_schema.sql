@@ -162,12 +162,12 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE TABLE IF NOT EXISTS approval_requests (
     id                CHAR(36)                                              NOT NULL,
     message_id        CHAR(36)                                              NOT NULL,
-    -- 承認者の指定方法は 2 通り（必ずどちらか一方が入る）:
-    --   approver_id   : ユーザー個人を承認者に指定（users.approver_id 経由の解決）
-    --   mailbox_email : メールボックスを指定。そのメールボックスに role=admin で
-    --                   割り当てられたユーザー全員が承認・却下できる（先に決定した人が有効）
+    -- 承認者の指定方法は 2 通り（アプリ層が必ずどちらか一方を設定する）:
+    --   approver_id                : ユーザー個人を承認者に指定（users.approver_id 経由の解決）
+    --   approval_request_mailboxes : メールボックス承認。対象メールボックス（1..n）の
+    --                                いずれかに role=admin で割り当てられたユーザー全員が
+    --                                承認・却下できる（先に決定した人が有効）
     approver_id       CHAR(36)                                              NULL DEFAULT NULL,
-    mailbox_email     VARCHAR(320)                                          NULL DEFAULT NULL,
     status            ENUM('pending','approved','rejected','expired')        NOT NULL DEFAULT 'pending',
     comment           TEXT                                                   NULL DEFAULT NULL,
     notification_sent TINYINT(1)                                            NOT NULL DEFAULT 0,
@@ -179,13 +179,46 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     PRIMARY KEY (id),
     KEY idx_approval_requests_message        (message_id),
     KEY idx_approval_requests_approver_status (approver_id, status),
-    KEY idx_approval_requests_mailbox_status  (mailbox_email, status),
     KEY idx_approval_requests_pending_notify  (notification_sent, status),
     KEY idx_approval_requests_result_notify   (result_notified, status),
     KEY idx_approval_requests_expires         (expires_at, status),
     CONSTRAINT fk_approval_requests_message  FOREIGN KEY (message_id)  REFERENCES mail_messages (id),
-    CONSTRAINT fk_approval_requests_approver FOREIGN KEY (approver_id) REFERENCES users (id),
-    CONSTRAINT chk_approval_requests_target  CHECK (approver_id IS NOT NULL OR mailbox_email IS NOT NULL)
+    CONSTRAINT fk_approval_requests_approver FOREIGN KEY (approver_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 承認依頼の対象メールボックステーブル
+-- 依頼 1 件が複数のメールボックスを対象にできる（受信メールの複数宛先など）。
+-- いずれかのメールボックスの admin が承認すれば配送される。
+-- 将来の多段承認ワークフローはこのテーブルに stage/order 列を追加して拡張する想定。
+CREATE TABLE IF NOT EXISTS approval_request_mailboxes (
+    id                  CHAR(36)     NOT NULL,
+    approval_request_id CHAR(36)     NOT NULL,
+    mailbox_email       VARCHAR(320) NOT NULL,
+    created_at          DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_approval_request_mailboxes (approval_request_id, mailbox_email),
+    KEY idx_approval_request_mailboxes_mailbox (mailbox_email),
+    CONSTRAINT fk_approval_request_mailboxes_request
+        FOREIGN KEY (approval_request_id) REFERENCES approval_requests (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 承認依頼通知テーブル
+-- 承認者への依頼通知メールの送信状態を宛先ごとに管理する。
+-- 一部の宛先だけ送信に失敗した場合、失敗した宛先のみ再送される（最大試行回数まで）。
+CREATE TABLE IF NOT EXISTS approval_notifications (
+    id                  CHAR(36)     NOT NULL,
+    approval_request_id CHAR(36)     NOT NULL,
+    recipient_email     VARCHAR(320) NOT NULL,
+    sent                TINYINT(1)   NOT NULL DEFAULT 0,
+    attempts            INT          NOT NULL DEFAULT 0,
+    last_error          TEXT         NULL DEFAULT NULL,
+    created_at          DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at          DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_approval_notifications (approval_request_id, recipient_email),
+    KEY idx_approval_notifications_unsent (sent, attempts),
+    CONSTRAINT fk_approval_notifications_request
+        FOREIGN KEY (approval_request_id) REFERENCES approval_requests (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- API キーテーブル

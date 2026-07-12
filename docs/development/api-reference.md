@@ -220,8 +220,10 @@ api-server のデフォルトポートは 8081。
 
 policy アクション `approval` で保留されたメールの承認 API。承認依頼には 2 方式ある:
 
-- **メールボックス承認**（`mailbox_email` が非 null）: 対象メールボックスに role=admin で割り当てられたユーザー全員が決定できる（先に決定した人が有効）
+- **メールボックス承認**（`mailbox_emails` が非空）: 対象メールボックス（1..n）のいずれかに role=admin で割り当てられたユーザー全員が決定できる（先に決定した人が有効）。受信メールで宛先が複数の場合、admin がいるすべての宛先メールボックスが対象になる
 - **個人承認**（`approver_id` が非 null）: 指定された承認者本人のみ決定できる
+
+依頼作成時、承認者全員へ通知メールが送られる。通知は宛先ごとに送信状態が管理され、一部の宛先だけ失敗した場合は失敗した宛先のみ再送される（30 秒間隔・最大 5 回）。
 
 ### `GET /api/v1/approvals`
 
@@ -235,7 +237,7 @@ policy アクション `approval` で保留されたメールの承認 API。承
       "id": "uuid",
       "message_id": "uuid",
       "approver_id": null,
-      "mailbox_email": "sales@example.com",
+      "mailbox_emails": ["sales@example.com"],
       "status": "pending",
       "expires_at": "2026-07-10T00:00:00Z",
       "created_at": "2026-07-07T00:00:00Z"

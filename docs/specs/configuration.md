@@ -219,7 +219,7 @@ policy アクションが `approval` を返したとき、smtp-gateway がデー
 
 **承認者の解決順:**
 
-1. **メールボックスの承認者（role=admin）** — outbound は送信元、inbound は宛先のメールボックスを順に調べ、`mailbox_assignments` に role=admin で割り当てられた有効ユーザーが 1 人以上いる最初のメールボックスに依頼を紐づける。その admin 全員が承認・却下でき、先に決定した人の判断が有効になる。admin の割り当ては Web UI での手動追加のほか、`directory.ldap.mailbox_provisioning`（`role: admin`）で LDAP から member/owner と同様に自動同期できる
+1. **メールボックスの承認者（role=admin）** — outbound は送信元、inbound は宛先のメールボックスを調べ、`mailbox_assignments` に role=admin で割り当てられた有効ユーザーが 1 人以上いる**すべての**メールボックスを依頼の対象にする（受信メールの複数宛先対応）。対象メールボックスのいずれかの admin が承認・却下でき、先に決定した人の判断が有効になる。admin の割り当ては Web UI での手動追加のほか、`directory.ldap.mailbox_provisioning`（`role: admin`）で LDAP から member/owner と同様に自動同期できる
 2. **ユーザー個人の承認者** — 送信者の `users.approver_id` → 受信者の `users.approver_id`
 3. **グローバルフォールバック** — `global_approver_email`
 
@@ -741,6 +741,8 @@ notification:
 ### approval
 
 承認フローのバックグラウンドサービス設定。api-server は 30 秒ごとに未送信の通知メールを送信し、5 分ごとに期限切れの承認依頼を `expired` に更新する。
+
+承認依頼通知は**宛先ごとに**送信状態が管理される（`approval_notifications` テーブル）。メールボックス承認で承認者が複数いる場合、一部の宛先だけ送信に失敗しても、成功済みの宛先に重複送信することなく失敗した宛先のみが次サイクルで再送される。宛先ごとの再送は最大 5 回で打ち切られる（承認者は Web UI からも依頼を確認できる）。
 
 | キー | 型 | デフォルト | 説明 |
 |-----|-----|----------|------|

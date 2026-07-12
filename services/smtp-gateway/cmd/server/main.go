@@ -700,8 +700,8 @@ func (h *mailHandler) archiveAsync(messageID string, eml []byte, receivedAt time
 //
 // 承認者の解決順:
 //  1. メールボックスの承認者（role=admin）: outbound は送信元、inbound は宛先の
-//     メールボックスを順に調べ、admin 割り当てが 1 人以上いる最初のメールボックスに
-//     依頼を紐づける（その admin 全員が承認・却下できる）
+//     メールボックスを調べ、admin 割り当てが 1 人以上いる**すべての**メールボックスを
+//     依頼の対象にする（いずれかのメールボックスの admin が承認すれば配送される）
 //  2. ユーザー個人の承認者（users.approver_id）: 送信者 → 受信者
 //  3. グローバルフォールバック（approval.global_approver_email）
 func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Mail, log *slog.Logger) error {
@@ -710,7 +710,7 @@ func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Ma
 	if mail.Direction == domain.DirectionOutbound {
 		candidates = []string{mail.FromAddress}
 	}
-	var mailboxEmail string
+	var mailboxEmails []string
 	for _, addr := range candidates {
 		count, err := h.repo.CountMailboxAdmins(ctx, addr)
 		if err != nil {
@@ -718,14 +718,13 @@ func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Ma
 			continue
 		}
 		if count > 0 {
-			mailboxEmail = addr
-			break
+			mailboxEmails = append(mailboxEmails, addr)
 		}
 	}
 
 	// 2. ユーザー個人の承認者（送信者 → 受信者）
 	var approverID string
-	if mailboxEmail == "" {
+	if len(mailboxEmails) == 0 {
 		var err error
 		approverID, err = h.repo.FindApproverForSender(ctx, mail.FromAddress)
 		if err != nil {
@@ -748,7 +747,7 @@ func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Ma
 		}
 	}
 
-	if mailboxEmail == "" && approverID == "" {
+	if len(mailboxEmails) == 0 && approverID == "" {
 		return fmt.Errorf("承認者を解決できません (message_id=%s, from=%s)", mail.MessageID, mail.FromAddress)
 	}
 
@@ -758,11 +757,11 @@ func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Ma
 	}
 
 	req := &domain.ApprovalRequest{
-		ID:           uuid.New().String(),
-		MessageID:    mail.MessageID,
-		ApproverID:   approverID,
-		MailboxEmail: mailboxEmail,
-		ExpiresAt:    time.Now().Add(time.Duration(expiryHours) * time.Hour),
+		ID:            uuid.New().String(),
+		MessageID:     mail.MessageID,
+		ApproverID:    approverID,
+		MailboxEmails: mailboxEmails,
+		ExpiresAt:     time.Now().Add(time.Duration(expiryHours) * time.Hour),
 	}
 	if err := h.repo.SaveApprovalRequest(ctx, req); err != nil {
 		return err
@@ -771,7 +770,7 @@ func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Ma
 	log.Info("承認依頼レコード作成",
 		"message_id", mail.MessageID,
 		"approver_id", approverID,
-		"mailbox_email", mailboxEmail,
+		"mailbox_emails", mailboxEmails,
 		"expires_at", req.ExpiresAt,
 	)
 	return nil
