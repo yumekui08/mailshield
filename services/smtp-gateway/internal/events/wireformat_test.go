@@ -1,4 +1,4 @@
-package queue
+package events
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 )
 
 // TestMailEventWireFormat は mail.received イベントの JSON キーが
-// docs/specs/queues.md のワイヤーフォーマットと一致することを検証する。
+// docs/specs/events.md のワイヤーフォーマットと一致することを検証する。
 func TestMailEventWireFormat(t *testing.T) {
 	event := &domain.MailEvent{
 		MessageID:   "id-1",

@@ -14,7 +14,6 @@ MailShield のデータは MariaDB と MinIO の2箇所に保存されます。
 | 原本 EML / 処理済み EML | MinIO | 高 |
 | 分離添付ファイル | MinIO | 高 |
 | 設定ファイル | ローカルファイル（`config/`） | 高 |
-| RabbitMQ キューの滞留メッセージ | RabbitMQ | 低（再配送可能） |
 
 ---
 

@@ -32,7 +32,7 @@ MailShield OSS の全ドキュメントの索引。初めての場合は [シス
 | [mail-processing-flow.md](specs/mail-processing-flow.md) | メール1通が辿る 7 ステップ・エラー時挙動・隔離解放フロー |
 | [workers.md](specs/workers.md) | 組み込みワーカー・Lua ワーカーの実装仕様と設定 |
 | [storage.md](specs/storage.md) | オブジェクトキー命名規則・ストレージバックエンド |
-| [queues.md](specs/queues.md) | RabbitMQ Exchange 設計・mail.received メッセージ仕様 |
+| [events.md](specs/events.md) | mail.received webhook（統合イベント通知）の仕様 |
 | [logging.md](specs/logging.md) | 構造化ログのフォーマット・フィールド定義 |
 | [signals.md](specs/signals.md) | SIGTERM / SIGINT / SIGHUP とグレースフルシャットダウン |
 | [api-authentication.md](specs/api-authentication.md) | セッション Cookie / API キー認証 |
@@ -45,5 +45,5 @@ MailShield OSS の全ドキュメントの索引。初めての場合は [シス
 - 設定項目の変更 → `specs/configuration.md`
 - 処理ステップの変更 → `specs/mail-processing-flow.md`
 - ワーカーの追加・変更 → `specs/workers.md`
-- ストレージ・キュー仕様の変更 → `specs/storage.md` / `specs/queues.md`
+- ストレージ・イベント仕様の変更 → `specs/storage.md` / `specs/events.md`
 - アーキテクチャ変更 → `architecture.md` と `README.md`

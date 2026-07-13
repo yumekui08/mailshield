@@ -1,15 +1,15 @@
-package queue_test
+package events_test
 
 import (
 	"context"
 	"testing"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/queue"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/events"
 )
 
 func TestNoopPublisher_PublishMailReceived(t *testing.T) {
-	p := queue.NewNoop()
+	p := events.NewNoop()
 	event := &domain.MailEvent{
 		MessageID:   "test-msg-001",
 		FromAddress: "sender@example.com",
@@ -20,7 +20,7 @@ func TestNoopPublisher_PublishMailReceived(t *testing.T) {
 }
 
 func TestNoopPublisher_Close(t *testing.T) {
-	p := queue.NewNoop()
+	p := events.NewNoop()
 	if err := p.Close(); err != nil {
 		t.Errorf("Close() error = %v, want nil", err)
 	}

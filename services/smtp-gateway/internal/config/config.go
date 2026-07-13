@@ -18,7 +18,7 @@ type Config struct {
 	Server   ServerConfig
 	Storage  StorageConfig
 	Database DatabaseConfig
-	Queue    QueueConfig
+	Events   EventsConfig
 	// Workers は全ルートで共有するワーカーのグローバル設定（Lua ディレクトリ等）。
 	// ルートごとの有効・無効・順序は routes[].workers.inspect / transform で制御する。
 	Workers                WorkersGlobal
@@ -169,7 +169,7 @@ type ServerConfig struct {
 	// 操作別タイムアウト（秒）
 	StorageSaveTimeoutSeconds  int `mapstructure:"storage_save_timeout_seconds"`
 	DBSaveTimeoutSeconds       int `mapstructure:"db_save_timeout_seconds"`
-	QueuePublishTimeoutSeconds int `mapstructure:"queue_publish_timeout_seconds"`
+	EventPublishTimeoutSeconds int `mapstructure:"event_publish_timeout_seconds"`
 	SimulateTimeoutSeconds     int `mapstructure:"simulate_timeout_seconds"`
 	// アーカイブリトライ
 	ArchiveMaxRetries          int `mapstructure:"archive_max_retries"`
@@ -212,12 +212,26 @@ type DatabaseConfig struct {
 	PingTimeoutSeconds int `mapstructure:"ping_timeout_seconds"`
 }
 
-type QueueConfig struct {
-	Backend  string `mapstructure:"backend"`
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	User     string `mapstructure:"user"`
-	Password string `mapstructure:"password"`
+// EventsConfig は mail.received 統合イベント通知の設定を保持する。
+type EventsConfig struct {
+	// Backend は none（発行なし・デフォルト）| webhook。
+	Backend string        `mapstructure:"backend"`
+	Webhook WebhookConfig `mapstructure:"webhook"`
+}
+
+// WebhookConfig は webhook バックエンドの設定を保持する。
+type WebhookConfig struct {
+	// URL はイベントの POST 先。backend=webhook のとき必須。
+	URL string `mapstructure:"url"`
+	// Secret が設定されている場合、ボディの HMAC-SHA256 を
+	// X-MailShield-Signature ヘッダーに付与する。
+	Secret string `mapstructure:"secret"`
+	// TimeoutSeconds は 1 リクエストあたりの HTTP タイムアウト（省略時 10）。
+	TimeoutSeconds int `mapstructure:"timeout_seconds"`
+	// MaxRetries は最大試行回数（省略時 3）。4xx はリトライしない。
+	MaxRetries int `mapstructure:"max_retries"`
+	// RetryBackoffSeconds はリトライ間隔（省略時 1）。
+	RetryBackoffSeconds int `mapstructure:"retry_backoff_seconds"`
 }
 
 // RouteConfig は1つのルート定義を保持する。
@@ -297,10 +311,8 @@ func Load(configDir string) (*Config, error) {
 		"database.password":      "DB_PASSWORD",
 		"storage.endpoint":       "MINIO_ENDPOINT",
 		"storage.use_ssl":        "MINIO_USE_SSL",
-		"queue.host":             "RABBITMQ_HOST",
-		"queue.port":             "RABBITMQ_PORT",
-		"queue.user":             "RABBITMQ_USER",
-		"queue.password":         "RABBITMQ_PASSWORD",
+		"events.webhook.url":     "MAILSHIELD_WEBHOOK_URL",
+		"events.webhook.secret":  "MAILSHIELD_WEBHOOK_SECRET",
 		"notification.smtp_host": "MAILSHIELD_NOTIFICATION_SMTP_HOST",
 		"notification.smtp_port": "MAILSHIELD_NOTIFICATION_SMTP_PORT",
 		"reinject.host":          "MAILSHIELD_REINJECT_HOST",

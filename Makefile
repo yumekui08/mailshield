@@ -97,7 +97,6 @@ test-e2e:
 #
 # プロファイルの組み合わせ:
 #   （常時起動）: MariaDB のみ（必須サービス・プロファイル不要）
-#   queue    : RabbitMQ（mail.received を外部システムに通知する場合）
 #   storage  : MinIO（EML をオブジェクトストレージに保存する場合）
 #   scanners : ClamAV・Tika・Tesseract
 #   dev      : Mailpit（処理後メール確認用）
@@ -107,11 +106,11 @@ DC      = docker compose -f docker/docker-compose.yml
 DCENV   = COMPOSE_PROFILES
 
 PROFILES_CORE     =
-PROFILES_DEV      = storage,queue,dev
-PROFILES_OUTBOUND = storage,queue,outbound,dev
-PROFILES_SCANNERS = storage,queue,dev,scanners
-PROFILES_API      = storage,queue,dev,api
-PROFILES_FULL     = storage,queue,dev,scanners,api
+PROFILES_DEV      = storage,dev
+PROFILES_OUTBOUND = storage,outbound,dev
+PROFILES_SCANNERS = storage,dev,scanners
+PROFILES_API      = storage,dev,api
+PROFILES_FULL     = storage,dev,scanners,api
 
 ## smtp-gateway + インフラ + Mailpit（開発標準）
 dev-up:

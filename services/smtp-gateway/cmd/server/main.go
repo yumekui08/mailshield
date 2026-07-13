@@ -22,12 +22,12 @@ import (
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/deliver"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/events"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/logging"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/metrics"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/notify"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/pipeline"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/policy"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/queue"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/repository/mariadb"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/router"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/smtp"
@@ -159,25 +159,24 @@ func main() {
 	slog.Info("MariaDB 接続完了", "host", cfg.Database.Host)
 
 	var publisher domain.EventPublisher
-	if cfg.Queue.Backend == "none" {
-		slog.Info("キュー: noop モード（mail.received イベントは発行しない）")
-		publisher = queue.NewNoop()
-	} else {
-		slog.Debug("RabbitMQ 初期化", "host", cfg.Queue.Host, "port", cfg.Queue.Port)
-		amqpURL := fmt.Sprintf("amqp://%s:%s@%s:%d/",
-			cfg.Queue.User,
-			cfg.Queue.Password,
-			cfg.Queue.Host,
-			cfg.Queue.Port,
+	switch cfg.Events.Backend {
+	case "webhook":
+		pub, err := events.NewWebhook(
+			cfg.Events.Webhook.URL,
+			cfg.Events.Webhook.Secret,
+			cfg.Events.Webhook.TimeoutSeconds,
+			cfg.Events.Webhook.MaxRetries,
+			cfg.Events.Webhook.RetryBackoffSeconds,
 		)
-		pub, err := queue.New(amqpURL)
 		if err != nil {
-			slog.Error("RabbitMQ 初期化失敗", "error", err)
+			slog.Error("webhook イベントバックエンド初期化失敗", "error", err)
 			os.Exit(1)
 		}
-		defer pub.Close()
-		slog.Info("RabbitMQ 接続完了", "host", cfg.Queue.Host)
+		slog.Info("イベント通知: webhook モード", "url", cfg.Events.Webhook.URL)
 		publisher = pub
+	default: // none
+		slog.Info("イベント通知: なし（mail.received イベントは発行しない）")
+		publisher = events.NewNoop()
 	}
 
 	if len(cfg.Routes) == 0 {
@@ -519,10 +518,10 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		dbCancel()
 	}
 
-	// 4. RabbitMQ に mail.received を発行（失敗してもログだけで続行）
-	log.Debug("[4/7] RabbitMQ へ mail.received を発行中")
+	// 4. mail.received 統合イベントを発行（失敗してもログだけで続行）
+	log.Debug("[4/7] mail.received イベント発行中")
 	{
-		mqCtx, mqCancel := context.WithTimeout(context.Background(), time.Duration(h.cfg.QueuePublishTimeoutSeconds)*time.Second)
+		mqCtx, mqCancel := context.WithTimeout(context.Background(), time.Duration(h.cfg.EventPublishTimeoutSeconds)*time.Second)
 		event := toMailEvent(mail)
 		if err := h.publisher.PublishMailReceived(mqCtx, event); err != nil {
 			log.Warn("[4/7] mail.received 発行失敗（続行）", "error", err)

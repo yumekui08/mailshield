@@ -8,7 +8,7 @@
 - **マルチルート**: `config/routes.d/` 配下のディレクトリで受信・送信ルートを個別定義。正規表現でルートを振り分ける
 - **MTA非依存**: Postfix・Sendmail・外部MTAを問わず、SMTP after-queue content filter として動作する
 - **複数配送先（deliverers）**: 名前付き配送先をポリシールール単位で使い分けられる。SendGrid・Amazon SES の SMTP エンドポイント（STARTTLS + SMTP AUTH）にも配送可能
-- **MariaDB のみ必須**: RabbitMQ・MinIO・Redis はすべてオプション。`queue.backend: none` / `storage.backend: filesystem` / `redis.backend: mariadb` で外部サービスなしの単一ノード構成にできる
+- **MariaDB のみ必須**: MinIO・Redis はすべてオプション。`storage.backend: filesystem` / `redis.backend: mariadb` で外部サービスなしの単一ノード構成にできる。外部連携イベントは webhook で通知（`events.backend: webhook`）
 - **管理 Web UI**: メール一覧・隔離管理・添付ファイル分離・ユーザー管理・監査ログ・API キー管理を Web ブラウザで操作できる
 - **API キー認証**: `Authorization: Bearer <key>` ヘッダで機械間認証。CI/CD・SIEM 連携に使用できる
 - **LDAP ディレクトリ同期 + bind 認証**: Active Directory / OpenLDAP からユーザー・グループを定期同期し、role をディレクトリ側で一元管理できる。ログインも LDAP bind に切り替え可能（`directory.source: ldap`）。メールボックスの閲覧・管理権限もグループ所属から自動反映できる（`mailbox_mappings`）
@@ -47,7 +47,7 @@ swaks --to test@internal.test --from sender@external.test \
 
 デフォルト設定（`config/mailshield.default.yaml`）:
 - ストレージ: ローカルファイルシステム（`./data/eml/`）
-- キュー: なし（RabbitMQ 不要）
+- イベント通知: なし（`events.backend: none`）
 - DB: `localhost:3306`
 
 ### Docker Compose で動かす
@@ -67,7 +67,7 @@ cp .env.example .env
 #   server:
 #     trusted_sources: [127.0.0.1, 172.16.0.0/12]
 
-# 3. 起動（MariaDB + MinIO + RabbitMQ + Mailpit）
+# 3. 起動（MariaDB + MinIO + Mailpit）
 make dev-up
 
 # 4. テストメール送信（smtp-gateway に直接投入）
@@ -129,7 +129,7 @@ open http://localhost:8025
 | [メール処理フロー](docs/specs/mail-processing-flow.md) | メール1通が辿るステップの詳細・隔離解放フロー |
 | [ワーカー仕様](docs/specs/workers.md) | 組み込みワーカー・Lua ワーカーの実装仕様 |
 | [ストレージ仕様](docs/specs/storage.md) | MinIO オブジェクトパス命名規則 |
-| [キュー仕様](docs/specs/queues.md) | RabbitMQ Exchange・キュー設計 |
+| [統合イベント仕様](docs/specs/events.md) | mail.received webhook のペイロード・署名・リトライ |
 | [API 認証仕様](docs/specs/api-authentication.md) | セッション Cookie / API キー認証の詳細 |
 | [メトリクス仕様](docs/specs/metrics.md) | Prometheus 形式メトリクス・/readyz レディネスチェック |
 | [設計判断記録](docs/decisions/) | ADR（Architecture Decision Records） |
@@ -163,7 +163,7 @@ flowchart LR
 
     GW -->|必須| DB[("MariaDB\nメタデータ")]
     GW -.->|"optional\nstorage.backend: minio"| MinIO[("MinIO\nEML 保存")]
-    GW -.->|"optional\nqueue.backend: rabbitmq"| MQ[("RabbitMQ\nイベント")]
+    GW -.->|"optional\nevents.backend: webhook"| Hook(["外部システム\nmail.received webhook"])
     GW -->|"検査・変換・ポリシー評価"| Dest(["配送先 MTA"])
 
     Admin([管理者ブラウザ]) -->|HTTPS| WebUI["Web UI"]

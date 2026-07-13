@@ -44,7 +44,7 @@ server:
   # 操作別タイムアウト（秒）
   storage_save_timeout_seconds: 15   # EML 保存（MinIO/FS）
   db_save_timeout_seconds: 5         # メタデータ DB 保存
-  queue_publish_timeout_seconds: 5   # RabbitMQ イベント発行
+  event_publish_timeout_seconds: 5   # mail.received イベント発行（webhook）
   simulate_timeout_seconds: 30       # POST /simulate ハンドラ全体
 
   # アーカイブリトライ設定
@@ -106,15 +106,18 @@ database:
 
 # ─── メッセージキュー ────────────────────────────────────────────────────────
 
-queue:
-  # キューバックエンド
-  #   rabbitmq : RabbitMQ（docker-compose profile: queue が必要）
-  #   none     : イベント通知なし（RabbitMQ不要・開発/単一ノード向け）
+# mail.received 統合イベント通知（外部システム連携用・メールフローには影響しない）
+events:
+  # バックエンド
+  #   webhook : イベントを HTTP POST で通知する（SIEM・自作コンシューマー向け）
+  #   none    : イベント通知なし（デフォルト）
   backend: none
-  host: localhost                       # ENV: RABBITMQ_HOST
-  port: 5672                            # ENV: RABBITMQ_PORT
-  user: mailshield                      # ENV: RABBITMQ_USER
-  password: ""                          # ENV: RABBITMQ_PASSWORD
+  webhook:
+    url: ""                             # ENV: MAILSHIELD_WEBHOOK_URL（backend=webhook のとき必須）
+    secret: ""                          # ENV: MAILSHIELD_WEBHOOK_SECRET（HMAC-SHA256 署名。空なら署名なし）
+    timeout_seconds: 10                 # 1 リクエストあたりの HTTP タイムアウト
+    max_retries: 3                      # 最大試行回数（4xx はリトライしない）
+    retry_backoff_seconds: 1            # リトライ間隔
 
 # ─── ロギング ────────────────────────────────────────────────────────────────
 

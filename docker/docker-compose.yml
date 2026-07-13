@@ -27,10 +27,9 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-mailshield}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-mailshield}
       MINIO_USE_SSL:    ${MINIO_USE_SSL:-false}
-      RABBITMQ_HOST:     ${RABBITMQ_HOST:-rabbitmq}
-      RABBITMQ_PORT:     ${RABBITMQ_PORT:-5672}
-      RABBITMQ_USER:     ${RABBITMQ_USER:-mailshield}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-mailshield}
+      # mail.received イベント通知（events.backend = webhook のとき使用）
+      MAILSHIELD_WEBHOOK_URL:    ${MAILSHIELD_WEBHOOK_URL:-}
+      MAILSHIELD_WEBHOOK_SECRET: ${MAILSHIELD_WEBHOOK_SECRET:-}
       # 再インジェクト先・通知 SMTP（.env の STEP 2 を参照。未設定時は開発用 Mailpit）
       MAILSHIELD_REINJECT_HOST: ${MAILSHIELD_REINJECT_HOST:-mailpit}
       MAILSHIELD_REINJECT_PORT: ${MAILSHIELD_REINJECT_PORT:-1025}
@@ -43,12 +42,6 @@ services:
       mariadb:
         condition: service_healthy
         required: true    # MariaDB は必須サービス（常時起動）
-      rabbitmq:
-        condition: service_healthy
-        required: false   # profile: queue が有効なときのみ
-      rabbitmq-init:
-        condition: service_completed_successfully
-        required: false   # rabbitmq-init が完了してから起動する（Exchange 作成待ち）
       minio:
         condition: service_healthy
         required: false   # profile: storage が有効なときのみ
@@ -81,49 +74,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-
-  # ─────────────────────────────────────────────────────────────
-  # RabbitMQ（profile: queue）
-  # mail.received イベントを外部システムに通知する場合のみ起動。
-  # smtp-gateway の設定: queue.backend = rabbitmq（デフォルト）
-  # 不要な場合: queue.backend = none に変更してこのプロファイルを外す。
-  # ─────────────────────────────────────────────────────────────
-  rabbitmq:
-    profiles: [queue]
-    image: rabbitmq:3.13-management
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-mailshield}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-mailshield}
-      # root で Docker を実行する環境で .erlang.cookie のパーミッション問題を回避する
-      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-mailshield-erlang-cookie}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-    ports:
-      - "15672:15672"   # 管理UI（開発時のみ）
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-      interval: 10s
-      timeout: 5s
-      retries: 15
-      start_period: 30s
-
-  rabbitmq-init:
-    profiles: [queue]
-    image: rabbitmq:3.13-management
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    environment:
-      RABBITMQ_USER:          ${RABBITMQ_USER:-mailshield}
-      RABBITMQ_PASSWORD:      ${RABBITMQ_PASSWORD:-mailshield}
-      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-mailshield-erlang-cookie}
-    volumes:
-      - ./infra/rabbitmq/definitions.json:/definitions.json:ro
-      - ./infra/rabbitmq/init.sh:/init.sh:ro
-    entrypoint: ["/bin/sh", "/init.sh"]
-    restart: "no"
 
   # ─────────────────────────────────────────────────────────────
   # MinIO（profile: storage）
@@ -306,7 +256,6 @@ services:
 
 volumes:
   mariadb_data:
-  rabbitmq_data:
   minio_data:
   redis_data:
   clamav_db:

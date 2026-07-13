@@ -69,15 +69,12 @@ cd ../api-server && go build ./cmd/server/
 
 ### 最小構成（MariaDB のみ）で動かす
 
-RabbitMQ・MinIO なしで smtp-gateway を動かすには `config/mailshield.yaml` を編集します:
+MinIO なしで smtp-gateway を動かすには `config/mailshield.yaml` を編集します:
 
 ```yaml
 storage:
   backend: filesystem
   local_dir: /tmp/mailshield-eml
-
-queue:
-  backend: none
 ```
 
 ---

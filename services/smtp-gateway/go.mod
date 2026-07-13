@@ -12,7 +12,6 @@ require (
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/makiuchi-d/gozxing v0.1.1
 	github.com/microcosm-cc/bluemonday v1.0.27
-	github.com/rabbitmq/amqp091-go v1.11.0
 	github.com/spf13/viper v1.21.0
 	github.com/yuin/gopher-lua v1.1.2
 	gopkg.in/yaml.v3 v3.0.1

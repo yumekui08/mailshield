@@ -4,8 +4,12 @@
 
 ワーカー（検査・変換）はすべて smtp-gateway プロセス内の goroutine として実行する。
 当初計画していた「RabbitMQ を購読する分散ワーカー」方式は採用しない。
-RabbitMQ は `mail.received` 統合イベントの発行専用（オプション、`queue.backend: none` で無効）に限定し、
+`mail.received` 統合イベントの通知は webhook（HTTP POST・オプション、`events.backend: none` で無効）で行い、
 メールフローのクリティカルパスには置かない。
+
+**改訂（2026-07-13）:** RabbitMQ 発行実装そのものも削除した。統合イベントは
+webhook バックエンドに置き換え（`docs/specs/events.md`）、AMQP への依存・
+docker-compose の queue プロファイルは廃止。
 
 ## 理由
 
@@ -18,8 +22,8 @@ RabbitMQ は `mail.received` 統合イベントの発行専用（オプション
 
 ## 今後の方針
 
-- RabbitMQ の上に新機能を建てない。外部統合イベントは webhook バックエンドの追加で置き換え可能にし、
-  AMQP は「既存の社内基盤がある利用者向けオプション」に位置づける
+- 外部統合イベントは webhook バックエンドで提供する（実装済み）。AMQP が必要な利用者は
+  webhook を受けて自前でブリッジする
 - 分オーダーの処理（サンドボックス detonation 等）が必要になっても、
   まず保留パターン（deferred verdict）で実装し、キュー導入はワーカーの
   プロセス分散が実測で必要になってから再検討する

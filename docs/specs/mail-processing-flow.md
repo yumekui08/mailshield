@@ -32,7 +32,7 @@ flowchart TD
         S1["[1/7] ルート解決\nrouter.Resolve(fromAddr, toAddresses)\nroutes.d/ の設定に対して正規表現マッチ\nルートが見つからなければ 550 を返す"]
         S2["[2/7] 原本 EML 保存（ストレージ）\nraw/YYYY/MM/DD/{uuid}.eml\n★ 失敗時 → 451 を返して Postfix にリトライ"]
         S3["[3/7] MariaDB: メタデータ記録\nstatus = received\n★ 失敗時 → WARN ログを出力して続行"]
-        S4["[4/7] RabbitMQ: mail.received 発行\n（EML 本文なし・eml_path のみ）\n★ 失敗時 → WARN ログを出力して続行"]
+        S4["[4/7] mail.received イベント発行（webhook・オプション）\n（EML 本文なし・eml_path のみ）\n★ 失敗時 → WARN ログを出力して続行"]
         S5["[5/7] 検査パイプライン（並列 goroutine）\n有効な検査ワーカーが並列実行\n結果を result-aggregator に集約"]
         S6["[6/7] 変換パイプライン（直列・order 順）\n有効な変換ワーカーを順番に適用\n★ 失敗時 → 隔離・アーカイブ・通知を行い nil を返す（250 OK）"]
         S7["[7/7] ポリシーエンジン\nYAML ルール評価 → アクション決定・実行"]
@@ -171,7 +171,7 @@ flowchart LR
 | [1/7] ルート解決失敗 | `550 5.7.0 No route matched` を返す |
 | [2/7] ストレージ保存失敗 | `451` を返して Postfix にリトライさせる |
 | [3/7] DB 記録失敗 | WARN ログを出力して続行 |
-| [4/7] RabbitMQ 発行失敗 | WARN ログを出力して続行（メールフローに影響しない） |
+| [4/7] mail.received イベント発行失敗 | WARN ログを出力して続行（メールフローに影響しない） |
 | [5/7] 検査ワーカーエラー | そのワーカーをスキップして続行 |
 | [6/7] 変換ワーカーエラー | メールを隔離・アーカイブ・通知して `nil` を返す（250 OK） |
 | [7/7] ポリシー実行失敗 | `451` を返して Postfix にリトライさせる |

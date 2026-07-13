@@ -2,31 +2,6 @@
 
 ---
 
-## RabbitMQ が起動しない（.erlang.cookie: eacces）
-
-```
-Error when reading /var/lib/rabbitmq/.erlang.cookie: eacces
-BOOT FAILED
-```
-
-**原因**: `root` ユーザーで Docker を実行している環境で発生します。
-RabbitMQ（Erlang）はノード認証用に `.erlang.cookie` ファイルを使いますが、
-ファイルのオーナーが `root` になり、コンテナ内の `rabbitmq` ユーザー（UID 999）が
-読めなくなります。
-
-**解決策**: `RABBITMQ_ERLANG_COOKIE` 環境変数を設定するとファイルを読まず
-変数の値をクッキーとして使うため、パーミッション問題を回避できます。
-
-`docker-compose.yml` にデフォルト値（`mailshield-erlang-cookie`）が設定済みなので
-通常は自動的に解決されます。それでも問題が発生する場合は `.env` に明示します。
-
-```bash
-# .env に追加
-RABBITMQ_ERLANG_COOKIE=任意の文字列
-```
-
----
-
 ## smtp-gateway が起動しない（MariaDB Access denied）
 
 ```
@@ -48,7 +23,7 @@ make dev-up
 ```
 
 > **注意**: `make docker-clean` はすべての Docker ボリュームを削除します。
-> MariaDB・MinIO・RabbitMQ のデータがすべて消えます。
+> MariaDB・MinIO のデータがすべて消えます。
 > 本番環境では実行前に必ずバックアップを取ってください。
 
 ---
@@ -232,11 +207,10 @@ log:
 
 | メッセージ | 原因 | 対処 |
 |-----------|------|------|
-| `.erlang.cookie: eacces` | root で Docker 実行時のクッキーパーミッション問題 | `.env` に `RABBITMQ_ERLANG_COOKIE=任意文字列` を設定 |
 | `Access denied for user 'mailshield'` | MariaDB ボリュームのパスワード不一致 | `make docker-clean` でボリューム削除後に再起動 |
 | `接続元が信頼リストに含まれていません` | trusted_sources 未設定 | mailshield.yaml に追加 |
 | `マッチするルールがありません` | policy.yaml のフォールバックなし | `condition: "true"` を追加 |
 | `MinIO 保存失敗` | MinIO 接続エラー | MinIO の起動・認証情報を確認 |
-| `RabbitMQ 発行失敗` | RabbitMQ 接続エラー | 続行（メールは処理される）。RabbitMQ を確認 |
+| `mail.received 発行失敗` | webhook 先の応答エラー | 続行（メールは処理される）。webhook 先と events 設定を確認 |
 | `ワーカータイムアウト` | 外部サービスが遅い | timeout_seconds を増やすかワーカーを無効化 |
 | `Relay access denied` | relay_domains 未設定 | .env の MAILSHIELD_RELAY_DOMAINS を確認 |

@@ -63,7 +63,7 @@ cp .env.example .env
 `.env` を開いて以下の5箇所を変更します。
 
 ```bash
-# MARIADB_ROOT_PASSWORD, DB_PASSWORD, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, RABBITMQ_PASSWORD
+# MARIADB_ROOT_PASSWORD, DB_PASSWORD, MINIO_ACCESS_KEY, MINIO_SECRET_KEY
 # をそれぞれ安全な値に変更する
 vi .env
 ```
@@ -73,7 +73,6 @@ MARIADB_ROOT_PASSWORD=（任意のパスワード）
 DB_PASSWORD=（任意のパスワード）
 MINIO_ACCESS_KEY=（8文字以上の任意の文字列）
 MINIO_SECRET_KEY=（8文字以上の任意の文字列）
-RABBITMQ_PASSWORD=（任意のパスワード）
 ```
 
 > [!WARNING]
@@ -302,7 +301,6 @@ rules:
 | プロファイル | 追加されるサービス | 用途 |
 |------------|-----------------|------|
 | _(なし)_ | smtp-gateway + MariaDB のみ | 最小構成 |
-| `queue` | RabbitMQ | 外部システムへイベント通知する場合 |
 | `storage` | MinIO | EML をオブジェクトストレージに保存する場合 |
 | `scanners` | ClamAV / Tika / Tesseract | ウイルス検査・DLP・QR コード検査 |
 | `dev` | Mailpit | 処理後メールをキャッチして確認する場合 |
@@ -319,7 +317,7 @@ rules:
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-**標準構成（MinIO + RabbitMQ）**
+**標準構成（MinIO）**
 
 ```bash
 COMPOSE_PROFILES=storage,queue docker compose -f docker/docker-compose.yml up -d

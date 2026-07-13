@@ -143,7 +143,7 @@ flowchart LR
 |------|------|
 | ワーカーはすべて **in-process（goroutine）** で実行する | ワーカー間のキュー・RPC をなくし、1 通の処理を 1 つの SMTP トランザクション内で完結させるため。ワーカー障害は当該ワーカーのスキップ（検査）または隔離（変換）として即時に応答へ反映される |
 | 検査ワーカーは**並列**・変換ワーカーは**直列** | 検査は EML を読むだけで相互に独立。変換は前段の出力が次段の入力になるため順序が意味を持つ（例: 無害化してから ARC 署名） |
-| RabbitMQ は**メールフローに介在しない** | `mail.received` イベントの外部通知（SIEM 連携等）専用。RabbitMQ が停止してもメールフローは影響を受けない（オプション・`queue.backend: none` で無効化可） |
+| イベント通知は**メールフローに介在しない** | `mail.received` の外部通知（SIEM 連携等）は webhook で行う（オプション・`events.backend: webhook`）。通知先が停止してもメールフローは影響を受けない |
 | ストレージ / MariaDB は**記録・管理用** | 配送はメモリ上の EML をそのまま SMTP 送信する。ストレージは原本アーカイブと隔離解放・Web UI のために使う。原本保存の失敗だけは `451` を返す（証跡なしで配送しないため） |
 | ルートは**エンベロープ**（MAIL FROM / RCPT TO）で決まる | `routes.d/` の正規表現に最初にマッチしたルートのワーカー・ポリシーが適用される。受信（inbound）と送信（outbound）を同一インスタンスで処理できる |
 
@@ -212,7 +212,6 @@ Authentication-Results: mta.example.com;
 |--------------|------|------------------|
 | MariaDB | メタデータ・隔離管理・ユーザー | **必須** |
 | MinIO / S3 | EML・添付ファイルの保存 | `storage.backend: filesystem`（ローカル FS に保存） |
-| RabbitMQ | 外部システムへのイベント通知 | `queue.backend: none` |
 | Redis | api-server のセッション | `redis.backend: mariadb` |
 
 ---
@@ -225,14 +224,14 @@ Authentication-Results: mta.example.com;
 |------|------------------|
 | Docker Compose 構成 | Docker Engine 24.0 以上・Docker Compose v2.20 以上・GNU Make |
 | バイナリ構成（ビルド） | Go 1.24 以上・Node.js 20 以上（Web UI を使う場合） |
-| 共通（インフラ） | MariaDB 11.x（**必須**）。MinIO / RabbitMQ 3.13+ / Redis 7+ はオプション |
+| 共通（インフラ） | MariaDB 11.x（**必須**）。MinIO / Redis 7+ はオプション |
 
 ### リソースの目安
 
 | 構成 | CPU | メモリ | ディスク |
 |------|-----|-------|---------|
 | 最小構成（smtp-gateway + MariaDB） | 2 コア | 2 GB | 20 GB〜（EML アーカイブ量に依存） |
-| 標準構成（+ MinIO / RabbitMQ / api-server） | 4 コア | 4 GB | 50 GB〜 |
+| 標準構成（+ MinIO / api-server） | 4 コア | 4 GB | 50 GB〜 |
 | スキャナー込み（+ ClamAV / Tika） | 4 コア以上 | 8 GB 以上 | +10 GB（ClamAV 定義 DB 等） |
 
 > [!NOTE]

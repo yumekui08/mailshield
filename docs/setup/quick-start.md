@@ -6,7 +6,7 @@
 |------|------|
 | 対象読者 | MailShield を初めて触る開発者・評価者 |
 | 所要時間 | 約 15 分 |
-| 構築されるもの | smtp-gateway + MariaDB + MinIO + RabbitMQ + Mailpit（Docker Compose） |
+| 構築されるもの | smtp-gateway + MariaDB + MinIO + Mailpit（Docker Compose） |
 
 > [!IMPORTANT]
 > この手順は**評価専用**の構成です。テストメールを SMTP クライアントから smtp-gateway（`:10024`）へ直接投入し、配送先を Mailpit に向けます。本番導入では受信 MTA（Postfix 等）を前段に置く必要があります。[MailShield 設定ガイド](./mailshield-config.md) と [MTA との連携](./mta-self-managed.md) を参照してください。
@@ -55,7 +55,6 @@ MARIADB_ROOT_PASSWORD=<任意のパスワード>
 DB_PASSWORD=<任意のパスワード>
 MINIO_ACCESS_KEY=<8文字以上の任意の文字列>
 MINIO_SECRET_KEY=<8文字以上の任意の文字列>
-RABBITMQ_PASSWORD=<任意のパスワード>
 ```
 
 **(b) 配送先・通知先** — 評価環境では両方とも Mailpit に向ける。
@@ -105,7 +104,6 @@ NAME                        STATUS
 mailshield-smtp-gateway-1   Up (healthy)
 mailshield-mariadb-1        Up (healthy)
 mailshield-minio-1          Up (healthy)
-mailshield-rabbitmq-1       Up (healthy)
 mailshield-mailpit-1        Up (healthy)
 ```
 
