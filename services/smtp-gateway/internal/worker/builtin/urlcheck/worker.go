@@ -48,6 +48,8 @@ type ReputationAPIConfig struct {
 type ScoresConfig struct {
 	DenyListMatch    int `yaml:"deny_list_match"`
 	ReputationAPIHit int `yaml:"reputation_api_hit"`
+	// DisplayMismatch はアンカーの表示テキストとリンク先のドメイン不一致のスコア。
+	DisplayMismatch int `yaml:"display_mismatch"`
 }
 
 // Config は url-worker の設定を保持する。
@@ -70,6 +72,9 @@ type Worker struct {
 var (
 	urlInTextPattern = regexp.MustCompile(`https?://\S+`)
 	htmlAttrPattern  = regexp.MustCompile(`(?i)(?:href|src)="(https?://[^"]*)"`)
+	// anchorPattern は <a href="...">表示テキスト</a> を捕捉する（1=href, 2=表示テキスト）。
+	anchorPattern = regexp.MustCompile(`(?is)<a\s[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>`)
+	tagStripper   = regexp.MustCompile(`(?s)<[^>]+>`)
 )
 
 // New は url-worker を初期化する。
@@ -121,12 +126,26 @@ func (w *Worker) Inspect(ctx context.Context, m *domain.Mail) (*domain.InspectRe
 	urls := w.extractURLs(m.RawEML)
 	result.Details["total_urls_checked"] = len(urls)
 
+	// 表示テキストとリンク先の不一致検知（HTML アンカー）。URL 抽出結果とは独立に行う。
+	mismatches := w.detectDisplayMismatch(m.RawEML)
+	maxScore := 0
+	if len(mismatches) > 0 {
+		result.Details["display_mismatches"] = mismatches
+		if w.scores.DisplayMismatch > maxScore {
+			maxScore = w.scores.DisplayMismatch
+		}
+	}
+
 	if len(urls) == 0 {
+		if maxScore > 100 {
+			maxScore = 100
+		}
+		result.Score = maxScore
+		result.Detected = len(mismatches) > 0
 		return result, nil
 	}
 
 	var denyHits, apiHits []string
-	maxScore := 0
 
 	// 1. deny リスト照合（ローカル・高速）
 	for _, u := range urls {
@@ -166,9 +185,82 @@ func (w *Worker) Inspect(ctx context.Context, m *domain.Mail) (*domain.InspectRe
 		maxScore = 100
 	}
 	result.Score = maxScore
-	result.Detected = len(denyHits) > 0 || len(apiHits) > 0
+	result.Detected = len(denyHits) > 0 || len(apiHits) > 0 || len(mismatches) > 0
 
 	return result, nil
+}
+
+// detectDisplayMismatch は HTML アンカーの表示テキストがリンク先と異なるドメインの
+// URL を「表示」している場合を検知する（フィッシングの典型: 表示は正規サイト、
+// リンク先は攻撃者サイト）。表示テキストがドメインを含まない場合は対象外。
+func (w *Worker) detectDisplayMismatch(rawEML []byte) []string {
+	env, err := enmime.ReadEnvelope(bytes.NewReader(rawEML))
+	if err != nil {
+		return nil
+	}
+	html := env.HTML
+	if html == "" {
+		return nil
+	}
+
+	var mismatches []string
+	seen := make(map[string]bool)
+	for _, m := range anchorPattern.FindAllStringSubmatch(html, -1) {
+		if len(m) != 3 {
+			continue
+		}
+		hrefDomain := hostOf(m[1])
+		// 表示テキストからタグを除去し、そこに現れるドメインを取り出す
+		displayText := strings.TrimSpace(tagStripper.ReplaceAllString(m[2], ""))
+		displayDomain := domainFromDisplayText(displayText)
+		if hrefDomain == "" || displayDomain == "" {
+			continue
+		}
+		if !sameRegistrableDomain(displayDomain, hrefDomain) {
+			key := displayDomain + "→" + hrefDomain
+			if !seen[key] {
+				seen[key] = true
+				mismatches = append(mismatches, key)
+			}
+		}
+	}
+	return mismatches
+}
+
+// hostOf は URL のホスト部（小文字）を返す。
+func hostOf(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// displayDomainPattern は表示テキスト中の裸ドメイン / URL を捕捉する。
+var displayDomainPattern = regexp.MustCompile(`(?i)(?:https?://)?([a-z0-9.-]+\.[a-z]{2,})`)
+
+// domainFromDisplayText は表示テキストに現れる最初のドメインを返す（なければ空）。
+func domainFromDisplayText(text string) string {
+	m := displayDomainPattern.FindStringSubmatch(text)
+	if m == nil {
+		return ""
+	}
+	return strings.ToLower(strings.Trim(m[1], "."))
+}
+
+// sameRegistrableDomain は 2 つのホストが同じ登録可能ドメイン（末尾 2 ラベル）かを返す。
+// 厳密な Public Suffix List 判定ではないが、サブドメイン差（www.example.com と example.com）を
+// 同一扱いにする実用的な近似。
+func sameRegistrableDomain(a, b string) bool {
+	return registrable(a) == registrable(b)
+}
+
+func registrable(host string) string {
+	labels := strings.Split(strings.ToLower(host), ".")
+	if len(labels) <= 2 {
+		return strings.Join(labels, ".")
+	}
+	return strings.Join(labels[len(labels)-2:], ".")
 }
 
 // extractURLs は EML からユニークな URL を最大 maxURLs 件抽出する。
@@ -294,6 +386,7 @@ func defaultConfig() *Config {
 		Scores: ScoresConfig{
 			DenyListMatch:    100,
 			ReputationAPIHit: 90,
+			DisplayMismatch:  70,
 		},
 	}
 }

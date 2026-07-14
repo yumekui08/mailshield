@@ -7,6 +7,9 @@ scores:
   dmarc_fail: 30
   reply_to_mismatch: 40
   brand_spoofing: 60
+  display_name_spoofing: 60     # 表示名に別ドメインのアドレスを埋め込む偽装
+  envelope_from_mismatch: 30    # ヘッダー From と エンベロープ From のドメイン乖離
+  lookalike_domain: 70          # 自組織ドメインに酷似（confusable / 1 文字違い）
 
 brand_names:
   - amazon
@@ -19,3 +22,9 @@ brand_names:
   - ntt
   - docomo
   - softbank
+
+# 自組織のドメイン。lookalike ドメイン検知の基準に使う。
+# 設定した場合のみ lookalike 検知が有効（例: corp.example に酷似した c0rp.example を検知）。
+internal_domains: []
+  # - internal.test
+  # - corp.example

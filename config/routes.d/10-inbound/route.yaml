@@ -33,24 +33,30 @@ workers:
     - name: qr-worker               # QR コード埋め込みURL検査
       enabled: true
       timeout_seconds: 15
+    - name: attachment-inspector    # 添付ファイル偽装・マクロ・暗号化検査
+      enabled: true
+      timeout_seconds: 10
   transform:
     # order の昇順で直列実行される。前のワーカーの出力が次の入力になる。
     - name: sanitize-worker         # HTML 無害化（不審スクリプト・属性を除去）
       enabled: true
       order: 1
+    - name: macro-strip             # Office マクロ除去（無害化）
+      enabled: false                # 有効化すると添付の VBA を除去（原本は別途保存）
+      order: 2
     - name: url-rewrite-worker      # URL をプロキシ経由に書き換え
       enabled: true
-      order: 2
+      order: 3
     - name: subject-virus-transformer  # 開発用ダミー（本番では false に）
       enabled: true
-      order: 3
+      order: 4
     - name: disclaimer-worker       # メールフッター追加（受信時は通常無効）
       enabled: false
-      order: 4
+      order: 5
     - name: filesep-worker          # 添付ファイル分離（MinIO + ダウンロードリンク挿入）
       enabled: true
-      order: 5
+      order: 6
     - name: arc-sealer              # ARC 署名（変換後に付与・必ず最後に配置すること）
       enabled: false                # 有効化には config/arc/private.pem と DNS TXT が必要
-      order: 6
+      order: 7
 # policy は同ディレクトリの policy.yaml / policy.lua を自動参照する

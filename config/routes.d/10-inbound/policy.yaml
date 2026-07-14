@@ -1,8 +1,30 @@
 rules:
+  # ウイルス検知は即隔離
   - name: av_detected
     condition: "av-worker.detected == true"
     action: quarantine
 
+  # 添付ファイルの偽装（実行ファイル偽装・マクロ・暗号化 ZIP 等）は隔離
+  - name: attachment_spoofing
+    condition: "attachment-inspector.detected == true"
+    action: quarantine
+
+  # ヘッダーなりすまし（表示名偽装・lookalike ドメイン等）は隔離
+  - name: header_spoofing
+    condition: "header-inspector.detected == true"
+    action: quarantine
+
+  # 危険 URL は隔離
+  - name: malicious_url
+    condition: "url-worker.detected == true"
+    action: quarantine
+
+  # 複数の弱い兆候が積み上がった場合（Mail Detox 的な合算判定）は承認フローへ
+  - name: suspicious_total
+    condition: "total_score >= 120"
+    action: approval
+
+  # 開発用ダミー（本番では subject-virus-inspector を無効化すること）
   - name: virus_subject
     condition: "subject-virus-inspector.detected == true"
     action: deliver

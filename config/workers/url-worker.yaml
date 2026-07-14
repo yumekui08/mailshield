@@ -22,3 +22,4 @@ reputation_api:
 scores:
   deny_list_match: 100      # deny リストに一致した URL のスコア
   reputation_api_hit: 90    # 外部 API で検出された URL のスコア
+  display_mismatch: 70      # アンカーの表示テキストとリンク先のドメイン不一致

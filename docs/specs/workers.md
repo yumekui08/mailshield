@@ -122,6 +122,17 @@ patterns:
 - **依存外部サービス**: なし
 - **用途**: inbound
 
+**検知項目:**
+
+| 検知 | 説明 |
+|------|------|
+| `spf_fail` / `dkim_fail` / `dmarc_fail` | 認証結果（Rspamd が付与した Authentication-Results 由来） |
+| `reply_to_mismatch` | Reply-To ドメインがヘッダー From ドメインと異なる |
+| `brand_spoofing` | 表示名に既知ブランド名を含むが実ドメインが一致しない |
+| `display_name_spoofing` | 表示名に別ドメインのメールアドレスを埋め込む（例: 表示名に `ceo@corp.example`、実 From は `attacker@evil.test`） |
+| `envelope_from_mismatch` | ヘッダー From と エンベロープ From のドメインが乖離 |
+| `lookalike_domain` | From ドメインが自組織ドメイン（`internal_domains`）に酷似（confusable 文字置換または 1 文字違い）だが完全一致でない |
+
 **設定** (`config/workers/header-inspector.yaml`):
 ```yaml
 threshold: 60
@@ -131,7 +142,11 @@ scores:
   dmarc_fail: 30
   reply_to_mismatch: 40
   brand_spoofing: 60
+  display_name_spoofing: 60
+  envelope_from_mismatch: 30
+  lookalike_domain: 70
 brand_names: [amazon, google, microsoft, paypal, apple]
+internal_domains: []   # lookalike 検知の基準。設定した場合のみ有効
 ```
 
 ---
@@ -143,6 +158,12 @@ brand_names: [amazon, google, microsoft, paypal, apple]
 - **依存外部サービス**: Google Safe Browsing / Web Risk API（オプション）
 - **用途**: inbound
 
+本文中の URL を deny リスト・外部レピュテーション API で検査するほか、
+**HTML アンカーの表示テキストとリンク先のドメイン不一致**を検知する
+（フィッシングの典型: 表示は `www.bank.example` だがリンク先は攻撃者サイト）。
+表示テキストがドメインを含まない場合（「こちらをクリック」等）は対象外。
+サブドメイン差（`www.example.com` と `example.com`）は同一登録可能ドメインとして許容する。
+
 **設定** (`config/workers/url-worker.yaml`):
 ```yaml
 max_urls: 20
@@ -153,6 +174,7 @@ reputation_api:
 scores:
   deny_list_match: 100
   reputation_api_hit: 90
+  display_mismatch: 70   # 表示テキストとリンク先のドメイン不一致
 ```
 
 ---
@@ -184,6 +206,50 @@ scores:
 
 ---
 
+### attachment-inspector（添付ファイル偽装検査）
+
+- **パッケージ**: `internal/worker/builtin/attachcheck/`
+- **種別**: inspect
+- **依存外部サービス**: なし（純 Go・バイナリ形式判定）
+- **用途**: inbound
+
+添付ファイルの偽装兆候をスコアリングする。ファイルの展開・実行は一切行わず、
+先頭バイト（magic bytes）と ZIP/OLE 構造のみを検査する。
+
+**検知項目:**
+
+| 検知 | 説明 |
+|------|------|
+| `multiple_extension` | 多重拡張子（例: `invoice.pdf.exe`）。末尾が実行/スクリプト系で直前が文書系のときのみ |
+| `banned_extension` | 禁止拡張子リストに一致（添付本体） |
+| `executable` | 中身が実行ファイル形式（PE / ELF / Mach-O） |
+| `extension_mismatch` | 拡張子と中身の不一致（`.pdf` なのに中身が実行ファイル 等） |
+| `macro` | Office マクロ（OOXML の `vbaProject.bin` / OLE の VBA ストリーム） |
+| `encrypted` | 暗号化 ZIP / 暗号化 Office（**検査不能** = 受信 PPAP。ポリシーで隔離・承認へ回す想定） |
+| `banned_in_archive` | ZIP 内に禁止拡張子ファイルがある |
+
+**設定** (`config/workers/attachment-inspector.yaml`):
+```yaml
+threshold: 50
+scores:
+  multiple_extension: 60
+  banned_extension: 70
+  executable: 80
+  extension_mismatch: 40
+  macro: 50
+  encrypted: 40
+  banned_in_archive: 60
+banned_extensions: [exe, scr, com, bat, cmd, pif, js, vbs, jar, ps1, lnk, hta, wsf, msi, dll]
+archive_extensions: [zip]
+```
+
+> [!NOTE]
+> 本文からパスワードを自動抽出して暗号化 ZIP を解凍・検査する機能は実装していない。
+> 暗号化添付は「検査不能」としてスコアを付与し、ポリシー側で `quarantine` / `approval`
+> に振り分ける運用を想定している（受信 PPAP 対策）。
+
+---
+
 ### sanitize-worker（HTML 無害化）
 
 - **パッケージ**: `internal/worker/builtin/sanitize/`
@@ -192,6 +258,35 @@ scores:
 - **用途**: inbound
 
 `<script>`, `<object>`, `<embed>` タグの除去、JavaScript イベントハンドラー属性の除去、`javascript:` スキームの無効化を行う。
+
+---
+
+### macro-strip（メール無害化・マクロ除去）
+
+- **パッケージ**: `internal/worker/builtin/macrostrip/`
+- **種別**: transform
+- **依存外部サービス**: なし
+- **用途**: inbound
+
+添付 Office 文書から VBA マクロを除去する（m-FILTER の「メール無害化」相当）。
+原本 EML は別途保存されるため、無害化前に戻せる。マクロを含む添付がない場合は
+EML を再構築せず元のメールをそのまま返す。
+
+- **OOXML**（.docm/.xlsm/.pptm 等）: ZIP を再構成し `vbaProject.bin` / `vbaData.xml` /
+  署名パートを除去。`[Content_Types].xml` と `.rels` から該当パートの宣言も取り除く
+- **OLE**（旧 .doc/.xls/.ppt）: 安全な部分除去手段がないため、`drop_ole_macro: true` の
+  ときのみマクロを含む添付を丸ごと除去する（デフォルトは何もしない）
+
+**設定** (`config/workers/macro-strip.yaml`):
+```yaml
+strip_ooxml: true      # OOXML から VBA を除去（デフォルト true）
+drop_ole_macro: false  # OLE マクロ添付を丸ごと除去するか（デフォルト false）
+```
+
+> [!NOTE]
+> sanitize-worker の直後（order 2 相当）に配置することを推奨。attachment-inspector
+> （検査）と組み合わせると、「マクロを検知してスコアリング → 無害化 → ポリシー判定」の
+> 流れになる。
 
 ---
 

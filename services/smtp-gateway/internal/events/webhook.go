@@ -55,16 +55,26 @@ func NewWebhook(url, secret string, timeoutSeconds, maxRetries, retryBackoffSeco
 	}, nil
 }
 
-// PublishMailReceived はイベントを webhook 先へ POST する。
+// PublishMailReceived は mail.received イベントを webhook 先へ POST する。
 func (p *WebhookPublisher) PublishMailReceived(ctx context.Context, event *domain.MailEvent) error {
-	body, err := json.Marshal(event)
+	return p.publish(ctx, "mail.received", event.MessageID, event)
+}
+
+// PublishMailProcessed は mail.processed イベントを webhook 先へ POST する。
+func (p *WebhookPublisher) PublishMailProcessed(ctx context.Context, event *domain.MailProcessedEvent) error {
+	return p.publish(ctx, "mail.processed", event.MessageID, event)
+}
+
+// publish は任意のイベントを JSON 化して webhook 先へ POST する（リトライ付き）。
+func (p *WebhookPublisher) publish(ctx context.Context, eventType, messageID string, payload any) error {
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("イベント JSON エンコード失敗: %w", err)
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= p.maxRetries; attempt++ {
-		retryable, err := p.post(ctx, body)
+		retryable, err := p.post(ctx, eventType, body)
 		if err == nil {
 			return nil
 		}
@@ -73,7 +83,7 @@ func (p *WebhookPublisher) PublishMailReceived(ctx context.Context, event *domai
 			return fmt.Errorf("webhook 発行失敗（リトライ不可）: %w", err)
 		}
 		slog.Warn("webhook 発行失敗（リトライ）",
-			"message_id", event.MessageID, "attempt", attempt, "error", err)
+			"event", eventType, "message_id", messageID, "attempt", attempt, "error", err)
 		if attempt < p.maxRetries {
 			select {
 			case <-ctx.Done():
@@ -86,13 +96,13 @@ func (p *WebhookPublisher) PublishMailReceived(ctx context.Context, event *domai
 }
 
 // post は 1 回の HTTP POST を行う。戻り値はリトライすべきかどうかとエラー。
-func (p *WebhookPublisher) post(ctx context.Context, body []byte) (retryable bool, err error) {
+func (p *WebhookPublisher) post(ctx context.Context, eventType string, body []byte) (retryable bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.url, bytes.NewReader(body))
 	if err != nil {
 		return false, fmt.Errorf("リクエスト作成失敗: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-MailShield-Event", "mail.received")
+	req.Header.Set("X-MailShield-Event", eventType)
 	if p.secret != "" {
 		mac := hmac.New(sha256.New, []byte(p.secret))
 		mac.Write(body)

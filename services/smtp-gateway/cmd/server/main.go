@@ -34,10 +34,12 @@ import (
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/storage"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/arcsealer"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/attachcheck"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/clamav"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/disclaimer"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/filesep"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/header"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/macrostrip"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/qrcheck"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/sanitize"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/tika"
@@ -213,9 +215,19 @@ func main() {
 		slog.Error("qr-worker 初期化失敗", "error", err)
 		os.Exit(1)
 	}
+	attachCheckWorker, err := attachcheck.New(workerConfigDir)
+	if err != nil {
+		slog.Error("attachment-inspector 初期化失敗", "error", err)
+		os.Exit(1)
+	}
 	sanitizeWorker, err := sanitize.New(workerConfigDir)
 	if err != nil {
 		slog.Error("sanitize-worker 初期化失敗", "error", err)
+		os.Exit(1)
+	}
+	macroStripWorker, err := macrostrip.New(workerConfigDir)
+	if err != nil {
+		slog.Error("macro-strip 初期化失敗", "error", err)
 		os.Exit(1)
 	}
 	downloadModeFn := func(dir domain.Direction) domain.DownloadMode {
@@ -250,9 +262,11 @@ func main() {
 		headerWorker,
 		urlCheckWorker,
 		qrCheckWorker,
+		attachCheckWorker,
 	}
 	builtinTransform := []domain.TransformWorker{
 		sanitizeWorker,
+		macroStripWorker,
 		urlRewriteWorker,
 		disclaimerWorker,
 		filesepWorker,
@@ -630,6 +644,16 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		}
 	}
 
+	// mail.processed 統合イベントを発行（失敗してもログだけで続行）
+	{
+		procCtx, procCancel := context.WithTimeout(context.Background(), time.Duration(h.cfg.EventPublishTimeoutSeconds)*time.Second)
+		procEvent := toProcessedEvent(route.Name, route.Direction, string(action), transformed, inspectResults)
+		if err := h.publisher.PublishMailProcessed(procCtx, procEvent); err != nil {
+			log.Warn("mail.processed 発行失敗（続行）", "error", err)
+		}
+		procCancel()
+	}
+
 	log.Info("メール処理完了",
 		"route", route.Name,
 		"action", string(action),
@@ -868,7 +892,7 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		transformErrMsg = transformErr.Error()
 		action = policy.ActionQuarantine
 	} else {
-		action, matchedRule = rh.policy.Evaluate(inspectResults)
+		action, matchedRule = rh.policy.Evaluate(transformed, inspectResults)
 	}
 	out := SimulateResult{
 		RouteName:          route.Name,
@@ -939,5 +963,30 @@ func toMailEvent(mail *domain.Mail) *domain.MailEvent {
 		HasAttachment: mail.HasAttachment,
 		RspamdScore:   mail.RspamdScore,
 		AuthResults:   mail.AuthResults,
+	}
+}
+
+func toProcessedEvent(route, direction, action string, mail *domain.Mail, results []*domain.InspectResult) *domain.MailProcessedEvent {
+	scores := make([]domain.InspectScore, 0, len(results))
+	total := 0
+	for _, r := range results {
+		scores = append(scores, domain.InspectScore{
+			Worker:   r.WorkerName,
+			Score:    r.Score,
+			Detected: r.Detected,
+		})
+		total += r.Score
+	}
+	return &domain.MailProcessedEvent{
+		MessageID:     mail.MessageID,
+		Route:         route,
+		Direction:     direction,
+		Action:        action,
+		FromAddress:   mail.FromAddress,
+		ToAddresses:   mail.ToAddresses,
+		Subject:       mail.Subject,
+		TotalScore:    total,
+		InspectScores: scores,
+		ProcessedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 }

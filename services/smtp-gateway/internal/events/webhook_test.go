@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -134,5 +135,40 @@ func TestWebhookPublish_ContextCancelStopsRetry(t *testing.T) {
 func TestNewWebhook_RequiresURL(t *testing.T) {
 	if _, err := NewWebhook("", "", 5, 3, 1); err == nil {
 		t.Error("URL 未設定はエラーを返すべき")
+	}
+}
+
+func TestWebhookPublish_MailProcessed(t *testing.T) {
+	var gotEventHeader string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEventHeader = r.Header.Get("X-MailShield-Event")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p, _ := NewWebhook(srv.URL, "", 5, 3, 1)
+	event := &domain.MailProcessedEvent{
+		MessageID:  "msg-1",
+		Route:      "10-inbound",
+		Action:     "quarantine",
+		TotalScore: 130,
+		InspectScores: []domain.InspectScore{
+			{Worker: "av-worker", Score: 100, Detected: true},
+			{Worker: "url-worker", Score: 30, Detected: false},
+		},
+	}
+	if err := p.PublishMailProcessed(context.Background(), event); err != nil {
+		t.Fatalf("発行失敗: %v", err)
+	}
+	if gotEventHeader != "mail.processed" {
+		t.Errorf("X-MailShield-Event = %q, want mail.processed", gotEventHeader)
+	}
+	body := string(gotBody)
+	for _, want := range []string{`"action":"quarantine"`, `"total_score":130`, `"av-worker"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ボディに %q が含まれない: %s", want, body)
+		}
 	}
 }

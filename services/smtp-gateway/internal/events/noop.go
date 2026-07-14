@@ -23,4 +23,9 @@ func (p *noopPublisher) PublishMailReceived(_ context.Context, event *domain.Mai
 	return nil
 }
 
+func (p *noopPublisher) PublishMailProcessed(_ context.Context, event *domain.MailProcessedEvent) error {
+	slog.Debug("events noop: mail.processed イベントをスキップ", "message_id", event.MessageID)
+	return nil
+}
+
 func (p *noopPublisher) Close() error { return nil }
