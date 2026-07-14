@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -40,14 +41,25 @@ type Rule struct {
 	Destination string `yaml:"destination"` // deliver 時の宛先（host:port）
 }
 
+// ListConfig は名前付きリストの定義。values（インライン）と file（1 行 1 要素の
+// 外部ファイル）のいずれか、または両方を指定できる。読み込み時に和集合を取る。
+type ListConfig struct {
+	Values []string `yaml:"values"`
+	File   string   `yaml:"file"`
+}
+
 // PolicyRules は policy.yaml のトップレベル構造。
 type PolicyRules struct {
-	Rules []Rule `yaml:"rules"`
+	// Lists は condition の in_list で参照する名前付き集合。
+	Lists map[string]ListConfig `yaml:"lists"`
+	Rules []Rule                `yaml:"rules"`
 }
 
 // Engine はポリシーエンジンの実装である。
 type Engine struct {
 	rules []Rule
+	// lists は名前付き集合（すべて小文字で保持）。in_list 条件で参照する。
+	lists map[string]map[string]bool
 	// deliverer は deliver アクションの配送を実行する。
 	// destination の解決（deliverer 名 / host:port / デフォルト）は deliverer 側が行う。
 	// nil の場合、deliver アクションはエラーになる（Evaluate のみ使う用途では nil 可）。
@@ -62,6 +74,7 @@ func New(rulesFile string, deliverer Deliverer) (*Engine, error) {
 	if rulesFile == "" {
 		return &Engine{
 			rules:     []Rule{{Name: "default", Condition: "true", Action: "deliver"}},
+			lists:     map[string]map[string]bool{},
 			deliverer: deliverer,
 		}, nil
 	}
@@ -75,15 +88,53 @@ func New(rulesFile string, deliverer Deliverer) (*Engine, error) {
 		return nil, fmt.Errorf("policy.yaml パース失敗: %w", err)
 	}
 
-	return &Engine{rules: pr.Rules, deliverer: deliverer}, nil
+	// リストの外部ファイルは policy.yaml と同じディレクトリからの相対で解決する。
+	lists, err := loadLists(pr.Lists, filepath.Dir(rulesFile))
+	if err != nil {
+		return nil, err
+	}
+
+	return &Engine{rules: pr.Rules, lists: lists, deliverer: deliverer}, nil
 }
 
-// Evaluate は検査結果を評価してアクション種別とマッチしたルール名を返す。
+// loadLists は名前付きリストを小文字正規化した集合に変換する。
+func loadLists(configs map[string]ListConfig, baseDir string) (map[string]map[string]bool, error) {
+	lists := make(map[string]map[string]bool, len(configs))
+	for name, lc := range configs {
+		set := make(map[string]bool)
+		for _, v := range lc.Values {
+			if v = strings.TrimSpace(strings.ToLower(v)); v != "" {
+				set[v] = true
+			}
+		}
+		if lc.File != "" {
+			path := lc.File
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(baseDir, path)
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("リスト %q のファイル読み込み失敗 (%s): %w", name, path, err)
+			}
+			for _, line := range strings.Split(string(content), "\n") {
+				line = strings.TrimSpace(strings.ToLower(line))
+				if line == "" || strings.HasPrefix(line, "#") {
+					continue
+				}
+				set[line] = true
+			}
+		}
+		lists[strings.ToLower(name)] = set
+	}
+	return lists, nil
+}
+
+// Evaluate は検査結果とメール属性を評価してアクション種別とマッチしたルール名を返す。
 // アクション（SMTP 配送・拒否等）の実行は行わない（シミュレーター用）。
-func (e *Engine) Evaluate(results []*domain.InspectResult) (action ActionType, matchedRule string) {
-	facts := buildFacts(results)
+func (e *Engine) Evaluate(mail *domain.Mail, results []*domain.InspectResult) (action ActionType, matchedRule string) {
+	ctx := evalContext{facts: buildFacts(mail, results), lists: e.lists}
 	for _, rule := range e.rules {
-		matched, err := evaluate(rule.Condition, facts)
+		matched, err := evalCondition(rule.Condition, ctx)
 		if err != nil || !matched {
 			continue
 		}
@@ -96,10 +147,10 @@ func (e *Engine) Evaluate(results []*domain.InspectResult) (action ActionType, m
 // ルールは上から順に評価し、最初にマッチしたルールのアクションを実行する。
 // マッチするルールがない場合は空文字列の ActionType と nil を返す。
 func (e *Engine) EvaluateAndAct(ctx context.Context, mail *domain.Mail, results []*domain.InspectResult) (ActionType, error) {
-	facts := buildFacts(results)
+	ec := evalContext{facts: buildFacts(mail, results), lists: e.lists}
 
 	for _, rule := range e.rules {
-		matched, err := evaluate(rule.Condition, facts)
+		matched, err := evalCondition(rule.Condition, ec)
 		if err != nil {
 			slog.Warn("ルール評価エラー（スキップ）",
 				"rule", rule.Name,
@@ -151,65 +202,61 @@ func (e *Engine) deliver(ctx context.Context, mail *domain.Mail, destination str
 	return e.deliverer.Deliver(ctx, mail, destination)
 }
 
-// buildFacts は InspectResult の一覧から条件評価用のマップを構築する。
-// キー形式: "{worker_name}.detected" / "{worker_name}.score"
-func buildFacts(results []*domain.InspectResult) map[string]any {
+// buildFacts はメール属性と InspectResult の一覧から条件評価用のマップを構築する。
+//
+// ワーカー由来のキー: "{worker_name}.detected" / "{worker_name}.score" / "{worker_name}.{detail}"
+// メール属性のキー:
+//
+//	mail.from            エンベロープ送信者アドレス（小文字）
+//	mail.from_domain     送信者のドメイン部（小文字）
+//	mail.to              全宛先をカンマ連結（小文字）
+//	mail.to_domains      全宛先のドメインをカンマ連結（小文字）
+//	mail.subject         件名
+//	mail.size_bytes      サイズ（int）
+//	mail.has_attachment  添付有無（bool）
+//	mail.direction       inbound / outbound
+//
+// 集約キー: "total_score" は全ワーカーの score 合計（Mail Detox 的な閾値運用に使う）。
+func buildFacts(mail *domain.Mail, results []*domain.InspectResult) map[string]any {
 	facts := make(map[string]any)
+	totalScore := 0
 	for _, r := range results {
 		facts[r.WorkerName+".detected"] = r.Detected
 		facts[r.WorkerName+".score"] = r.Score
+		totalScore += r.Score
 		for k, v := range r.Details {
 			facts[r.WorkerName+"."+k] = v
 		}
 	}
+	facts["total_score"] = totalScore
+
+	if mail != nil {
+		facts["mail.from"] = strings.ToLower(mail.FromAddress)
+		facts["mail.from_domain"] = domainOf(mail.FromAddress)
+		facts["mail.to"] = strings.ToLower(strings.Join(mail.ToAddresses, ","))
+		facts["mail.to_domains"] = joinDomains(mail.ToAddresses)
+		facts["mail.subject"] = mail.Subject
+		facts["mail.size_bytes"] = int(mail.SizeBytes)
+		facts["mail.has_attachment"] = mail.HasAttachment
+		facts["mail.direction"] = string(mail.Direction)
+	}
 	return facts
 }
 
-// evaluate はシンプルな条件式を評価する（フェーズ1用の最小実装）。
-// 対応する条件:
-//   - "true"
-//   - "{key} == {value}"
-//   - "{key} >= {int}"
-func evaluate(condition string, facts map[string]any) (bool, error) {
-	condition = strings.TrimSpace(condition)
-
-	if condition == "true" {
-		return true, nil
+func domainOf(addr string) string {
+	addr = strings.ToLower(strings.TrimSpace(addr))
+	if at := strings.LastIndex(addr, "@"); at >= 0 {
+		return addr[at+1:]
 	}
-	if condition == "false" {
-		return false, nil
-	}
+	return ""
+}
 
-	// "{key} == {value}" の評価（ブール値は大文字小文字を区別しない）
-	if parts := strings.SplitN(condition, " == ", 2); len(parts) == 2 {
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-		fact, ok := facts[key]
-		if !ok {
-			return false, nil
+func joinDomains(addrs []string) string {
+	domains := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		if d := domainOf(a); d != "" {
+			domains = append(domains, d)
 		}
-		return strings.EqualFold(fmt.Sprintf("%v", fact), val), nil
 	}
-
-	// "{key} >= {int}" の評価
-	if parts := strings.SplitN(condition, " >= ", 2); len(parts) == 2 {
-		key := strings.TrimSpace(parts[0])
-		var threshold int
-		if _, err := fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &threshold); err != nil {
-			return false, fmt.Errorf("threshold パース失敗: %w", err)
-		}
-		fact, ok := facts[key]
-		if !ok {
-			return false, nil
-		}
-		switch v := fact.(type) {
-		case int:
-			return v >= threshold, nil
-		case float64:
-			return int(v) >= threshold, nil
-		}
-		return false, nil
-	}
-
-	return false, fmt.Errorf("未対応の条件式: %s", condition)
+	return strings.Join(domains, ",")
 }

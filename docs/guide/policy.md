@@ -101,51 +101,92 @@ SendGrid / Amazon SES 等の外部 SMTP エンドポイントの定義方法は 
 
 ## 条件式（condition）
 
-ポリシーエンジンは現時点でシンプルな条件式をサポートしています。
+条件は 1 行で書きます。`&&`（論理積）で複数の比較をつなげられます。OR は複数のルールに分けて表現します（上から評価され最初にマッチしたルールが採用されるため）。
 
-### 定数
+### 演算子
+
+| 演算子 | 例 | 説明 |
+|--------|-----|------|
+| `true` / `false` | `condition: "true"` | 定数（デフォルトルールに使う） |
+| `==` / `!=` | `av-worker.detected == true` | 等値・不等（ブールは大文字小文字を無視） |
+| `>=` `>` `<=` `<` | `dlp-worker.score >= 80` | 数値比較 |
+| `contains` | `mail.subject contains 請求書` | 部分文字列（大文字小文字を無視） |
+| `in_list` | `mail.from_domain in_list freemail` | 名前付きリストに含まれるか（下記） |
+| `&&` | `A == 1 && B >= 50` | 論理積 |
+
+### 名前付きリスト（lists）と `in_list`
+
+`in_list` で参照する集合を policy.yaml のトップレベル `lists` に定義します。インライン（`values`）と外部ファイル（`file`・policy.yaml からの相対パス・1 行 1 要素・`#` はコメント）を併用でき、和集合になります。
 
 ```yaml
-condition: "true"    # 常にマッチ（デフォルトルールに使う）
-condition: "false"   # 常にスキップ
+lists:
+  freemail:
+    file: ../../lists/freemail-domains.txt   # 同梱のフリーメールドメイン一覧
+    values: [example-free.test]              # 追加のインライン要素
+  deny_domains:
+    values: [evil.example, phishing.test]
+
+rules:
+  # 個人ドメイン（フリーメール）宛の送信は上長承認へ
+  - name: freemail_to_approval
+    condition: "mail.direction == outbound && mail.to_domains in_list freemail"
+    action: approval
+
+  # 拒否ドメイン宛はブロック
+  - name: deny_domain_block
+    condition: "mail.to_domains in_list deny_domains"
+    action: reject
 ```
 
-### 等値比較（== ）
+`in_list` はメールアドレス（`@` を含む値）の場合、そのドメイン部でも照合します。
+
+### 合算スコア（total_score）
+
+全検査ワーカーの `score` の合計が `total_score` として使えます。個々のワーカーでは閾値に届かない複合的な兆候をまとめて判定する（Mail Detox 的な運用）のに使います。
 
 ```yaml
-condition: "av-worker.detected == true"
-condition: "header-inspector.detected == false"
-```
-
-### スコア比較（>=）
-
-```yaml
-condition: "dlp-worker.score >= 80"
-condition: "header-inspector.score >= 60"
+- name: suspicious_total
+  condition: "total_score >= 100"
+  action: quarantine
 ```
 
 ---
 
 ## 条件式のキー
 
-キーは `{ワーカー名}.{フィールド}` の形式です。
-
-### 全ワーカー共通
+### ワーカー由来（`{ワーカー名}.{フィールド}`）
 
 | キー | 型 | 説明 |
 |-----|---|------|
 | `{worker}.detected` | bool | 検知フラグ |
 | `{worker}.score` | int (0–100) | スコア |
+| `total_score` | int | 全ワーカーの score 合計 |
 
-### ワーカー別の `details` キー
+ワーカー別の `details` キーの例:
 
 | キー | ワーカー | 説明 |
 |-----|---------|------|
 | `av-worker.virus_name` | av-worker | 検知ウイルス名 |
 | `header-inspector.reason` | header-inspector | 検知理由 |
 | `url-worker.matched_url` | url-worker | マッチした URL |
-| `dlp-worker.matched_pattern` | dlp-worker | マッチしたパターン名 |
-| `subject-virus-inspector.reason` | subject-virus-inspector | 検知理由（Lua） |
+| `attachment-inspector.reasons` | attachment-inspector | 検知理由の一覧 |
+
+### メール属性（`mail.*`）
+
+| キー | 型 | 説明 |
+|-----|---|------|
+| `mail.from` | string | エンベロープ送信者アドレス（小文字） |
+| `mail.from_domain` | string | 送信者のドメイン部（小文字） |
+| `mail.to` | string | 全宛先をカンマ連結（小文字） |
+| `mail.to_domains` | string | 全宛先のドメインをカンマ連結（小文字） |
+| `mail.subject` | string | 件名 |
+| `mail.size_bytes` | int | メールサイズ（バイト） |
+| `mail.has_attachment` | bool | 添付の有無 |
+| `mail.direction` | string | `inbound` / `outbound` |
+
+> [!NOTE]
+> `mail.to` / `mail.to_domains` は宛先が複数の場合カンマ連結された1つの文字列です。
+> 「宛先のいずれかがフリーメール」を判定するには `in_list`（アドレス/ドメイン単位で照合）を使ってください。
 
 ---
 

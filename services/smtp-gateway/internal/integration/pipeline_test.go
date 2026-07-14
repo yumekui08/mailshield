@@ -197,7 +197,7 @@ func TestPipeline_NormalMail_NoTransform(t *testing.T) {
 		t.Errorf("Subject = %q, want %q（変換されないはず）", transformed.Subject, "Hello World")
 	}
 
-	action, _ := pe.Evaluate(inspResults)
+	action, _ := pe.Evaluate(transformed, inspResults)
 	if action != policy.ActionDeliver {
 		t.Errorf("action = %q, want deliver", action)
 	}
@@ -255,7 +255,7 @@ func TestPipeline_VirusMail_TransformAndDeliver(t *testing.T) {
 		t.Errorf("Subject = %q, want %q", transformed.Subject, wantSubject)
 	}
 
-	action, _ := pe.Evaluate(inspResults)
+	action, _ := pe.Evaluate(transformed, inspResults)
 	if action != policy.ActionDeliver {
 		t.Errorf("action = %q, want deliver", action)
 	}
@@ -292,7 +292,7 @@ rules:
 	ctx := context.Background()
 	inspResults, _ := inspP.Run(ctx, mail)
 
-	action, matchedRule := pe.Evaluate(inspResults)
+	action, matchedRule := pe.Evaluate(mail, inspResults)
 	if action != policy.ActionReject {
 		t.Errorf("action = %q, want reject", action)
 	}
@@ -359,7 +359,7 @@ rules:
 		t.Errorf("score = %d, want >= 60", inspResults[0].Score)
 	}
 
-	action, matchedRule := pe.Evaluate(inspResults)
+	action, matchedRule := pe.Evaluate(mail, inspResults)
 	if action != policy.ActionQuarantine {
 		t.Errorf("action = %q, want quarantine", action)
 	}
@@ -419,7 +419,7 @@ rules:
 		t.Errorf("detected=true, want false（認証成功・スコア0）")
 	}
 
-	action, _ := pe.Evaluate(inspResults)
+	action, _ := pe.Evaluate(mail, inspResults)
 	if action != policy.ActionDeliver {
 		t.Errorf("action = %q, want deliver", action)
 	}
@@ -489,7 +489,7 @@ rules:
 		t.Error("header-inspector: detected=false, want true（SPF+DKIM+DMARC all fail）")
 	}
 
-	action, matchedRule := pe.Evaluate(inspResults)
+	action, matchedRule := pe.Evaluate(mail, inspResults)
 	if action != policy.ActionReject {
 		t.Errorf("action = %q, want reject", action)
 	}
@@ -530,7 +530,7 @@ func TestPipeline_BounceMailFromEmpty(t *testing.T) {
 		t.Error("バウンスメールのウイルス誤検知")
 	}
 
-	action, _ := pe.Evaluate(inspResults)
+	action, _ := pe.Evaluate(mail, inspResults)
 	if action != policy.ActionDeliver {
 		t.Errorf("action = %q, want deliver", action)
 	}
@@ -574,7 +574,7 @@ rules:
 			}
 			ctx := context.Background()
 			inspResults, _ := inspP.Run(ctx, mail)
-			action, _ := pe.Evaluate(inspResults)
+			action, _ := pe.Evaluate(mail, inspResults)
 			if action != tt.wantAction {
 				t.Errorf("action = %q, want %q", action, tt.wantAction)
 			}
@@ -677,7 +677,7 @@ rules: []
 	inspResults := []*domain.InspectResult{
 		{WorkerName: "test", Detected: true, Score: 100},
 	}
-	action, matchedRule := pe.Evaluate(inspResults)
+	action, matchedRule := pe.Evaluate(nil, inspResults)
 	if action != "" {
 		t.Errorf("action = %q, want empty（ルールなし）", action)
 	}

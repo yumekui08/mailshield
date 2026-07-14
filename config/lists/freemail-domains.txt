@@ -1,0 +1,37 @@
+# フリーメール（Web メール）ドメインの例。
+# policy.yaml の lists で参照し、個人ドメイン宛の送信を承認・隔離に回す運用に使う。
+# 1 行 1 ドメイン。# 始まりはコメント、空行は無視。
+# 必要に応じて自組織の運用に合わせて追加・削除すること。
+gmail.com
+googlemail.com
+yahoo.co.jp
+yahoo.com
+ymail.com
+outlook.com
+outlook.jp
+hotmail.com
+hotmail.co.jp
+live.jp
+live.com
+icloud.com
+me.com
+mac.com
+aol.com
+protonmail.com
+proton.me
+gmx.com
+mail.com
+zoho.com
+yandex.com
+qq.com
+163.com
+126.com
+nifty.com
+so-net.ne.jp
+biglobe.ne.jp
+ocn.ne.jp
+docomo.ne.jp
+ezweb.ne.jp
+au.com
+softbank.ne.jp
+ybb.ne.jp

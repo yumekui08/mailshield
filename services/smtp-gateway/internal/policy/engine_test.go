@@ -228,10 +228,10 @@ func TestEvaluate(t *testing.T) {
 			want:      true,
 		},
 		{
-			name:      "未対応の条件式はエラー",
+			name:      "> 比較: 数値構文として有効（fact なしで false）",
 			condition: "something > 10",
 			facts:     nil,
-			wantErr:   true,
+			want:      false,
 		},
 		{
 			name:      "thresholdが数値でない場合はエラー",
@@ -243,13 +243,14 @@ func TestEvaluate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := evaluate(tt.condition, tt.facts)
+			ctx := evalContext{facts: tt.facts, lists: map[string]map[string]bool{}}
+			got, err := evalCondition(tt.condition, ctx)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("evaluate() error = %v, wantErr = %v", err, tt.wantErr)
+				t.Errorf("evalCondition() error = %v, wantErr = %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr && got != tt.want {
-				t.Errorf("evaluate() = %v, want %v", got, tt.want)
+				t.Errorf("evalCondition() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -273,7 +274,7 @@ func TestBuildFacts(t *testing.T) {
 		},
 	}
 
-	facts := buildFacts(results)
+	facts := buildFacts(nil, results)
 
 	checks := []struct {
 		key  string
