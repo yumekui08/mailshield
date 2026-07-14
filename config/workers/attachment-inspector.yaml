@@ -1,0 +1,41 @@
+# attachment-inspector（添付ファイル偽装検査）設定
+#
+# 添付ファイルの偽装兆候をスコアリングする検査ワーカー。
+# ファイルの展開・実行は行わず、バイナリ形式（magic bytes）と構造のみを見る。
+# 暗号化された添付（パスワード付き ZIP / 暗号化 Office）は「検査不能」として
+# スコアを付与する（受信 PPAP 対策。ポリシーで quarantine / approval に回す運用）。
+
+# 合計スコアがこの値以上で detected=true（ポリシーで参照するのは通常 score）
+threshold: 50
+
+# 各検知項目のスコア
+scores:
+  multiple_extension: 60   # 多重拡張子（例: invoice.pdf.exe）
+  banned_extension: 70     # 禁止拡張子そのもの
+  executable: 80           # 中身が実行ファイル形式（PE/ELF/Mach-O）
+  extension_mismatch: 40   # 拡張子と中身の不一致（.pdf なのに中身が実行ファイル 等）
+  macro: 50                # Office マクロ（VBA）を含む
+  encrypted: 40            # 暗号化されていて検査できない
+  banned_in_archive: 60    # ZIP 内に禁止拡張子ファイルがある
+
+# 禁止拡張子（先頭ドットなし・小文字）。添付本体・アーカイブ内の両方で判定する。
+banned_extensions:
+  - exe
+  - scr
+  - com
+  - bat
+  - cmd
+  - pif
+  - js
+  - vbs
+  - jar
+  - ps1
+  - lnk
+  - hta
+  - wsf
+  - msi
+  - dll
+
+# アーカイブ内検査を行う対象拡張子
+archive_extensions:
+  - zip

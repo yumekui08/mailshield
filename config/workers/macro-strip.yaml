@@ -1,0 +1,12 @@
+# macro-strip（メール無害化・マクロ除去）設定
+#
+# 添付 Office 文書から VBA マクロを除去する変換ワーカー。
+# 原本 EML は別途保存されるため、無害化前に戻すことができる。
+
+# OOXML（.docm/.xlsm/.pptm 等）から vbaProject を除去するか。
+strip_ooxml: true
+
+# OLE 形式（旧 .doc/.xls/.ppt）でマクロを含むものを添付ごと除去するか。
+# OLE 内の VBA を安全に部分除去する手段がないため、除去する場合は添付を丸ごと落とす。
+# false の場合は OLE マクロには手を付けない（attachment-inspector での検知 + ポリシー判定に委ねる）。
+drop_ole_macro: false
