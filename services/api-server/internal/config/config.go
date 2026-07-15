@@ -447,6 +447,8 @@ func Load(configFile string) (*Config, error) {
 		"storage.secret_key":                "MINIO_SECRET_KEY",
 		"storage.use_ssl":                   "MINIO_USE_SSL",
 		"notification.auth_pass":            "NOTIFICATION_AUTH_PASS",
+		"notification.reinject_host":        "MAILSHIELD_REINJECT_HOST",
+		"notification.reinject_port":        "MAILSHIELD_REINJECT_PORT",
 		"auth.providers.oidc.client_secret": "OIDC_CLIENT_SECRET",
 		"directory.ldap.bind_password":      "LDAP_BIND_PASSWORD",
 	}
@@ -466,11 +468,17 @@ func Load(configFile string) (*Config, error) {
 	}
 
 	// notification.reinject_host が未設定の場合、mailshield.yaml の reinject 設定を継承する。
+	// 優先順位: api-server.yaml / MAILSHIELD_REINJECT_HOST 環境変数 > mailshield.yaml からの継承。
 	if cfg.Notification.ReinjectHost == "" && cfg.Settings.SmtpGatewayConfigFile != "" {
 		if err := inheritReinjectFromGateway(&cfg); err != nil {
 			// 継承失敗は警告のみ（api-server.yaml 側で明示設定されていれば問題ない）
 			fmt.Printf("warn: smtp-gateway 設定からの reinject 継承失敗: %v\n", err)
 		}
+	}
+	// host が設定済みで port が未指定なら SMTP デフォルト 25 を補完する
+	// （MAILSHIELD_REINJECT_HOST のみ設定された場合に host:0 となるのを防ぐ）。
+	if cfg.Notification.ReinjectHost != "" && cfg.Notification.ReinjectPort == 0 {
+		cfg.Notification.ReinjectPort = 25
 	}
 
 	if err := validateAuthDirectory(&cfg); err != nil {

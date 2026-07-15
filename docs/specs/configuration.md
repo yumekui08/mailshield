@@ -52,7 +52,7 @@
 
 | キー | 型 | 環境変数 | 説明 |
 |-----|-----|---------|------|
-| `backend` | string | - | `minio`、`s3`、または `filesystem` |
+| `backend` | string | `MAILSHIELD_STORAGE_BACKEND` | `minio`、`s3`、または `filesystem`（YAML デフォルト: `filesystem`） |
 | `endpoint` | string | `MINIO_ENDPOINT` | MinIOエンドポイント（例: `minio:9000`）。`minio` / `s3` モード専用 |
 | `access_key` | string | `MINIO_ACCESS_KEY` | アクセスキー。`minio` / `s3` モード専用 |
 | `secret_key` | string | `MINIO_SECRET_KEY` | シークレットキー。`minio` / `s3` モード専用 |
@@ -66,6 +66,9 @@
 
 **`filesystem` モードについて:**
 MinIO が不要なため、開発環境や単一ノード構成に適している。`local_dir` にメールが保存され、`public_base_url` を使って `GetPresignedURL` が URL を返す。
+
+> [!IMPORTANT]
+> **smtp-gateway と api-server は同じストレージを共有しなければならない。** api-server は常に MinIO / S3 を読むため、smtp-gateway 側で `filesystem` を選ぶと、api-server からの隔離解放・承認解放・遅延送信の再配送時に処理済み EML を取得できず失敗する。Docker では `storage` プロファイル（MinIO 同梱）を含む構成で `MAILSHIELD_STORAGE_BACKEND=minio`（デフォルト）、MinIO を持たない `make core-up` でのみ `filesystem` を使う。`filesystem` を使う場合は smtp-gateway・api-server が同一ファイルシステム（共有ボリューム）を参照する構成にすること。
 
 ### database
 
@@ -152,7 +155,7 @@ notification:
 
 - policy ファイルのルールに `destination` が明示されている場合は、そちらが優先される
 - `deliverers.default` が定義されている場合は、そちらが優先される（reinject は後方互換用）
-- `api-server.yaml` の `notification.reinject_host/port` が未設定の場合、api-server は自動的にこの設定を継承する（SSOT）
+- api-server も同じ `MAILSHIELD_REINJECT_HOST` / `MAILSHIELD_REINJECT_PORT` 環境変数を読む。api-server の解決順は「`api-server.yaml` の `notification.reinject_host/port` > 環境変数 > `mailshield.yaml` の `reinject` 継承」。Docker 構成では両サービスに同じ環境変数を渡して宛先を共有する
 
 ```yaml
 reinject:

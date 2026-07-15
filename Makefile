@@ -122,9 +122,9 @@ dev-down:
 dev-logs:
 	$(DCENV)=$(PROFILES_DEV) $(DC) logs -f
 
-## smtp-gateway + MariaDB のみ（最小構成）
+## smtp-gateway + MariaDB のみ（最小構成・MinIO なしのため filesystem ストレージ）
 core-up:
-	$(DCENV)=$(PROFILES_CORE) $(DC) up -d --build
+	MAILSHIELD_STORAGE_BACKEND=filesystem $(DCENV)=$(PROFILES_CORE) $(DC) up -d --build
 
 core-down:
 	$(DCENV)=$(PROFILES_CORE) $(DC) down

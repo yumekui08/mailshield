@@ -309,6 +309,7 @@ func Load(configDir string) (*Config, error) {
 		"database.name":          "DB_NAME",
 		"database.user":          "DB_USER",
 		"database.password":      "DB_PASSWORD",
+		"storage.backend":        "MAILSHIELD_STORAGE_BACKEND",
 		"storage.endpoint":       "MINIO_ENDPOINT",
 		"storage.use_ssl":        "MINIO_USE_SSL",
 		"events.webhook.url":     "MAILSHIELD_WEBHOOK_URL",
