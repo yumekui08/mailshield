@@ -43,6 +43,8 @@ flowchart TD
     S7 -->|deliver| Del["deliverer 経由で配送先へ SMTP 送信\n（開発: mailpit:1025）"]
     S7 -->|quarantine| Qua["DB: status = quarantined\nprocessed/ に処理済み EML 保存\n隔離通知メール送信（enabled の場合）"]
     S7 -->|reject| Rej["DB: status = rejected\n送信者へバウンス通知"]
+    S7 -->|approval| App["DB: status = approval_pending\napproval_requests 作成\n承認者へ通知"]
+    S7 -->|delay| Dly["DB: status = delayed\ndelayed_releases 作成（release_at）\napi-server が期限到来後に自動配送"]
 
     Del -.->|"archiveAsync（非同期・最大3回リトライ）"| Archive["processed/YYYY/MM/DD/{uuid}.eml を保存\nDB: processed_eml_path を記録"]
     Del --> Dest([配送先 MTA / Mailpit])
@@ -180,3 +182,4 @@ flowchart LR
 | 隔離即時通知送信失敗 | WARN ログに記録して無視（best-effort） |
 | 隔離解放: ストレージ取得失敗 | `rollbackToQuarantined` で DB を元に戻す。409 NOT_READY を返す |
 | 隔離解放: SMTP 送信失敗 | `rollbackToQuarantined` で DB を元に戻す。500 を返す |
+| 遅延自動配送: EML 取得・SMTP 送信失敗 | `delayed_releases.status` を `pending` に戻し `mail_messages.status` を `delayed` にロールバック。WARN ログを出力し次回サイクル（30 秒後）で再試行する |

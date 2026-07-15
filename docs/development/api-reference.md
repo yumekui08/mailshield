@@ -270,6 +270,46 @@ policy アクション `approval` で保留されたメールの承認 API。承
 
 ---
 
+## 送信ディレイ（送信待ち）
+
+policy アクション `delay` で保留された送信メールの管理 API。保留時間を過ぎると自動送信されるが、それまでは取消・即時送信できる。
+
+### `GET /api/v1/delayed`
+
+送信待ち（pending）一覧。`viewer` は自分が送信者（送信元メールボックスの owner）のメールのみ。`operator` / `admin` は全件。
+
+**レスポンス:**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "message_id": "uuid",
+      "release_at": "2026-07-15T10:05:00Z",
+      "status": "pending",
+      "from_address": "me@corp.example",
+      "to_addresses": ["ext@example.com"],
+      "subject": "見積書送付",
+      "has_attachment": true
+    }
+  ]
+}
+```
+
+### `POST /api/v1/delayed/{id}/send-now`
+
+保留時間を待たずに今すぐ送信する。`viewer` は自分が送信者のもののみ。処理済みの場合は `409`。
+
+### `POST /api/v1/delayed/{id}/cancel`
+
+送信を取り消す（配送しない・メールは `rejected` になる）。権限は send-now と同じ。
+
+> [!NOTE]
+> 自動送信・即時送信・取消はすべて `delayed_releases.status='pending'` の CAS（条件付き更新）で
+> 取り出すため、複数レプリカ構成でも二重配送・競合しない。
+
+---
+
 ## 添付ファイル（認証済みユーザー向け）
 
 ### `GET /api/v1/attachments/{token}`

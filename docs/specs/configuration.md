@@ -234,6 +234,12 @@ approval:
   global_approver_email: ""
 ```
 
+### delay（送信ディレイ）
+
+送信ディレイは policy アクション `delay` + `delay_minutes`（ルール単位・[ポリシーガイド](../guide/policy.md#delay-の-delay_minutes)参照）で制御し、専用の設定項目はない。保留メールは api-server のバックグラウンドワーカーが 30 秒間隔で `release_at` を確認し、期限到来分を自動配送する。配送は `notification.reinject_host` / `reinject_port` へ再インジェクトする（承認解放と同じ経路）。
+
+保留中のメールは Web UI の「送信待ち」画面で送信者（送信元メールボックスの owner。`mailbox_policy.outbound_quarantine.visible_to` / `release_by` で可視・操作権限を制御）が取消・即時送信できる。
+
 ### attachment_download
 
 添付ファイルダウンロードの認証フロー設定。ルートの `direction` でフローを切り替える。

@@ -65,6 +65,22 @@ rules:
 | `quarantine` | メールを隔離する。受信者に即時通知メールを送信（設定による） |
 | `reject` | 送信者にバウンスを返す |
 | `approval` | 承認キューに保留する。承認者はメールボックスの admin 割り当て（優先）→ ユーザー個人の `approver_id` → `approval.global_approver_email` の順で解決される（詳細: [設定リファレンスの approval](../specs/configuration.md#approval)） |
+| `delay` | 送信を一定時間保留する（送信ディレイ）。`delay_minutes` で保留時間を指定（省略時 5 分）。保留中は送信者が Web UI から取消・即時送信でき、時間が来ると自動送信される |
+
+### `delay` の `delay_minutes`
+
+送信ディレイは主に送信メール（outbound ルート）の誤送信対策に使う。保留時間を過ぎると api-server のバックグラウンドワーカーが自動的に配送する。
+
+```yaml
+rules:
+  # 全送信メールを 3 分保留（送信取消の猶予）
+  - name: outbound_delay
+    condition: "mail.direction == outbound"
+    action: delay
+    delay_minutes: 3
+```
+
+保留中のメールは Web UI の「送信待ち」画面に表示され、送信者（送信元メールボックスの owner）が「今すぐ送信」または「取消」できる。取消したメールは配送されない（status=rejected）。
 
 ### `deliver` の `destination`
 
