@@ -17,11 +17,13 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/approval"
 	"github.com/koizumib/mailshield/services/api-server/internal/auth"
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
+	"github.com/koizumib/mailshield/services/api-server/internal/delay"
 	"github.com/koizumib/mailshield/services/api-server/internal/directory"
 	ldapsync "github.com/koizumib/mailshield/services/api-server/internal/directory/ldap"
 	"github.com/koizumib/mailshield/services/api-server/internal/handler"
 	"github.com/koizumib/mailshield/services/api-server/internal/otp"
 	"github.com/koizumib/mailshield/services/api-server/internal/pwreset"
+	"github.com/koizumib/mailshield/services/api-server/internal/reinject"
 	"github.com/koizumib/mailshield/services/api-server/internal/repository/mariadb"
 	"github.com/koizumib/mailshield/services/api-server/internal/storage"
 )
@@ -205,8 +207,14 @@ func main() {
 	go approvalSvc.RunExpiryWorker(bgCtx)
 	slog.Info("承認フロー バックグラウンドサービス起動")
 
+	// ─── 送信ディレイ バックグラウンドサービス ─────────────────
+	reinjector := reinject.New(cfg.Notification.ReinjectHost, cfg.Notification.ReinjectPort)
+	delaySvc := delay.New(repo, stor, reinjector)
+	go delaySvc.RunReleaser(bgCtx)
+	slog.Info("送信ディレイ バックグラウンドサービス起動")
+
 	// ─── HTTPサーバー ─────────────────────────────────────────
-	router := handler.NewRouter(standaloneProvider, ldapAuthProvider, oidcProvider, sessionStore, repo, stor, stor, otpStore, pwResetStore, cfg)
+	router := handler.NewRouter(standaloneProvider, ldapAuthProvider, oidcProvider, sessionStore, repo, stor, stor, otpStore, pwResetStore, delaySvc, cfg)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	httpServer := &http.Server{

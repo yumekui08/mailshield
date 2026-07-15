@@ -45,6 +45,11 @@ type mockRepository struct {
 	updateApprovalStatusFunc    func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error
 	getUserFunc                 func(ctx context.Context, id string) (*repository.User, error)
 	updateUserApproverFunc      func(ctx context.Context, userID string, approverID *string) error
+
+	// 送信ディレイ
+	listDelayedReleasesFunc func(ctx context.Context, filter *domain.MailboxVisibilityFilter) ([]domain.DelayedRelease, error)
+	getDelayedReleaseFunc   func(ctx context.Context, id string) (*domain.DelayedRelease, error)
+	claimDelayedReleaseFunc func(ctx context.Context, id string, status domain.DelayedReleaseStatus, decidedBy *string) (bool, error)
 }
 
 func (m *mockRepository) ListMessages(ctx context.Context, q domain.ListQuery) ([]domain.Message, int, error) {
@@ -370,4 +375,28 @@ func (m *mockRepository) UpdateUserApprover(ctx context.Context, userID string, 
 }
 func (m *mockRepository) FindUserByEmailInternal(_ context.Context, _ string) (*repository.User, error) {
 	return nil, nil
+}
+func (m *mockRepository) ListDelayedReleases(ctx context.Context, filter *domain.MailboxVisibilityFilter) ([]domain.DelayedRelease, error) {
+	if m.listDelayedReleasesFunc != nil {
+		return m.listDelayedReleasesFunc(ctx, filter)
+	}
+	return nil, nil
+}
+func (m *mockRepository) GetDelayedRelease(ctx context.Context, id string) (*domain.DelayedRelease, error) {
+	if m.getDelayedReleaseFunc != nil {
+		return m.getDelayedReleaseFunc(ctx, id)
+	}
+	return nil, nil
+}
+func (m *mockRepository) ListDueDelayedReleases(_ context.Context) ([]domain.DelayedRelease, error) {
+	return nil, nil
+}
+func (m *mockRepository) ClaimDelayedRelease(ctx context.Context, id string, status domain.DelayedReleaseStatus, decidedBy *string) (bool, error) {
+	if m.claimDelayedReleaseFunc != nil {
+		return m.claimDelayedReleaseFunc(ctx, id, status, decidedBy)
+	}
+	return true, nil
+}
+func (m *mockRepository) UpdateDelayedReleaseStatus(_ context.Context, _ string, _ domain.DelayedReleaseStatus) error {
+	return nil
 }

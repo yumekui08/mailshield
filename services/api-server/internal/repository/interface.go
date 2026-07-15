@@ -180,6 +180,22 @@ type Repository interface {
 	UpdateUserApprover(ctx context.Context, userID string, approverID *string) error
 	// FindUserByEmailInternal はメールアドレスでユーザーを検索する（承認通知送信先解決用）。
 	FindUserByEmailInternal(ctx context.Context, email string) (*User, error)
+
+	// ─── 遅延送信（送信ディレイ） ────────────────────────────────────────────
+
+	// ListDelayedReleases は保留中（pending）の遅延送信一覧をメール情報付きで返す。
+	// filter が nil の場合は全件、指定された場合はメールボックス可視性で絞り込む（viewer 向け）。
+	ListDelayedReleases(ctx context.Context, filter *domain.MailboxVisibilityFilter) ([]domain.DelayedRelease, error)
+	// GetDelayedRelease は指定 ID の遅延送信をメール情報付きで返す。
+	GetDelayedRelease(ctx context.Context, id string) (*domain.DelayedRelease, error)
+	// ListDueDelayedReleases は release_at を過ぎた pending の遅延送信を返す（自動配送用）。
+	ListDueDelayedReleases(ctx context.Context) ([]domain.DelayedRelease, error)
+	// ClaimDelayedRelease は status=pending の遅延送信を原子的に status へ更新する。
+	// 更新できた場合 true を返す。false は他のワーカー/操作が先に決定済み。二重配送を防ぐ。
+	// decidedBy は取消/即時送信を行ったユーザー（自動配送時は nil）。
+	ClaimDelayedRelease(ctx context.Context, id string, status domain.DelayedReleaseStatus, decidedBy *string) (bool, error)
+	// UpdateDelayedReleaseStatus は遅延送信の状態を無条件に更新する（配送失敗時のロールバック用）。
+	UpdateDelayedReleaseStatus(ctx context.Context, id string, status domain.DelayedReleaseStatus) error
 }
 
 // Mailbox はメールボックス情報を保持する。

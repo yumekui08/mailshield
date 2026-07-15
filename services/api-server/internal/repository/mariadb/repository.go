@@ -1756,6 +1756,103 @@ func (r *Repository) CountRemainingNotifications(ctx context.Context, approvalID
 	return count, nil
 }
 
+// ─── 遅延送信（送信ディレイ） ────────────────────────────────────────────────
+
+// delayedReleaseSelectBase は delayed_releases とメール情報を結合する SELECT の共通部分。
+const delayedReleaseSelectBase = `
+	SELECT d.id, d.message_id, d.release_at, d.status, d.decided_by, d.decided_at, d.created_at,
+	       m.from_address, m.to_addresses, m.subject, m.size_bytes, m.has_attachment
+	  FROM delayed_releases d
+	  JOIN mail_messages m ON m.id = d.message_id`
+
+// ListDelayedReleases は pending の遅延送信一覧をメール情報付きで返す。
+func (r *Repository) ListDelayedReleases(ctx context.Context, filter *domain.MailboxVisibilityFilter) ([]domain.DelayedRelease, error) {
+	q := delayedReleaseSelectBase + ` WHERE d.status = 'pending'`
+	visClause, visArgs := buildVisibilityClause(filter)
+	if visClause != "" {
+		q += " AND " + visClause
+	}
+	q += " ORDER BY d.release_at ASC"
+	return r.scanDelayedReleases(ctx, q, visArgs...)
+}
+
+// GetDelayedRelease は指定 ID の遅延送信を返す。
+func (r *Repository) GetDelayedRelease(ctx context.Context, id string) (*domain.DelayedRelease, error) {
+	list, err := r.scanDelayedReleases(ctx, delayedReleaseSelectBase+` WHERE d.id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(list) == 0 {
+		return nil, nil
+	}
+	return &list[0], nil
+}
+
+// ListDueDelayedReleases は release_at を過ぎた pending の遅延送信を返す。
+func (r *Repository) ListDueDelayedReleases(ctx context.Context) ([]domain.DelayedRelease, error) {
+	q := delayedReleaseSelectBase + ` WHERE d.status = 'pending' AND d.release_at <= ? ORDER BY d.release_at ASC`
+	return r.scanDelayedReleases(ctx, q, time.Now().UTC())
+}
+
+// ClaimDelayedRelease は status=pending の遅延送信を原子的に status へ更新する。
+func (r *Repository) ClaimDelayedRelease(ctx context.Context, id string, status domain.DelayedReleaseStatus, decidedBy *string) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE delayed_releases SET status = ?, decided_by = ?, decided_at = ?
+		  WHERE id = ? AND status = 'pending'`,
+		string(status), decidedBy, time.Now().UTC(), id,
+	)
+	if err != nil {
+		return false, fmt.Errorf("遅延送信クレーム失敗 (id=%s): %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("遅延送信クレーム結果取得失敗 (id=%s): %w", id, err)
+	}
+	return n > 0, nil
+}
+
+// UpdateDelayedReleaseStatus は遅延送信の状態を無条件に更新する（ロールバック用）。
+func (r *Repository) UpdateDelayedReleaseStatus(ctx context.Context, id string, status domain.DelayedReleaseStatus) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE delayed_releases SET status = ? WHERE id = ?`,
+		string(status), id,
+	)
+	if err != nil {
+		return fmt.Errorf("遅延送信ステータス更新失敗 (id=%s): %w", id, err)
+	}
+	return nil
+}
+
+func (r *Repository) scanDelayedReleases(ctx context.Context, q string, args ...any) ([]domain.DelayedRelease, error) {
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("遅延送信クエリ失敗: %w", err)
+	}
+	defer rows.Close()
+
+	var list []domain.DelayedRelease
+	for rows.Next() {
+		var d domain.DelayedRelease
+		var toAddrsJSON string
+		var hasAttachment int
+		if err := rows.Scan(
+			&d.ID, &d.MessageID, &d.ReleaseAt, &d.Status, &d.DecidedBy, &d.DecidedAt, &d.CreatedAt,
+			&d.FromAddress, &toAddrsJSON, &d.Subject, &d.SizeBytes, &hasAttachment,
+		); err != nil {
+			return nil, fmt.Errorf("遅延送信スキャン失敗: %w", err)
+		}
+		if err := json.Unmarshal([]byte(toAddrsJSON), &d.ToAddresses); err != nil {
+			return nil, fmt.Errorf("宛先 JSON パース失敗: %w", err)
+		}
+		d.HasAttachment = hasAttachment == 1
+		list = append(list, d)
+	}
+	if list == nil {
+		list = []domain.DelayedRelease{}
+	}
+	return list, rows.Err()
+}
+
 // ─── ユーザー承認者設定 ──────────────────────────────────────────────────────
 
 // GetUser は指定 ID のユーザーを返す。

@@ -53,8 +53,36 @@ const (
 	StatusQuarantined     MessageStatus = "quarantined"
 	StatusRejected        MessageStatus = "rejected"
 	StatusApprovalPending MessageStatus = "approval_pending"
+	StatusDelayed         MessageStatus = "delayed"
 	StatusExpired         MessageStatus = "expired"
 )
+
+// DelayedReleaseStatus は遅延送信レコードの状態を表す。
+type DelayedReleaseStatus string
+
+const (
+	DelayedPending   DelayedReleaseStatus = "pending"
+	DelayedReleased  DelayedReleaseStatus = "released"
+	DelayedCancelled DelayedReleaseStatus = "cancelled"
+)
+
+// DelayedRelease は遅延送信（送信ディレイ）レコードを表す。
+// Message は一覧・詳細表示のために結合したメール情報（一覧クエリで埋める）。
+type DelayedRelease struct {
+	ID        string               `json:"id"`
+	MessageID string               `json:"message_id"`
+	ReleaseAt time.Time            `json:"release_at"`
+	Status    DelayedReleaseStatus `json:"status"`
+	DecidedBy *string              `json:"decided_by,omitempty"`
+	DecidedAt *time.Time           `json:"decided_at,omitempty"`
+	CreatedAt time.Time            `json:"created_at"`
+	// 一覧表示用のメール属性（結合）
+	FromAddress   string   `json:"from_address"`
+	ToAddresses   []string `json:"to_addresses"`
+	Subject       string   `json:"subject"`
+	SizeBytes     int64    `json:"size_bytes"`
+	HasAttachment bool     `json:"has_attachment"`
+}
 
 // Message はメールのメタデータを表す。
 type Message struct {

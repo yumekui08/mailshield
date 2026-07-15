@@ -286,6 +286,21 @@ func (s *serviceRepository) UpdateUserApprover(_ context.Context, _ string, _ *s
 func (s *serviceRepository) FindUserByEmailInternal(ctx context.Context, email string) (*repository.User, error) {
 	return s.stubRepository.FindUserByEmailInternal(ctx, email)
 }
+func (s *serviceRepository) ListDelayedReleases(_ context.Context, _ *domain.MailboxVisibilityFilter) ([]domain.DelayedRelease, error) {
+	return nil, nil
+}
+func (s *serviceRepository) GetDelayedRelease(_ context.Context, _ string) (*domain.DelayedRelease, error) {
+	return nil, nil
+}
+func (s *serviceRepository) ListDueDelayedReleases(_ context.Context) ([]domain.DelayedRelease, error) {
+	return nil, nil
+}
+func (s *serviceRepository) ClaimDelayedRelease(_ context.Context, _ string, _ domain.DelayedReleaseStatus, _ *string) (bool, error) {
+	return true, nil
+}
+func (s *serviceRepository) UpdateDelayedReleaseStatus(_ context.Context, _ string, _ domain.DelayedReleaseStatus) error {
+	return nil
+}
 
 // ─── expireApprovals ─────────────────────────────────────────────────────────
 

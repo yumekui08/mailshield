@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
-	"net/smtp"
 
 	"github.com/go-chi/chi/v5"
 
@@ -15,6 +13,7 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
+	"github.com/koizumib/mailshield/services/api-server/internal/reinject"
 	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 	"github.com/koizumib/mailshield/services/api-server/internal/storage"
 )
@@ -23,7 +22,7 @@ import (
 type ApprovalHandler struct {
 	repo        repository.Repository
 	emlStorage  storage.EMLStorage
-	notifCfg    config.NotificationConfig
+	reinjector  *reinject.Reinjector
 	auditLogger *audit.Logger
 }
 
@@ -37,7 +36,7 @@ func NewApprovalHandler(
 	return &ApprovalHandler{
 		repo:        repo,
 		emlStorage:  emlStorage,
-		notifCfg:    notifCfg,
+		reinjector:  reinject.New(notifCfg.ReinjectHost, notifCfg.ReinjectPort),
 		auditLogger: auditLogger,
 	}
 }
@@ -251,7 +250,7 @@ func (h *ApprovalHandler) approveAndReinject(ctx context.Context, req *domain.Ap
 		return fmt.Errorf("ステータス更新失敗: %w", err)
 	}
 
-	if err := h.reinject(ctx, msg.Message.FromAddress, msg.Message.ToAddresses, eml); err != nil {
+	if err := h.reinjector.Send(ctx, msg.Message.FromAddress, msg.Message.ToAddresses, eml); err != nil {
 		// ロールバック
 		_ = h.repo.UpdateMessageStatus(ctx, req.MessageID, domain.StatusApprovalPending)
 		return fmt.Errorf("再インジェクト失敗: %w", err)
@@ -259,44 +258,6 @@ func (h *ApprovalHandler) approveAndReinject(ctx context.Context, req *domain.Ap
 
 	slog.Info("承認メール再インジェクト完了", "message_id", req.MessageID, "approval_id", req.ID)
 	return nil
-}
-
-func (h *ApprovalHandler) reinject(ctx context.Context, from string, to []string, eml []byte) error {
-	addr := fmt.Sprintf("%s:%d", h.notifCfg.ReinjectHost, h.notifCfg.ReinjectPort)
-	conn, err := (&net.Dialer{Timeout: 30_000_000_000}).DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return fmt.Errorf("SMTP 接続失敗 (addr=%s): %w", addr, err)
-	}
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
-	}
-
-	c, err := smtp.NewClient(conn, h.notifCfg.ReinjectHost)
-	if err != nil {
-		_ = conn.Close()
-		return fmt.Errorf("SMTP クライアント作成失敗: %w", err)
-	}
-	defer c.Close()
-
-	if err := c.Mail(from); err != nil {
-		return fmt.Errorf("MAIL FROM 失敗: %w", err)
-	}
-	for _, rcpt := range to {
-		if err := c.Rcpt(rcpt); err != nil {
-			return fmt.Errorf("RCPT TO 失敗 (%s): %w", rcpt, err)
-		}
-	}
-	wc, err := c.Data()
-	if err != nil {
-		return fmt.Errorf("DATA 失敗: %w", err)
-	}
-	if _, err := wc.Write(eml); err != nil {
-		return fmt.Errorf("メール送信失敗: %w", err)
-	}
-	if err := wc.Close(); err != nil {
-		return fmt.Errorf("DATA 完了失敗: %w", err)
-	}
-	return c.Quit()
 }
 
 // HandleGetUserApprover は GET /api/v1/users/{id}/approver を処理する（admin のみ）。

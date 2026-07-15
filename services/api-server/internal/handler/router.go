@@ -10,6 +10,7 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/audit"
 	"github.com/koizumib/mailshield/services/api-server/internal/auth"
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
+	"github.com/koizumib/mailshield/services/api-server/internal/delay"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
 	"github.com/koizumib/mailshield/services/api-server/internal/otp"
@@ -29,6 +30,7 @@ func NewRouter(
 	attachmentStor storage.AttachmentStorage,
 	otpStore otp.Store,
 	pwResetStore pwreset.Store,
+	delayService *delay.Service,
 	cfg *config.Config,
 ) http.Handler {
 	r := chi.NewRouter()
@@ -69,6 +71,7 @@ func NewRouter(
 	messagesHandler := NewMessagesHandler(repo, stor, cfg.Storage.PresignedURLExpiryH)
 	quarantineHandler := NewQuarantineHandler(repo, stor, cfg.Notification, cfg.MailboxPolicy, auditLogger)
 	approvalHandler := NewApprovalHandler(repo, stor, cfg.Notification, auditLogger)
+	delayHandler := NewDelayHandler(repo, delayService, cfg.MailboxPolicy, auditLogger)
 	statsHandler := NewStatsHandler(repo, cfg.MailboxPolicy)
 	usersHandler := NewUsersHandler(repo, auditLogger)
 	mailboxesHandler := NewMailboxesHandler(repo, auditLogger)
@@ -223,6 +226,16 @@ func NewRouter(
 			r.Get("/{id}", approvalHandler.HandleGet)
 			r.Post("/{id}/approve", approvalHandler.HandleApprove)
 			r.Post("/{id}/reject", approvalHandler.HandleReject)
+		})
+
+		// 送信ディレイ（送信待ち）エンドポイント
+		r.Route("/delayed", func(r chi.Router) {
+			r.Use(authMW)
+			r.Use(middleware.RequireRole(domain.RoleViewer, domain.RoleOperator, domain.RoleAdmin))
+
+			r.Get("/", delayHandler.HandleList)
+			r.Post("/{id}/cancel", delayHandler.HandleCancel)
+			r.Post("/{id}/send-now", delayHandler.HandleSendNow)
 		})
 
 		// ユーザー承認者設定（admin のみ）
