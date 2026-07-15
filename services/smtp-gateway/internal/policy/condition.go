@@ -111,7 +111,9 @@ func evalContains(key, substr string, ctx evalContext) (bool, error) {
 }
 
 // evalInList は fact の値が名前付きリストに含まれるかを返す。
-// fact 値が "@" を含む（メールアドレス）場合はドメイン部でも照合する。
+// fact 値がカンマ連結（mail.to / mail.to_domains のように複数宛先）の場合は
+// 各要素を個別に照合し、いずれか 1 つでも一致すれば true を返す。
+// 各要素が "@" を含む（メールアドレス）場合はドメイン部でも照合する。
 func evalInList(key, listName string, ctx evalContext) (bool, error) {
 	set, ok := ctx.lists[strings.ToLower(listName)]
 	if !ok {
@@ -122,11 +124,17 @@ func evalInList(key, listName string, ctx evalContext) (bool, error) {
 		return false, nil
 	}
 	value := strings.ToLower(fmt.Sprintf("%v", fact))
-	if set[value] {
-		return true, nil
-	}
-	if at := strings.LastIndex(value, "@"); at >= 0 {
-		return set[value[at+1:]], nil
+	for _, elem := range strings.Split(value, ",") {
+		elem = strings.TrimSpace(elem)
+		if elem == "" {
+			continue
+		}
+		if set[elem] {
+			return true, nil
+		}
+		if at := strings.LastIndex(elem, "@"); at >= 0 && set[elem[at+1:]] {
+			return true, nil
+		}
 	}
 	return false, nil
 }

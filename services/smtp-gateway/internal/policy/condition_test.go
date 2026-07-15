@@ -81,6 +81,30 @@ func TestEvalCondition_InList(t *testing.T) {
 	}
 }
 
+// TestEvalCondition_InList_MultiRecipient は mail.to / mail.to_domains のように
+// カンマ連結された複数宛先で、いずれか 1 つでもリストに含まれれば true になることを検証する。
+func TestEvalCondition_InList_MultiRecipient(t *testing.T) {
+	lists := map[string]map[string]bool{
+		"freemail": {"gmail.com": true, "yahoo.co.jp": true},
+	}
+	// 先頭がフリーメール・末尾が社内ドメイン（旧実装は末尾しか見ず取りこぼしていた）
+	facts := map[string]any{
+		"mail.to":         "victim@gmail.com,boss@corp.example",
+		"mail.to_domains": "gmail.com,corp.example",
+	}
+	if !evalWith(t, "mail.to_domains in_list freemail", facts, lists) {
+		t.Error("複数宛先ドメインのいずれかがフリーメールなら in_list マッチすべき")
+	}
+	if !evalWith(t, "mail.to in_list freemail", facts, lists) {
+		t.Error("複数宛先アドレスのいずれかのドメインがフリーメールなら in_list マッチすべき")
+	}
+	// どの宛先もリスト外なら false
+	facts["mail.to_domains"] = "corp.example,partner.example"
+	if evalWith(t, "mail.to_domains in_list freemail", facts, lists) {
+		t.Error("全宛先がリスト外なら誤マッチしてはいけない")
+	}
+}
+
 func TestEvalCondition_TotalScoreThreshold(t *testing.T) {
 	facts := map[string]any{"total_score": 120}
 	if !evalWith(t, "total_score >= 100", facts, nil) {
