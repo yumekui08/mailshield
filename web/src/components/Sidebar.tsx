@@ -11,6 +11,7 @@ import {
   FlaskConical,
   ClipboardCheck,
   ShieldAlert,
+  Clock,
   SunMoon,
 } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -47,6 +48,7 @@ const navGroups: NavGroup[] = [
       { to: "/messages", label: "処理ログ", icon: Mail },
       { to: "/quarantine", label: "隔離メール", icon: ShieldAlert },
       { to: "/approvals", label: "承認フロー", icon: ClipboardCheck },
+      { to: "/delayed", label: "送信待ち", icon: Clock },
     ],
   },
   {

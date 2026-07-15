@@ -5,7 +5,25 @@ export type MessageStatus =
   | "quarantined"
   | "rejected"
   | "approval_pending"
+  | "delayed"
   | "expired";
+
+export type DelayedReleaseStatus = "pending" | "released" | "cancelled";
+
+export interface DelayedRelease {
+  id: string;
+  message_id: string;
+  release_at: string;
+  status: DelayedReleaseStatus;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_at: string;
+  from_address: string;
+  to_addresses: string[];
+  subject: string;
+  size_bytes: number;
+  has_attachment: boolean;
+}
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 

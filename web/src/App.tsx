@@ -16,6 +16,7 @@ import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { APIKeysPage } from "./pages/APIKeysPage";
 import { SimulatePage } from "./pages/SimulatePage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
+import { DelayedPage } from "./pages/DelayedPage";
 import { ApprovalDetailPage } from "./pages/ApprovalDetailPage";
 import { FileDownloadPage } from "./pages/FileDownloadPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
@@ -61,6 +62,7 @@ export function App() {
             <Route path="/simulate" element={<SimulatePage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
+            <Route path="/delayed" element={<DelayedPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

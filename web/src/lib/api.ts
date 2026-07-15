@@ -16,6 +16,7 @@ import type {
   CreateAPIKeyResponse,
   ApprovalRequest,
   ApprovalRequestDetail,
+  DelayedRelease,
 } from "../types";
 
 const BASE = "/api/v1";
@@ -486,6 +487,20 @@ export async function rejectRequest(id: string, comment?: string): Promise<{ sta
     method: "POST",
     body: JSON.stringify({ comment: comment ?? "" }),
   });
+}
+
+// ─── 送信ディレイ（送信待ち） ───────────────────────────────
+
+export async function listDelayed(): Promise<{ items: DelayedRelease[] }> {
+  return request<{ items: DelayedRelease[] }>("/delayed");
+}
+
+export async function cancelDelayed(id: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/delayed/${id}/cancel`, { method: "POST" });
+}
+
+export async function sendDelayedNow(id: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/delayed/${id}/send-now`, { method: "POST" });
 }
 
 // ─── ユーザー承認者設定 ─────────────────────────────────────
