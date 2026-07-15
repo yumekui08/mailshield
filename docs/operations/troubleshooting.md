@@ -164,7 +164,7 @@ cat infra/rspamd/local.d/milter_headers.conf
 
 ```bash
 # api-server の起動確認
-curl http://localhost:8081/healthz
+curl http://localhost:8090/healthz
 
 # ログでエラーを確認
 docker compose -f docker/docker-compose.yml logs api-server --tail=50

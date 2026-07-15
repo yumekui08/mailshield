@@ -1,6 +1,6 @@
 # REST API リファレンス
 
-api-server のデフォルトポートは 8081。
+api-server のデフォルトポートは 8090。
 
 ## 認証
 
