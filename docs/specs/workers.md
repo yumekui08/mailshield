@@ -240,8 +240,10 @@ scores:
   encrypted: 40
   banned_in_archive: 60
 banned_extensions: [exe, scr, com, bat, cmd, pif, js, vbs, jar, ps1, lnk, hta, wsf, msi, dll]
-archive_extensions: [zip]
 ```
+
+> [!NOTE]
+> ZIP アーカイブは中身（magic bytes）で判定した添付をすべて内部検査する（拡張子で対象を絞る設定はない）。`banned_extensions` はアーカイブ内エントリの拡張子照合にも使われる。
 
 > [!NOTE]
 > 本文からパスワードを自動抽出して暗号化 ZIP を解凍・検査する機能は実装していない。

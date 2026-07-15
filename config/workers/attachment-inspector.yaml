@@ -35,7 +35,3 @@ banned_extensions:
   - wsf
   - msi
   - dll
-
-# アーカイブ内検査を行う対象拡張子
-archive_extensions:
-  - zip

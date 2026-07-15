@@ -39,16 +39,13 @@ type Config struct {
 	Scores    ScoresConfig `yaml:"scores"`
 	// BannedExtensions は拒否する拡張子（先頭ドットなし・小文字）。
 	BannedExtensions []string `yaml:"banned_extensions"`
-	// ArchiveExtensions はアーカイブ内の危険拡張子検査を行う対象拡張子。
-	ArchiveExtensions []string `yaml:"archive_extensions"`
 }
 
 // Worker は添付ファイル検査ワーカーである。
 type Worker struct {
-	threshold         int
-	scores            ScoresConfig
-	banned            map[string]bool
-	archiveExtensions map[string]bool
+	threshold int
+	scores    ScoresConfig
+	banned    map[string]bool
 }
 
 // New は attachment-inspector を初期化する。
@@ -61,15 +58,10 @@ func New(workerConfigDir string) (*Worker, error) {
 	for _, e := range cfg.BannedExtensions {
 		banned[normalizeExt(e)] = true
 	}
-	archive := make(map[string]bool, len(cfg.ArchiveExtensions))
-	for _, e := range cfg.ArchiveExtensions {
-		archive[normalizeExt(e)] = true
-	}
 	return &Worker{
-		threshold:         cfg.Threshold,
-		scores:            cfg.Scores,
-		banned:            banned,
-		archiveExtensions: archive,
+		threshold: cfg.Threshold,
+		scores:    cfg.Scores,
+		banned:    banned,
 	}, nil
 }
 
@@ -230,9 +222,6 @@ func loadConfig(dir string) (*Config, error) {
 	if len(cfg.BannedExtensions) == 0 {
 		cfg.BannedExtensions = def.BannedExtensions
 	}
-	if len(cfg.ArchiveExtensions) == 0 {
-		cfg.ArchiveExtensions = def.ArchiveExtensions
-	}
 	return &cfg, nil
 }
 
@@ -252,6 +241,5 @@ func defaultConfig() *Config {
 			"exe", "scr", "com", "bat", "cmd", "pif", "js", "vbs",
 			"jar", "ps1", "lnk", "hta", "wsf", "msi", "dll",
 		},
-		ArchiveExtensions: []string{"zip"},
 	}
 }
