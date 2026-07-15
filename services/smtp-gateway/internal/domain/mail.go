@@ -36,6 +36,7 @@ const (
 	StatusQuarantined     MessageStatus = "quarantined"
 	StatusRejected        MessageStatus = "rejected"
 	StatusApprovalPending MessageStatus = "approval_pending"
+	StatusDelayed         MessageStatus = "delayed"
 	StatusExpired         MessageStatus = "expired"
 )
 

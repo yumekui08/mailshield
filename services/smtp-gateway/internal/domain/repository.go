@@ -40,4 +40,13 @@ type MailRepository interface {
 	CountMailboxAdmins(ctx context.Context, mailboxEmail string) (int, error)
 	// SaveApprovalRequest は承認依頼レコードを approval_requests テーブルに保存する。
 	SaveApprovalRequest(ctx context.Context, req *ApprovalRequest) error
+	// SaveDelayedRelease は遅延送信レコードを delayed_releases テーブルに保存する。
+	SaveDelayedRelease(ctx context.Context, rel *DelayedRelease) error
+}
+
+// DelayedRelease は遅延送信（送信ディレイ）レコードを表す。
+type DelayedRelease struct {
+	ID        string
+	MessageID string
+	ReleaseAt time.Time
 }

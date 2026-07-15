@@ -44,6 +44,9 @@ func (r *approvalStubRepo) SaveApprovalRequest(_ context.Context, req *domain.Ap
 	r.saved = req
 	return nil
 }
+func (r *approvalStubRepo) SaveDelayedRelease(_ context.Context, _ *domain.DelayedRelease) error {
+	return nil
+}
 
 func newApprovalHandler(repo *approvalStubRepo, globalEmail string) *mailHandler {
 	return &mailHandler{

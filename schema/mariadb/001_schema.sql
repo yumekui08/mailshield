@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS mail_messages (
     spf_result      ENUM('pass','fail','none') NOT NULL DEFAULT 'none',
     dkim_result     ENUM('pass','fail','none') NOT NULL DEFAULT 'none',
     dmarc_result    ENUM('pass','fail','none') NOT NULL DEFAULT 'none',
-    status          ENUM('received','processing','delivered','quarantined','rejected','approval_pending','expired')
+    status          ENUM('received','processing','delivered','quarantined','rejected','approval_pending','delayed','expired')
                                    NOT NULL DEFAULT 'received',
     direction            ENUM('inbound','outbound','internal') NOT NULL DEFAULT 'inbound',
     processed_eml_path   VARCHAR(1024)  NULL DEFAULT NULL,  -- 変換後 EML の MinIO パス（archive 完了後に記録）
@@ -219,6 +219,29 @@ CREATE TABLE IF NOT EXISTS approval_notifications (
     KEY idx_approval_notifications_unsent (sent, attempts),
     CONSTRAINT fk_approval_notifications_request
         FOREIGN KEY (approval_request_id) REFERENCES approval_requests (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 遅延送信（送信ディレイ）テーブル
+-- policy engine が action: delay を返したメールを一定時間 MailShield 上に保留し、
+-- release_at を過ぎたら自動配送する。保留中は送信者（送信元メールボックスの owner）が
+-- Web UI から取消（cancelled）または即時送信（released）できる。
+-- 期限到来分の配送は api-server の delay ワーカーが CAS（status='pending' 条件付き更新）で
+-- 取り出して行うため、複数レプリカでも二重配送しない。
+CREATE TABLE IF NOT EXISTS delayed_releases (
+    id           CHAR(36)                                      NOT NULL,
+    message_id   CHAR(36)                                      NOT NULL,
+    release_at   DATETIME(6)                                   NOT NULL,
+    status       ENUM('pending','released','cancelled')        NOT NULL DEFAULT 'pending',
+    -- 取消・即時送信を行ったユーザー（自動配送時は NULL）
+    decided_by   CHAR(36)                                      NULL DEFAULT NULL,
+    decided_at   DATETIME(6)                                   NULL DEFAULT NULL,
+    created_at   DATETIME(6)                                   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at   DATETIME(6)                                   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    KEY idx_delayed_releases_message   (message_id),
+    KEY idx_delayed_releases_due       (status, release_at),
+    CONSTRAINT fk_delayed_releases_message  FOREIGN KEY (message_id) REFERENCES mail_messages (id),
+    CONSTRAINT fk_delayed_releases_user     FOREIGN KEY (decided_by) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- API キーテーブル

@@ -253,6 +253,19 @@ func (r *Repository) SaveApprovalRequest(ctx context.Context, req *domain.Approv
 	return nil
 }
 
+// SaveDelayedRelease は遅延送信レコードを delayed_releases テーブルに保存する。
+func (r *Repository) SaveDelayedRelease(ctx context.Context, rel *domain.DelayedRelease) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO delayed_releases (id, message_id, release_at)
+		 VALUES (?, ?, ?)`,
+		rel.ID, rel.MessageID, rel.ReleaseAt.UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("delayed_releases 保存失敗 (message_id=%s): %w", rel.MessageID, err)
+	}
+	return nil
+}
+
 // CountMailboxAdmins は指定メールボックスに role=admin で割り当てられた有効ユーザー数を返す。
 func (r *Repository) CountMailboxAdmins(ctx context.Context, mailboxEmail string) (int, error) {
 	var count int

@@ -70,6 +70,9 @@ func (r *stubRepository) SaveApprovalRequest(_ context.Context, _ *domain.Approv
 func (r *stubRepository) CountMailboxAdmins(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
+func (r *stubRepository) SaveDelayedRelease(_ context.Context, _ *domain.DelayedRelease) error {
+	return nil
+}
 
 // ─── ヘルパー ─────────────────────────────────────────────────
 

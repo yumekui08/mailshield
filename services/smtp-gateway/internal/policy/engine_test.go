@@ -129,10 +129,11 @@ rules:
 			e := newEngineFromYAML(t, tt.rules, fd)
 			mail := &domain.Mail{MessageID: "test-id"}
 
-			action, err := e.EvaluateAndAct(context.Background(), mail, tt.results)
+			result, err := e.EvaluateAndAct(context.Background(), mail, tt.results)
 			if err != nil {
 				t.Fatalf("EvaluateAndAct() error = %v", err)
 			}
+			action := result.Action
 			if action != tt.wantAction {
 				t.Errorf("action = %q, want %q", action, tt.wantAction)
 			}
@@ -147,6 +148,47 @@ rules:
 				t.Errorf("%s アクションで Deliverer が呼ばれました", tt.wantAction)
 			}
 		})
+	}
+}
+
+func TestEvaluateAndAct_Delay(t *testing.T) {
+	e := newEngineFromYAML(t, `
+rules:
+  - name: outbound_delay
+    condition: "mail.direction == outbound"
+    action: delay
+    delay_minutes: 3
+  - name: default
+    condition: "true"
+    action: deliver
+`, &fakeDeliverer{})
+
+	mail := &domain.Mail{MessageID: "m1", Direction: domain.DirectionOutbound}
+	result, err := e.EvaluateAndAct(context.Background(), mail, nil)
+	if err != nil {
+		t.Fatalf("EvaluateAndAct() error = %v", err)
+	}
+	if result.Action != ActionDelay {
+		t.Errorf("action = %q, want delay", result.Action)
+	}
+	if result.DelayMinutes != 3 {
+		t.Errorf("delay_minutes = %d, want 3", result.DelayMinutes)
+	}
+}
+
+func TestEvaluateAndAct_DelayDefaultsTo5(t *testing.T) {
+	e := newEngineFromYAML(t, `
+rules:
+  - name: d
+    condition: "true"
+    action: delay
+`, &fakeDeliverer{})
+	result, err := e.EvaluateAndAct(context.Background(), &domain.Mail{MessageID: "m2"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DelayMinutes != 5 {
+		t.Errorf("delay_minutes 未指定のデフォルト = %d, want 5", result.DelayMinutes)
 	}
 }
 

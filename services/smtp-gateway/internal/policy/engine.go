@@ -31,6 +31,7 @@ const (
 	ActionReject     ActionType = "reject"
 	ActionQuarantine ActionType = "quarantine"
 	ActionApproval   ActionType = "approval"
+	ActionDelay      ActionType = "delay"
 )
 
 // Rule は policy.yaml の単一ルールを表す。
@@ -39,6 +40,15 @@ type Rule struct {
 	Condition   string `yaml:"condition"`
 	Action      string `yaml:"action"`
 	Destination string `yaml:"destination"` // deliver 時の宛先（host:port）
+	// DelayMinutes は delay アクション時の保留時間（分）。0 以下の場合は既定 5 分。
+	DelayMinutes int `yaml:"delay_minutes"`
+}
+
+// ActionResult は EvaluateAndAct が返すアクションと付随パラメータ。
+type ActionResult struct {
+	Action ActionType
+	// DelayMinutes は Action が delay のときの保留時間（分）。
+	DelayMinutes int
 }
 
 // ListConfig は名前付きリストの定義。values（インライン）と file（1 行 1 要素の
@@ -143,10 +153,11 @@ func (e *Engine) Evaluate(mail *domain.Mail, results []*domain.InspectResult) (a
 	return "", ""
 }
 
-// EvaluateAndAct は検査結果を評価してアクションを実行し、実行したアクション種別を返す。
+// EvaluateAndAct は検査結果を評価してアクションを実行し、実行したアクションと
+// 付随パラメータ（delay 時の保留分数など）を返す。
 // ルールは上から順に評価し、最初にマッチしたルールのアクションを実行する。
-// マッチするルールがない場合は空文字列の ActionType と nil を返す。
-func (e *Engine) EvaluateAndAct(ctx context.Context, mail *domain.Mail, results []*domain.InspectResult) (ActionType, error) {
+// マッチするルールがない場合は空の ActionResult と nil を返す。
+func (e *Engine) EvaluateAndAct(ctx context.Context, mail *domain.Mail, results []*domain.InspectResult) (ActionResult, error) {
 	ec := evalContext{facts: buildFacts(mail, results), lists: e.lists}
 
 	for _, rule := range e.rules {
@@ -171,26 +182,33 @@ func (e *Engine) EvaluateAndAct(ctx context.Context, mail *domain.Mail, results 
 		switch action {
 		case ActionDeliver:
 			if err := e.deliver(ctx, mail, rule.Destination); err != nil {
-				return "", err
+				return ActionResult{}, err
 			}
-			return ActionDeliver, nil
+			return ActionResult{Action: ActionDeliver}, nil
 		case ActionReject:
 			slog.Info("メール拒否", "message_id", mail.MessageID, "rule", rule.Name)
-			return ActionReject, nil
+			return ActionResult{Action: ActionReject}, nil
 		case ActionQuarantine:
 			slog.Info("メール隔離", "message_id", mail.MessageID, "rule", rule.Name)
-			return ActionQuarantine, nil
+			return ActionResult{Action: ActionQuarantine}, nil
 		case ActionApproval:
 			slog.Info("承認フロー保留", "message_id", mail.MessageID, "rule", rule.Name)
-			return ActionApproval, nil
+			return ActionResult{Action: ActionApproval}, nil
+		case ActionDelay:
+			delay := rule.DelayMinutes
+			if delay <= 0 {
+				delay = 5
+			}
+			slog.Info("送信ディレイ保留", "message_id", mail.MessageID, "rule", rule.Name, "delay_minutes", delay)
+			return ActionResult{Action: ActionDelay, DelayMinutes: delay}, nil
 		default:
-			return "", fmt.Errorf("未知のアクション: %s", rule.Action)
+			return ActionResult{}, fmt.Errorf("未知のアクション: %s", rule.Action)
 		}
 	}
 
 	slog.Warn("マッチするルールがありません（デフォルト配送なし）",
 		"message_id", mail.MessageID)
-	return "", nil
+	return ActionResult{}, nil
 }
 
 // deliver は注入された Deliverer 経由でメールを配送する。

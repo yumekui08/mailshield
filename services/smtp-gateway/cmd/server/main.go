@@ -597,12 +597,13 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 
 	// 7. ポリシーエンジンでアクション決定・実行
 	log.Info("[7/7] ポリシー評価開始", "route", route.Name)
-	action, err := rh.policy.EvaluateAndAct(ctx, transformed, inspectResults)
+	result, err := rh.policy.EvaluateAndAct(ctx, transformed, inspectResults)
 	if err != nil {
 		h.metrics.IncError("policy")
 		log.Error("[7/7] ポリシーエンジンエラー", "error", err)
 		return fmt.Errorf("ポリシー実行失敗: %w", err)
 	}
+	action := result.Action
 
 	// B-3: マッチするルールがない場合はメールを消失させず 550 を返す
 	if action == "" {
@@ -618,6 +619,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		policy.ActionReject:     domain.StatusRejected,
 		policy.ActionQuarantine: domain.StatusQuarantined,
 		policy.ActionApproval:   domain.StatusApprovalPending,
+		policy.ActionDelay:      domain.StatusDelayed,
 	}
 	if status, ok := actionStatusMap[action]; ok {
 		if err := h.repo.UpdateMessageStatus(ctx, mail.MessageID, status); err != nil {
@@ -625,9 +627,10 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		}
 	}
 
-	// アーカイブを非同期実行（配送フローをブロックしない）
+	// アーカイブを非同期実行（配送フローをブロックしない）。
+	// delay は後で自動配送する際に処理済み EML を取得するため、必ずアーカイブする。
 	switch action {
-	case policy.ActionDeliver, policy.ActionApproval, policy.ActionQuarantine:
+	case policy.ActionDeliver, policy.ActionApproval, policy.ActionQuarantine, policy.ActionDelay:
 		h.archiveWg.Add(1)
 		go h.archiveAsync(mail.MessageID, transformed.RawEML, mail.ReceivedAt)
 	}
@@ -641,6 +644,21 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	if action == policy.ActionApproval {
 		if err := h.createApprovalRequest(ctx, mail, log); err != nil {
 			log.Warn("承認依頼レコード作成失敗（続行）", "message_id", mail.MessageID, "error", err)
+		}
+	}
+
+	// 送信ディレイ保留時は delayed_releases レコードを作成する
+	if action == policy.ActionDelay {
+		rel := &domain.DelayedRelease{
+			ID:        uuid.New().String(),
+			MessageID: mail.MessageID,
+			ReleaseAt: time.Now().Add(time.Duration(result.DelayMinutes) * time.Minute),
+		}
+		if err := h.repo.SaveDelayedRelease(ctx, rel); err != nil {
+			log.Warn("遅延送信レコード作成失敗（続行）", "message_id", mail.MessageID, "error", err)
+		} else {
+			log.Info("送信ディレイ保留レコード作成",
+				"message_id", mail.MessageID, "release_at", rel.ReleaseAt)
 		}
 	}
 
