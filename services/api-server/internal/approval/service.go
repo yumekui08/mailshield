@@ -143,7 +143,7 @@ func (s *Service) resolveNotificationRecipients(ctx context.Context, req domain.
 		seen := make(map[string]bool)
 		var recipients []string
 		for _, mailbox := range req.MailboxEmails {
-			emails, err := s.repo.ListMailboxAdminEmails(ctx, mailbox)
+			emails, err := s.repo.ListMailboxApproverEmails(ctx, mailbox)
 			if err != nil {
 				return nil, fmt.Errorf("メールボックス承認者一覧取得失敗 (mailbox=%s): %w", mailbox, err)
 			}

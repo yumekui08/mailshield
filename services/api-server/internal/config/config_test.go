@@ -332,7 +332,7 @@ directory:
           filter: "(mail=*)"
           member_attr: member
           target_attribute: mail
-        - role: admin
+        - role: approver
           method: fixed
           fixed_value: "admin@internal.dev; backup@internal.dev"
 `)
@@ -354,7 +354,7 @@ directory:
 	if rules[2].Role != "member" || rules[2].Method != "group_search" || rules[2].MemberAttr != "member" {
 		t.Errorf("rules[2]（member の 2 ルール目）= %+v", rules[2])
 	}
-	if rules[3].Role != "admin" || rules[3].Method != "fixed" || rules[3].FixedValue != "admin@internal.dev; backup@internal.dev" {
+	if rules[3].Role != "approver" || rules[3].Method != "fixed" || rules[3].FixedValue != "admin@internal.dev; backup@internal.dev" {
 		t.Errorf("rules[3] = %+v", rules[3])
 	}
 }

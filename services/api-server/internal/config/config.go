@@ -217,7 +217,7 @@ type AuthModeConfig struct {
 // AllowedRoleSet は許可ロールをセットとして返す。空の場合は全ロールを許可。
 func (c *AuthModeConfig) AllowedRoleSet() map[string]bool {
 	if len(c.AllowedRoles) == 0 {
-		return map[string]bool{"member": true, "owner": true, "admin": true}
+		return map[string]bool{"member": true, "owner": true, "approver": true}
 	}
 	set := make(map[string]bool, len(c.AllowedRoles))
 	for _, r := range c.AllowedRoles {
@@ -270,7 +270,7 @@ type MailboxPolicyConfig struct {
 }
 
 // DirectionPolicyConfig は送受信方向ごとの可視性・解放権限を保持する。
-// VisibleTo / ReleaseBy の値は mailbox_assignments.role（member/owner/admin）を指定する。
+// VisibleTo / ReleaseBy の値は mailbox_assignments.role（member/owner/approver）を指定する。
 type DirectionPolicyConfig struct {
 	VisibleTo []string `mapstructure:"visible_to"`
 	ReleaseBy []string `mapstructure:"release_by"`

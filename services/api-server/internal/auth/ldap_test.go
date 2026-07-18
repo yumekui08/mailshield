@@ -287,7 +287,7 @@ func TestLDAPBindProvider_Login_FixedRole(t *testing.T) {
 	dial := fakeDialer(t, "cn=svc,dc=corp,dc=local", "svc-pass", entries, "cn=Admin,ou=Users,dc=corp,dc=local", "correct-password", nil)
 	p := testLDAPBindProvider(t, dial, &fakeProvisionerRepo{})
 	p.syncCfg.MailboxResolution = &ldapsync.MailboxResolution{Roles: []ldapsync.RoleResolution{{
-		Role:            domain.AssignmentRoleAdmin,
+		Role:            domain.AssignmentRoleApprover,
 		Method:          ldapsync.MethodFixed,
 		FixedUserEmails: []string{"admin@corp.local"},
 	}}}
@@ -307,7 +307,7 @@ func TestLDAPBindProvider_Login_FixedRole(t *testing.T) {
 		t.Fatalf("呼び出し回数 = %d, want 1", len(mboxSyncer.calls))
 	}
 	desired := mboxSyncer.calls[0].desired
-	if len(desired) != 1 || desired[0].MailboxEmail != "sales@example.com" || desired[0].Role != domain.AssignmentRoleAdmin {
+	if len(desired) != 1 || desired[0].MailboxEmail != "sales@example.com" || desired[0].Role != domain.AssignmentRoleApprover {
 		t.Errorf("desired = %+v（ldap のメールボックスにのみ admin が付くべき）", desired)
 	}
 }

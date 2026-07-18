@@ -83,8 +83,8 @@ func (s *stubRepository) FindUserByEmailInternal(ctx context.Context, email stri
 // 内部インターフェースに適合させるため、repository.Repository の残りのメソッドは空スタブ
 type serviceRepository struct {
 	stubRepository
-	// mailboxAdminEmails は ListMailboxAdminEmails の返り値（mailboxEmail → 承認者メール一覧）
-	mailboxAdminEmails map[string][]string
+	// mailboxApproverEmails は ListMailboxApproverEmails の返り値（mailboxEmail → 承認者メール一覧）
+	mailboxApproverEmails map[string][]string
 	// 通知トラッキングの記録（approvalID → 宛先一覧 / "approvalID|宛先" → 送信済み）
 	ensuredNotifications map[string][]string
 	sentNotifications    map[string]bool
@@ -205,7 +205,7 @@ func (s *serviceRepository) UpdateAPIKeyLastUsed(_ context.Context, _ string) er
 func (s *serviceRepository) ListApprovalRequests(_ context.Context, _ string) ([]domain.ApprovalRequest, error) {
 	return nil, nil
 }
-func (s *serviceRepository) IsMailboxAdmin(_ context.Context, _, _ string) (bool, error) {
+func (s *serviceRepository) IsMailboxApprover(_ context.Context, _, _ string) (bool, error) {
 	return false, nil
 }
 func (s *serviceRepository) ClaimApprovalRequest(_ context.Context, _ string, _ domain.ApprovalStatus, _ *string) (bool, error) {
@@ -256,9 +256,9 @@ func (s *serviceRepository) CountRemainingNotifications(_ context.Context, appro
 	}
 	return count, nil
 }
-func (s *serviceRepository) ListMailboxAdminEmails(_ context.Context, mailboxEmail string) ([]string, error) {
-	if s.mailboxAdminEmails != nil {
-		return s.mailboxAdminEmails[mailboxEmail], nil
+func (s *serviceRepository) ListMailboxApproverEmails(_ context.Context, mailboxEmail string) ([]string, error) {
+	if s.mailboxApproverEmails != nil {
+		return s.mailboxApproverEmails[mailboxEmail], nil
 	}
 	return nil, nil
 }
@@ -413,7 +413,7 @@ func strPtr(s string) *string { return &s }
 
 func TestResolveNotificationRecipients_MailboxAdmins(t *testing.T) {
 	repo := &serviceRepository{
-		mailboxAdminEmails: map[string][]string{
+		mailboxApproverEmails: map[string][]string{
 			"sales@internal.test": {"admin1@internal.test", "admin2@internal.test"},
 		},
 	}
@@ -432,7 +432,7 @@ func TestResolveNotificationRecipients_MailboxAdmins(t *testing.T) {
 func TestResolveNotificationRecipients_MultipleMailboxes_Dedup(t *testing.T) {
 	// 複数の対象メールボックスの admin を和集合にし、重複は 1 通にまとめる
 	repo := &serviceRepository{
-		mailboxAdminEmails: map[string][]string{
+		mailboxApproverEmails: map[string][]string{
 			"sales@internal.test":   {"admin1@internal.test", "shared@internal.test"},
 			"support@internal.test": {"shared@internal.test", "admin2@internal.test"},
 		},
@@ -459,7 +459,7 @@ func TestResolveNotificationRecipients_MultipleMailboxes_Dedup(t *testing.T) {
 }
 
 func TestResolveNotificationRecipients_MailboxWithoutAdmins_Error(t *testing.T) {
-	repo := &serviceRepository{mailboxAdminEmails: map[string][]string{}}
+	repo := &serviceRepository{mailboxApproverEmails: map[string][]string{}}
 	svc := New(repo, config.ApprovalConfig{}, config.NotificationConfig{})
 
 	req := domain.ApprovalRequest{ID: "apr-2", MailboxEmails: []string{"empty@internal.test"}}

@@ -31,7 +31,7 @@ func (r *approvalStubRepo) FindUserIDByEmail(_ context.Context, email string) (s
 	return r.userIDs[email], nil
 }
 
-func (r *approvalStubRepo) CountMailboxAdmins(_ context.Context, mailboxEmail string) (int, error) {
+func (r *approvalStubRepo) CountMailboxApprovers(_ context.Context, mailboxEmail string) (int, error) {
 	return r.mailboxAdmins[mailboxEmail], nil
 }
 

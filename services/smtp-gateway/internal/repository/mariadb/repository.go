@@ -247,8 +247,8 @@ func (r *Repository) SaveDelayedRelease(ctx context.Context, rel *domain.Delayed
 	return nil
 }
 
-// CountMailboxAdmins は指定メールボックスに role=admin で割り当てられた有効ユーザー数を返す。
-func (r *Repository) CountMailboxAdmins(ctx context.Context, mailboxEmail string) (int, error) {
+// CountMailboxApprovers は指定メールボックスに role=approver で割り当てられた有効ユーザー数を返す。
+func (r *Repository) CountMailboxApprovers(ctx context.Context, mailboxEmail string) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
 		`SELECT COUNT(*)
@@ -256,7 +256,7 @@ func (r *Repository) CountMailboxAdmins(ctx context.Context, mailboxEmail string
 		   JOIN mailboxes m ON m.id = a.mailbox_id
 		   JOIN users u     ON u.id = a.user_id
 		  WHERE m.email_address = ? AND m.is_active = 1
-		    AND a.role = 'admin' AND u.is_active = 1`,
+		    AND a.role = 'approver' AND u.is_active = 1`,
 		mailboxEmail,
 	).Scan(&count)
 	if err != nil {

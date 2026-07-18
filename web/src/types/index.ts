@@ -114,7 +114,7 @@ export interface UserRecord {
   is_active: boolean;
 }
 
-export type AssignmentRole = "member" | "owner" | "admin";
+export type AssignmentRole = "member" | "owner" | "approver";
 
 export interface MailboxRecord {
   id: string;

@@ -216,7 +216,7 @@ func (h *ApprovalHandler) canActOn(ctx context.Context, userID string, req *doma
 		return true, nil
 	}
 	for _, mailbox := range req.MailboxEmails {
-		ok, err := h.repo.IsMailboxAdmin(ctx, userID, mailbox)
+		ok, err := h.repo.IsMailboxApprover(ctx, userID, mailbox)
 		if err != nil {
 			return false, err
 		}

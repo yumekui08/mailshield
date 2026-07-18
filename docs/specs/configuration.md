@@ -222,10 +222,10 @@ policy アクションが `approval` を返したとき、smtp-gateway がデー
 
 **承認者の解決順:**
 
-1. **メールボックスの承認者（role=admin）** — outbound は送信元、inbound は宛先のメールボックスを調べ、`mailbox_assignments` に role=admin で割り当てられた有効ユーザーが 1 人以上いる**すべての**メールボックスを依頼の対象にする（受信メールの複数宛先対応）。対象メールボックスのいずれかの admin が承認・却下でき、先に決定した人の判断が有効になる。admin の割り当ては Web UI での手動追加のほか、`directory.ldap.mailbox_provisioning`（`role: admin`）で LDAP から member/owner と同様に自動同期できる
+1. **メールボックスの承認者（role=approver）** — outbound は送信元、inbound は宛先のメールボックスを調べ、`mailbox_assignments` に role=approver で割り当てられた有効ユーザーが 1 人以上いる**すべての**メールボックスを依頼の対象にする（受信メールの複数宛先対応）。対象メールボックスのいずれかの approver が承認・却下でき、先に決定した人の判断が有効になる。approver の割り当ては Web UI での手動追加のほか、`directory.ldap.mailbox_provisioning`（`role: approver`）で LDAP から member/owner と同様に自動同期できる
 2. **グローバルフォールバック** — メールボックスに承認者がいない場合のみ `global_approver_email` の 1 名が承認者になる（任意）
 
-> ユーザー個人に承認者を指定する方式（旧 `users.approver_id`）は廃止された。承認者はメールボックスの `role=admin` 割り当てに一本化されている。
+> ユーザー個人に承認者を指定する方式（旧 `users.approver_id`）は廃止された。承認者はメールボックスの `role=approver` 割り当てに一本化されている。
 
 | キー | 型 | デフォルト | 説明 |
 |-----|-----|----------|------|
@@ -255,10 +255,10 @@ attachment_download:
       mode: otp           # OTP（ワンタイムパスワード）認証
     - match: inbound      # 受信メールからの分離添付
       mode: auth          # ログイン認証 + メールボックスロール確認
-      allowed_roles: [member, owner, admin]
+      allowed_roles: [member, owner, approver]
     - match: internal     # 内部送信メールからの分離添付
       mode: auth
-      allowed_roles: [member, owner, admin]
+      allowed_roles: [member, owner, approver]
 ```
 
 | `mode` | 説明 |
@@ -609,9 +609,9 @@ LDAP ディレクトリ（Active Directory / OpenLDAP 等）を `directory.sourc
 
 #### directory.ldap.mailbox_provisioning
 
-メールボックス割り当て（member/owner/admin）をディレクトリ構造から自動反映する（任意）。`rules` はルールのリストで、各ルールは `role`（`member` / `owner` / `admin`）と `method`（解決方式）を持つ。**同じ role に複数のルールを書ける**（全ルールの解決結果が合算される）。設定に書くのは「どこを見るか・属性名が何を意味するか」という構造情報だけで、個々のメールボックス名やグループ名は書かない。
+メールボックス割り当て（member/owner/approver）をディレクトリ構造から自動反映する（任意）。`rules` はルールのリストで、各ルールは `role`（`member` / `owner` / `approver`）と `method`（解決方式）を持つ。**同じ role に複数のルールを書ける**（全ルールの解決結果が合算される）。設定に書くのは「どこを見るか・属性名が何を意味するか」という構造情報だけで、個々のメールボックス名やグループ名は書かない。
 
-`role: admin` は**そのメールボックスの承認者**を意味し、承認フロー（policy アクション `approval`）に回ったメールの配送許可・却下ができる（[mailbox_policy のロール表](#mailbox_policy)参照）。member/owner と同じ 3 方式（`user_attribute` / `group_search` / `fixed`）で LDAP から同期できる。例えば AD の配布グループの `managedBy` を admin に割り当てれば「グループの管理者 = 承認者」の運用になる。
+`role: approver` は**そのメールボックスの承認者**を意味し、承認フロー（policy アクション `approval`）に回ったメールの配送許可・却下ができる（[mailbox_policy のロール表](#mailbox_policy)参照）。member/owner と同じ 3 方式（`user_attribute` / `group_search` / `fixed`）で LDAP から同期できる。例えば AD の配布グループの `managedBy` を approver に割り当てれば「グループの管理者 = 承認者」の運用になる。
 
 **メールボックスは「すべての有効なメールアドレス」分が必要になる点に注意。** viewer ロールのユーザーが自分宛の隔離メールを閲覧・解放するには、そのユーザーの個人メールアドレス自体がメールボックスとして登録され、本人が割り当てられている必要がある。このため典型構成では「個人メールボックス（`source_attribute: mail` で自分のアドレスを自分に割り当てる）」と「共有メールボックス（memberOf やグループ検索から解決）」のルールを併記する。
 
@@ -681,7 +681,7 @@ directory:
           member_attr: owner
           target_attribute: mail
         # 固定の管理者
-        - role: admin
+        - role: approver
           method: fixed
           fixed_value: "admin@internal.dev"
 ```
@@ -699,18 +699,20 @@ mailbox_policy:
     release_by: [member]    # To=内部ドメイン → メールボックスの member が解放可
   outbound_quarantine:
     visible_to: [owner]     # From=内部ドメイン → メールボックスの owner が閲覧可
-    release_by: [admin]     # From=内部ドメイン → メールボックスの admin が解放可
+    release_by: [owner]     # From=内部ドメイン → メールボックスの owner が解放可
 ```
 
-**メールボックスロールの意味論（システム全体で共通）:**
+**メールボックスロールの意味論（機能ロール・システム全体で共通）:**
+
+メールボックス単位の割り当ては「受信 / 送信 / 承認」の機能ロールで、`admin`（per-mailbox の何でもロール）は廃止された。メールボックス自体の管理（割り当て編集）はシステム RBAC（operator/admin）が担う。
 
 | ロール | 意味 | 使われる場面 |
 |-------|------|------------|
-| `member` | 受信者。このメールボックス**宛て**のメールに対する権限を持つ | 受信隔離の閲覧・解放（`mailbox_policy` の設定に従う）、添付ファイルダウンロード |
-| `owner` | 送信者。このメールボックス**から**のメールに対する権限を持つ | 送信隔離の閲覧・解放（`mailbox_policy` の設定に従う）、添付ファイルダウンロード |
-| `admin` | **承認者**。承認フロー（policy アクション `approval`）に回ったメールの配送許可・却下ができる | 承認フローの決定（[approval](#approval) 参照）、隔離の解放（`release_by: [admin]` 設定時） |
+| `member` | 受信担当。このメールボックス**宛て**のメールに対する権限を持つ | 受信隔離の閲覧・解放（`mailbox_policy` の設定に従う）、添付ファイルダウンロード |
+| `owner` | 送信担当。このメールボックス**から**のメールに対する権限を持つ | 送信隔離の閲覧・解放、送信ディレイの取消/即時送信、添付ファイルダウンロード |
+| `approver` | 承認担当。承認フロー（policy アクション `approval`）に回ったメールの配送許可・却下ができる | 承認フローの決定（[approval](#approval) 参照） |
 
-3 ロールとも割り当て方法は同じ: Web UI（メールボックス管理 → 割り当て）での手動追加、または `directory.ldap.mailbox_provisioning` による LDAP 自動同期（`role: member` / `owner` / `admin` を同一の形式で指定できる）。
+3 ロールとも割り当て方法は同じ: Web UI（メールボックス管理 → 割り当て）での手動追加、または `directory.ldap.mailbox_provisioning` による LDAP 自動同期（`role: member` / `owner` / `approver` を同一の形式で指定できる）。
 
 システムロール（admin/operator）のユーザーはこのフィルタに関わらず全件閲覧・操作できる。
 

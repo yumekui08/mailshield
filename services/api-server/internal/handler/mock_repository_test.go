@@ -36,14 +36,14 @@ type mockRepository struct {
 	getMailboxAddressesForUserFunc    func(ctx context.Context, userID string, roles []domain.AssignmentRole) ([]string, error)
 
 	// 承認フロー
-	listApprovalRequestsFunc    func(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error)
-	isMailboxAdminFunc          func(ctx context.Context, userID, mailboxEmail string) (bool, error)
-	listMailboxAdminEmailsFunc  func(ctx context.Context, mailboxEmail string) ([]string, error)
-	claimApprovalRequestFunc    func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) (bool, error)
-	listAllApprovalRequestsFunc func(ctx context.Context) ([]domain.ApprovalRequest, error)
-	getApprovalRequestFunc      func(ctx context.Context, id string) (*domain.ApprovalRequest, error)
-	updateApprovalStatusFunc    func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error
-	getUserFunc                 func(ctx context.Context, id string) (*repository.User, error)
+	listApprovalRequestsFunc      func(ctx context.Context, approverID string) ([]domain.ApprovalRequest, error)
+	isMailboxApproverFunc         func(ctx context.Context, userID, mailboxEmail string) (bool, error)
+	listMailboxApproverEmailsFunc func(ctx context.Context, mailboxEmail string) ([]string, error)
+	claimApprovalRequestFunc      func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) (bool, error)
+	listAllApprovalRequestsFunc   func(ctx context.Context) ([]domain.ApprovalRequest, error)
+	getApprovalRequestFunc        func(ctx context.Context, id string) (*domain.ApprovalRequest, error)
+	updateApprovalStatusFunc      func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error
+	getUserFunc                   func(ctx context.Context, id string) (*repository.User, error)
 
 	// 送信ディレイ
 	listDelayedReleasesFunc func(ctx context.Context, filter *domain.MailboxVisibilityFilter) ([]domain.DelayedRelease, error)
@@ -301,15 +301,15 @@ func (m *mockRepository) ListApprovalRequests(ctx context.Context, approverID st
 	}
 	return nil, nil
 }
-func (m *mockRepository) IsMailboxAdmin(ctx context.Context, userID, mailboxEmail string) (bool, error) {
-	if m.isMailboxAdminFunc != nil {
-		return m.isMailboxAdminFunc(ctx, userID, mailboxEmail)
+func (m *mockRepository) IsMailboxApprover(ctx context.Context, userID, mailboxEmail string) (bool, error) {
+	if m.isMailboxApproverFunc != nil {
+		return m.isMailboxApproverFunc(ctx, userID, mailboxEmail)
 	}
 	return false, nil
 }
-func (m *mockRepository) ListMailboxAdminEmails(ctx context.Context, mailboxEmail string) ([]string, error) {
-	if m.listMailboxAdminEmailsFunc != nil {
-		return m.listMailboxAdminEmailsFunc(ctx, mailboxEmail)
+func (m *mockRepository) ListMailboxApproverEmails(ctx context.Context, mailboxEmail string) ([]string, error) {
+	if m.listMailboxApproverEmailsFunc != nil {
+		return m.listMailboxApproverEmailsFunc(ctx, mailboxEmail)
 	}
 	return nil, nil
 }

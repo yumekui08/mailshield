@@ -808,20 +808,20 @@ func (h *mailHandler) archiveAsync(messageID string, eml []byte, receivedAt time
 // createApprovalRequest は承認依頼レコードを作成する。
 //
 // 承認者の解決順:
-//  1. メールボックスの承認者（role=admin）: outbound は送信元、inbound は宛先の
+//  1. メールボックスの承認者（role=approver）: outbound は送信元、inbound は宛先の
 //     メールボックスを調べ、admin 割り当てが 1 人以上いる**すべての**メールボックスを
 //     依頼の対象にする（いずれかのメールボックスの admin が承認すれば配送される）
 //  2. グローバルフォールバック（approval.global_approver_email）: メールボックスに
 //     承認者がいない場合のシステム全体の受け皿（任意・デフォルト無効）
 func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Mail, log *slog.Logger) error {
-	// 1. メールボックス承認者（role=admin）
+	// 1. メールボックス承認者（role=approver）
 	candidates := mail.ToAddresses
 	if mail.Direction == domain.DirectionOutbound {
 		candidates = []string{mail.FromAddress}
 	}
 	var mailboxEmails []string
 	for _, addr := range candidates {
-		count, err := h.repo.CountMailboxAdmins(ctx, addr)
+		count, err := h.repo.CountMailboxApprovers(ctx, addr)
 		if err != nil {
 			log.Warn("メールボックス承認者解決エラー（続行）", "mailbox", addr, "error", err)
 			continue

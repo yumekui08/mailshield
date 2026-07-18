@@ -80,12 +80,15 @@ CREATE TABLE IF NOT EXISTS mailboxes (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- メールボックス割り当てテーブル
--- ユーザーとメールボックスの関係（member/owner/admin）を管理する
+-- ユーザーとメールボックスの機能ロール割り当て
+--   member=受信担当（受信隔離の閲覧・解放・添付DL）
+--   owner=送信担当（送信隔離の閲覧・解放・送信ディレイ操作）
+--   approver=承認担当（承認フローの承認/却下/再配送）
 CREATE TABLE IF NOT EXISTS mailbox_assignments (
     id             CHAR(36)                       NOT NULL,
     mailbox_id     CHAR(36)                       NOT NULL,
     user_id        CHAR(36)                       NOT NULL,
-    role           ENUM('member','owner','admin') NOT NULL,
+    role           ENUM('member','owner','approver') NOT NULL,
     -- この割り当て行の作成主体。manual（Web UI 手動追加）は LDAP/SCIM の
     -- 定期同期・JIT プロビジョニングによる自動削除の対象にしない。
     provisioned_by ENUM('manual','ldap','scim')   NOT NULL DEFAULT 'manual',

@@ -10,7 +10,7 @@ import (
 //   - ApproverID     : システム全体のフォールバック承認者（approval.global_approver_email）。
 //     メールボックスに承認者がいない場合のみ使う
 //   - MailboxEmails  : メールボックス承認（主経路）。対象メールボックス（1..n）のいずれかに
-//     role=admin で割り当てられたユーザー全員が承認できる
+//     role=approver で割り当てられたユーザー全員が承認できる
 type ApprovalRequest struct {
 	ID            string
 	MessageID     string
@@ -32,9 +32,9 @@ type MailRepository interface {
 	UpdateProcessedEMLPath(ctx context.Context, messageID, path string) error
 	// FindUserIDByEmail はメールアドレスからユーザーIDを返す。承認者フォールバック解決に使用する。
 	FindUserIDByEmail(ctx context.Context, email string) (userID string, err error)
-	// CountMailboxAdmins は指定メールボックスに role=admin で割り当てられた
+	// CountMailboxApprovers は指定メールボックスに role=approver で割り当てられた
 	// 有効ユーザー数を返す。メールボックス承認者の解決に使用する。
-	CountMailboxAdmins(ctx context.Context, mailboxEmail string) (int, error)
+	CountMailboxApprovers(ctx context.Context, mailboxEmail string) (int, error)
 	// SaveApprovalRequest は承認依頼レコードを approval_requests テーブルに保存する。
 	SaveApprovalRequest(ctx context.Context, req *ApprovalRequest) error
 	// SaveDelayedRelease は遅延送信レコードを delayed_releases テーブルに保存する。

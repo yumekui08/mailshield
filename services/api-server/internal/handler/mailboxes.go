@@ -272,8 +272,8 @@ func (h *MailboxesHandler) HandleAddAssignment(w http.ResponseWriter, r *http.Re
 	}
 
 	role := domain.AssignmentRole(req.Role)
-	if role != domain.AssignmentRoleMember && role != domain.AssignmentRoleOwner && role != domain.AssignmentRoleAdmin {
-		writeErrorResponse(w, http.StatusBadRequest, "BAD_REQUEST", "role は member/owner/admin のいずれかを指定してください")
+	if role != domain.AssignmentRoleMember && role != domain.AssignmentRoleOwner && role != domain.AssignmentRoleApprover {
+		writeErrorResponse(w, http.StatusBadRequest, "BAD_REQUEST", "role は member/owner/approver のいずれかを指定してください")
 		return
 	}
 

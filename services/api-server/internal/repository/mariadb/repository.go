@@ -1490,7 +1490,7 @@ func (r *Repository) UpdateAPIKeyLastUsed(ctx context.Context, id string) error 
 // ─── 承認フロー ──────────────────────────────────────────────────────────────
 
 // ListApprovalRequests は指定ユーザーが承認できる pending 承認依頼一覧を返す。
-// 「自分が承認者（approver_id）の依頼」と「自分が role=admin で割り当てられた
+// 「自分が承認者（approver_id）の依頼」と「自分が role=approver で割り当てられた
 // メールボックス宛の依頼（mailbox_email）」の両方を含む。
 func (r *Repository) ListApprovalRequests(ctx context.Context, userID string) ([]domain.ApprovalRequest, error) {
 	const q = `
@@ -1509,19 +1509,19 @@ func (r *Repository) ListApprovalRequests(ctx context.Context, userID string) ([
 		             JOIN mailboxes m           ON m.email_address = arm.mailbox_email
 		             JOIN mailbox_assignments a ON a.mailbox_id = m.id
 		            WHERE arm.approval_request_id = approval_requests.id
-		              AND a.user_id = ? AND a.role = 'admin'))
+		              AND a.user_id = ? AND a.role = 'approver'))
 		ORDER BY created_at DESC`
 	return r.scanApprovalRequests(ctx, q, userID, userID)
 }
 
-// IsMailboxAdmin は userID が指定メールボックスに role=admin で割り当てられているかを返す。
-func (r *Repository) IsMailboxAdmin(ctx context.Context, userID, mailboxEmail string) (bool, error) {
+// IsMailboxApprover は userID が指定メールボックスに role=approver で割り当てられているかを返す。
+func (r *Repository) IsMailboxApprover(ctx context.Context, userID, mailboxEmail string) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
 		`SELECT COUNT(*)
 		   FROM mailbox_assignments a
 		   JOIN mailboxes m ON m.id = a.mailbox_id
-		  WHERE a.user_id = ? AND a.role = 'admin' AND m.email_address = ?`,
+		  WHERE a.user_id = ? AND a.role = 'approver' AND m.email_address = ?`,
 		userID, mailboxEmail,
 	).Scan(&count)
 	if err != nil {
@@ -1530,15 +1530,15 @@ func (r *Repository) IsMailboxAdmin(ctx context.Context, userID, mailboxEmail st
 	return count > 0, nil
 }
 
-// ListMailboxAdminEmails は指定メールボックスに role=admin で割り当てられた
+// ListMailboxApproverEmails は指定メールボックスに role=approver で割り当てられた
 // 有効ユーザーのメールアドレス一覧を返す（承認依頼通知の宛先）。
-func (r *Repository) ListMailboxAdminEmails(ctx context.Context, mailboxEmail string) ([]string, error) {
+func (r *Repository) ListMailboxApproverEmails(ctx context.Context, mailboxEmail string) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT u.email
 		   FROM mailbox_assignments a
 		   JOIN mailboxes m ON m.id = a.mailbox_id
 		   JOIN users u     ON u.id = a.user_id
-		  WHERE m.email_address = ? AND a.role = 'admin' AND u.is_active = 1`,
+		  WHERE m.email_address = ? AND a.role = 'approver' AND u.is_active = 1`,
 		mailboxEmail,
 	)
 	if err != nil {

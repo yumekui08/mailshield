@@ -358,7 +358,7 @@ func TestSyncer_Sync_MailboxAssignments_Fixed(t *testing.T) {
 	}
 	cfg := testSyncConfig()
 	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{{
-		Role:            domain.AssignmentRoleAdmin,
+		Role:            domain.AssignmentRoleApprover,
 		Method:          MethodFixed,
 		FixedUserEmails: []string{"Admin@corp.local"}, // 大文字小文字を無視して一致するべき
 	}}}
@@ -384,7 +384,7 @@ func TestSyncer_Sync_MailboxAssignments_Fixed(t *testing.T) {
 	}
 	got := map[string]bool{}
 	for _, d := range adminCall.desired {
-		if d.Role != domain.AssignmentRoleAdmin {
+		if d.Role != domain.AssignmentRoleApprover {
 			t.Errorf("role = %q, want admin", d.Role)
 		}
 		got[d.MailboxEmail] = true

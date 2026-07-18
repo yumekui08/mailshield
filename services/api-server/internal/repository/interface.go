@@ -135,14 +135,14 @@ type Repository interface {
 	// ─── 承認フロー ──────────────────────────────────────────────────────────
 
 	// ListApprovalRequests は指定ユーザーが承認できる承認依頼一覧を返す（status=pending のみ）。
-	// 「自分が承認者（approver_id）」と「自分が role=admin の対象メールボックスを持つ依頼」
+	// 「自分が承認者（approver_id）」と「自分が role=approver の対象メールボックスを持つ依頼」
 	// の両方を含む。
 	ListApprovalRequests(ctx context.Context, userID string) ([]domain.ApprovalRequest, error)
-	// IsMailboxAdmin は userID が指定メールボックスに role=admin で割り当てられているかを返す。
-	IsMailboxAdmin(ctx context.Context, userID, mailboxEmail string) (bool, error)
-	// ListMailboxAdminEmails は指定メールボックスに role=admin で割り当てられた
+	// IsMailboxApprover は userID が指定メールボックスに role=approver で割り当てられているかを返す。
+	IsMailboxApprover(ctx context.Context, userID, mailboxEmail string) (bool, error)
+	// ListMailboxApproverEmails は指定メールボックスに role=approver で割り当てられた
 	// 有効ユーザーのメールアドレス一覧を返す（承認依頼通知の宛先解決）。
-	ListMailboxAdminEmails(ctx context.Context, mailboxEmail string) ([]string, error)
+	ListMailboxApproverEmails(ctx context.Context, mailboxEmail string) ([]string, error)
 
 	// ─── 承認依頼通知（宛先ごとの送信状態管理） ────────────────────────────
 	// 通知は宛先ごとに approval_notifications で管理し、一部の宛先だけ送信に

@@ -124,18 +124,20 @@ directory:
     #       member_attr: owner
     #       target_attribute: mail
     #
-    #     # ④ 全体管理者の決め打ち（複数はカンマ/セミコロン区切り）
-    #     - role: admin
+    #     # ④ 承認者の決め打ち（複数はカンマ/セミコロン区切り）
+    #     - role: approver
     #       method: fixed
-    #       fixed_value: "admin@internal.dev"
+    #       fixed_value: "approver@internal.dev"
 
+# メールボックス機能ロール: member=受信担当 / owner=送信担当 / approver=承認担当。
+# メールボックス自体の管理はシステム RBAC（operator/admin）が担う。
 mailbox_policy:
   inbound_quarantine:
-    visible_to: [member]    # To=内部ドメイン → メールボックスの所属ユーザ(member)が閲覧可
-    release_by: [member]    # To=内部ドメイン → メールボックスの所属ユーザ(member)が再配送可
+    visible_to: [member]    # To=内部ドメイン → 受信担当(member)が閲覧可
+    release_by: [member]    # To=内部ドメイン → 受信担当(member)が再配送可
   outbound_quarantine:
-    visible_to: [owner]     # From=内部ドメイン → メールボックスの所有ユーザ(owner)が閲覧可
-    release_by: [admin]     # From=内部ドメイン → メールボックスの管理者ユーザ(admin)が再配送可
+    visible_to: [owner]     # From=内部ドメイン → 送信担当(owner)が閲覧可
+    release_by: [owner]     # From=内部ドメイン → 送信担当(owner)が再配送可
 
 attachment_download:
   auth_mode:

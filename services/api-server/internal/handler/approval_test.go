@@ -343,7 +343,7 @@ func TestApprovalHandleReject_Viewer_MailboxAdmin_Allowed(t *testing.T) {
 		getApprovalRequestFunc: func(_ context.Context, _ string) (*domain.ApprovalRequest, error) {
 			return &apr, nil
 		},
-		isMailboxAdminFunc: func(_ context.Context, userID, mailboxEmail string) (bool, error) {
+		isMailboxApproverFunc: func(_ context.Context, userID, mailboxEmail string) (bool, error) {
 			return userID == "viewer-admin" && mailboxEmail == "sales@internal.test", nil
 		},
 		updateApprovalStatusFunc: func(_ context.Context, _ string, s domain.ApprovalStatus, _ *string) error {
@@ -370,7 +370,7 @@ func TestApprovalHandleReject_Viewer_NotMailboxAdmin_Forbidden(t *testing.T) {
 		getApprovalRequestFunc: func(_ context.Context, _ string) (*domain.ApprovalRequest, error) {
 			return &apr, nil
 		},
-		isMailboxAdminFunc: func(_ context.Context, _, _ string) (bool, error) {
+		isMailboxApproverFunc: func(_ context.Context, _, _ string) (bool, error) {
 			return false, nil
 		},
 	}
@@ -421,7 +421,7 @@ func TestApprovalHandleGet_Viewer_MailboxAdmin_Allowed(t *testing.T) {
 		getApprovalRequestFunc: func(_ context.Context, _ string) (*domain.ApprovalRequest, error) {
 			return &apr, nil
 		},
-		isMailboxAdminFunc: func(_ context.Context, _, _ string) (bool, error) {
+		isMailboxApproverFunc: func(_ context.Context, _, _ string) (bool, error) {
 			return true, nil
 		},
 		getMessageFunc: func(_ context.Context, id string) (*domain.MessageDetail, error) {

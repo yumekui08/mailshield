@@ -239,7 +239,7 @@ func TestNormalizeDN(t *testing.T) {
 // TestFixedRolesForEmail は大文字小文字を無視した一致と複数ロールの返却を確認する。
 func TestFixedRolesForEmail(t *testing.T) {
 	mr := &MailboxResolution{Roles: []RoleResolution{
-		{Role: domain.AssignmentRoleAdmin, Method: MethodFixed, FixedUserEmails: []string{"Admin@X.com"}},
+		{Role: domain.AssignmentRoleApprover, Method: MethodFixed, FixedUserEmails: []string{"Admin@X.com"}},
 		{Role: domain.AssignmentRoleOwner, Method: MethodFixed, FixedUserEmails: []string{"admin@x.com", "other@x.com"}},
 		{Role: domain.AssignmentRoleMember, Method: MethodUserAttribute, SourceAttribute: "memberOf"},
 	}}
@@ -247,7 +247,7 @@ func TestFixedRolesForEmail(t *testing.T) {
 	if len(roles) != 2 {
 		t.Fatalf("roles = %v, want [admin owner]", roles)
 	}
-	if roles[0] != domain.AssignmentRoleAdmin || roles[1] != domain.AssignmentRoleOwner {
+	if roles[0] != domain.AssignmentRoleApprover || roles[1] != domain.AssignmentRoleOwner {
 		t.Errorf("roles = %v", roles)
 	}
 	if got := mr.FixedRolesForEmail("nobody@x.com"); len(got) != 0 {

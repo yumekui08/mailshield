@@ -74,9 +74,9 @@ func buildMailboxResolution(cfg config.MailboxProvisioningConfig) (*ldapsync.Mai
 	for i, rc := range cfg.Rules {
 		role := domain.AssignmentRole(rc.Role)
 		switch role {
-		case domain.AssignmentRoleMember, domain.AssignmentRoleOwner, domain.AssignmentRoleAdmin:
+		case domain.AssignmentRoleMember, domain.AssignmentRoleOwner, domain.AssignmentRoleApprover:
 		default:
-			return nil, fmt.Errorf("mailbox_provisioning.rules[%d]: role が不正です: %q（member | owner | admin）", i, rc.Role)
+			return nil, fmt.Errorf("mailbox_provisioning.rules[%d]: role が不正です: %q（member | owner | approver）", i, rc.Role)
 		}
 
 		rr, err := buildRoleResolution(role, rc)

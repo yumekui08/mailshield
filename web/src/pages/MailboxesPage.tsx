@@ -39,7 +39,13 @@ import type { MailboxRecord, AssignmentRole } from "../types";
 const roleBadgeVariant: Record<AssignmentRole, "blue" | "green" | "default"> = {
   member: "default",
   owner: "green",
-  admin: "blue",
+  approver: "blue",
+};
+
+const roleLabel: Record<AssignmentRole, string> = {
+  member: "member（受信担当）",
+  owner: "owner（送信担当）",
+  approver: "approver（承認担当）",
 };
 
 type MainDialog =
@@ -125,9 +131,9 @@ function AssignmentsPanel({ mailbox, onClose }: { mailbox: MailboxRecord; onClos
               onChange={(e) => setAddRole(e.target.value as AssignmentRole)}
               className="w-40"
             >
-              <option value="member">member</option>
-              <option value="owner">owner</option>
-              <option value="admin">admin</option>
+              <option value="member">{roleLabel.member}</option>
+              <option value="owner">{roleLabel.owner}</option>
+              <option value="approver">{roleLabel.approver}</option>
             </Select>
             <Button onClick={handleAdd} disabled={addAssignment.isPending}>
               <Plus className="h-4 w-4" />

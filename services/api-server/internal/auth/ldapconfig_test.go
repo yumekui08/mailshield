@@ -152,7 +152,7 @@ func TestBuildLDAPConnConfig_MailboxProvisioning_Validation(t *testing.T) {
 		},
 		{
 			name:    "fixed で fixed_value 欠落",
-			rc:      config.MailboxProvisioningRuleConfig{Role: "admin", Method: ldapsync.MethodFixed},
+			rc:      config.MailboxProvisioningRuleConfig{Role: "approver", Method: ldapsync.MethodFixed},
 			wantErr: "fixed_value",
 		},
 	}
@@ -177,7 +177,7 @@ func TestBuildLDAPConnConfig_MailboxProvisioning_Fixed(t *testing.T) {
 		Host: "ldap.corp.local",
 		MailboxProvisioning: config.MailboxProvisioningConfig{
 			Rules: []config.MailboxProvisioningRuleConfig{
-				{Role: "admin", Method: ldapsync.MethodFixed, FixedValue: "a@x.com, b@x.com; c@x.com"},
+				{Role: "approver", Method: ldapsync.MethodFixed, FixedValue: "a@x.com, b@x.com; c@x.com"},
 			},
 		},
 	}

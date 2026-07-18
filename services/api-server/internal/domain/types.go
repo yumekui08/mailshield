@@ -119,13 +119,18 @@ type MessageDetail struct {
 	InspectResults []InspectResult `json:"inspect_results"`
 }
 
-// AssignmentRole はメールボックスへのユーザー割り当てロールを表す。
+// AssignmentRole はメールボックスへのユーザー割り当てロール（機能ロール）を表す。
+//   - member   : 受信担当。受信隔離の閲覧・解放、添付ダウンロード
+//   - owner    : 送信担当。送信隔離の閲覧・解放、送信ディレイの取消/即時送信
+//   - approver : 承認担当。承認フローに回った自メールボックスのメールを承認/却下/再配送
+//
+// メールボックス自体の管理（割り当て編集）はシステム RBAC（operator/admin）が担う。
 type AssignmentRole string
 
 const (
-	AssignmentRoleMember AssignmentRole = "member"
-	AssignmentRoleOwner  AssignmentRole = "owner"
-	AssignmentRoleAdmin  AssignmentRole = "admin"
+	AssignmentRoleMember   AssignmentRole = "member"
+	AssignmentRoleOwner    AssignmentRole = "owner"
+	AssignmentRoleApprover AssignmentRole = "approver"
 )
 
 // MailboxVisibilityFilter は viewer ロールのユーザーに対する隔離一覧の絞り込み条件を表す。
@@ -226,7 +231,7 @@ const (
 //   - ApproverID    : システム全体のフォールバック承認者（approval.global_approver_email）。
 //     メールボックスに承認者がいない場合のみ使う
 //   - MailboxEmails : メールボックス承認（主経路）。対象メールボックス（1..n）のいずれかに
-//     role=admin で割り当てられたユーザー全員が承認・却下できる（先に決定した人が有効）
+//     role=approver で割り当てられたユーザー全員が承認・却下できる（先に決定した人が有効）
 type ApprovalRequest struct {
 	ID               string         `json:"id"`
 	MessageID        string         `json:"message_id"`
