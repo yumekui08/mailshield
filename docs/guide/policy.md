@@ -104,6 +104,7 @@ rules:
 | `reject` | 送信者にバウンスを返す |
 | `approval` | 承認キューに保留する。承認者はメールボックスの admin 割り当て（優先）→ ユーザー個人の `approver_id` → `approval.global_approver_email` の順で解決される（詳細: [設定リファレンスの approval](../specs/configuration.md#approval)） |
 | `delay` | 送信を一定時間保留する（送信ディレイ）。`delay_minutes` で保留時間を指定（省略時 5 分）。保留中は送信者が Web UI から取消・即時送信でき、時間が来ると自動送信される |
+| `redirect` | 宛先を `value`（差し替え先アドレス・カンマ区切りで複数可）に差し替えて配送する。誤送信の受け皿や監査用アドレスへの付け替えに使う。`destination` で配送先 MTA も指定できる |
 
 ### 非終端アクション
 
@@ -112,6 +113,7 @@ rules:
 | `add_subject_prefix` | `value` | 件名の先頭に文字列を付加する（例: `[EXTERNAL] `）。受信外部メールの可視化に使う |
 | `add_header` | `name` / `value` | ヘッダーを 1 行追加する（例: `X-MailShield-Origin: external`）。下流メールクライアントの振り分けに使う |
 | `remove_header` | `name` | 指定名のヘッダー（折り畳み継続行を含む）をすべて削除する |
+| `strip_attachments` | `value`（任意） | 添付ファイルを除去する。`value` に拡張子をカンマ区切りで指定するとその拡張子のみ、空なら全添付を除去する |
 | `log_only` | — | メールを変更せず監査ログのみ残す（ルールのシャドー運用・試験導入に使う） |
 
 非終端アクションを持つルールは、アクション適用後も**次のルールの評価を続行する**。
@@ -200,6 +202,8 @@ SendGrid / Amazon SES 等の外部 SMTP エンドポイントの定義方法は 
 | `==` / `!=` | `av-worker.detected == true` | 等値・不等（ブールは大文字小文字を無視） |
 | `>=` `>` `<=` `<` | `dlp-worker.score >= 80` | 数値比較 |
 | `contains` | `mail.subject contains 請求書` | 部分文字列（大文字小文字を無視） |
+| `starts_with` / `ends_with` | `mail.from ends_with @example.com` | 前方一致・後方一致（大文字小文字を無視） |
+| `matches` | `mail.subject matches ^Invoice #\d+$` | 正規表現マッチ（Go RE2 構文） |
 | `in_list` | `mail.from_domain in_list freemail` | 名前付きリストに含まれるか（下記） |
 | `&&` | `A == 1 && B >= 50` | 論理積（AND） |
 | `\|\|` | `A == 1 \|\| B == 1` | 論理和（OR） |
@@ -288,10 +292,18 @@ rules:
 | `mail.size_bytes` | int | メールサイズ（バイト） |
 | `mail.has_attachment` | bool | 添付の有無 |
 | `mail.direction` | string | `inbound` / `outbound` |
+| `mail.recipient_count` | int | 宛先（RCPT TO）の件数 |
+| `mail.hour` | int | 受信時刻の時（0–23・**UTC**） |
+| `mail.weekday` | string | 受信曜日（`sun` `mon` … `sat`・**UTC**） |
+| `mail.has_header.<名前>` | bool | 指定ヘッダー（小文字）が存在するか。例: `mail.has_header.list-unsubscribe == true` |
+| `mail.header.<名前>` | string | 指定ヘッダーの値（小文字名で参照）。例: `mail.header.x-priority == 1` |
 
 > [!NOTE]
 > `mail.to` / `mail.to_domains` は宛先が複数の場合カンマ連結された1つの文字列です。
 > 「宛先のいずれかがフリーメール」を判定するには `in_list`（アドレス/ドメイン単位で照合）を使ってください。
+
+> [!NOTE]
+> `mail.hour` / `mail.weekday` は **UTC** 基準です。業務時間帯で判定する場合はタイムゾーン差を考慮してください。
 
 ---
 

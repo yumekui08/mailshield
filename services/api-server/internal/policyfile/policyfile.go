@@ -59,10 +59,11 @@ type Route struct {
 
 // 既知アクション種別。
 var terminalActions = map[string]bool{
-	"deliver": true, "reject": true, "quarantine": true, "approval": true, "delay": true,
+	"deliver": true, "reject": true, "quarantine": true, "approval": true, "delay": true, "redirect": true,
 }
 var nonTerminalActions = map[string]bool{
-	"add_header": true, "remove_header": true, "add_subject_prefix": true, "log_only": true,
+	"add_header": true, "remove_header": true, "add_subject_prefix": true,
+	"strip_attachments": true, "log_only": true,
 }
 
 func isKnownAction(t string) bool { return terminalActions[t] || nonTerminalActions[t] }

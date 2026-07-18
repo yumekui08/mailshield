@@ -40,11 +40,19 @@ import type {
   PolicyHits,
 } from "../types";
 
-const TERMINAL_ACTIONS = ["deliver", "reject", "quarantine", "approval", "delay"];
+const TERMINAL_ACTIONS = [
+  "deliver",
+  "redirect",
+  "reject",
+  "quarantine",
+  "approval",
+  "delay",
+];
 const NONTERMINAL_ACTIONS = [
   "add_subject_prefix",
   "add_header",
   "remove_header",
+  "strip_attachments",
   "log_only",
 ];
 
@@ -54,7 +62,7 @@ function actionBadgeVariant(
   if (type === "deliver") return "green";
   if (type === "quarantine") return "yellow";
   if (type === "reject") return "red";
-  if (type === "approval" || type === "delay") return "blue";
+  if (type === "approval" || type === "delay" || type === "redirect") return "blue";
   return "default";
 }
 
@@ -563,6 +571,22 @@ function RuleDialog({
                       setAction(i, { delay_minutes: Number(e.target.value) })
                     }
                     className="w-32"
+                  />
+                )}
+                {a.type === "redirect" && (
+                  <Input
+                    placeholder="差し替え先アドレス（カンマ区切り可）"
+                    value={a.value ?? ""}
+                    onChange={(e) => setAction(i, { value: e.target.value })}
+                    className="flex-1 min-w-40"
+                  />
+                )}
+                {a.type === "strip_attachments" && (
+                  <Input
+                    placeholder="除去する拡張子（例: exe,zip・空なら全添付）"
+                    value={a.value ?? ""}
+                    onChange={(e) => setAction(i, { value: e.target.value })}
+                    className="flex-1 min-w-40"
                   />
                 )}
                 {(a.type === "add_header" || a.type === "remove_header") && (
