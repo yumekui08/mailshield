@@ -310,6 +310,58 @@ policy アクション `delay` で保留された送信メールの管理 API。
 
 ---
 
+## ポリシー編集
+
+ルート（`config/routes.d/<route>/policy.yaml`）のルールを閲覧・編集する API。
+閲覧は `operator` 以上、更新は `admin` のみ。更新は smtp-gateway に反映され、
+反映に失敗した場合は変更を巻き戻す。
+
+### `GET /api/v1/policy/routes`
+
+全ルートのルール一覧とルール別ヒット件数を返す。`operator` 以上。
+
+**レスポンス:**
+```json
+{
+  "routes": [
+    {
+      "dir": "10-inbound",
+      "name": "inbound",
+      "direction": "inbound",
+      "policy": {
+        "rules": [
+          {"name": "av_detected", "condition": "av-worker.detected == true", "action": "quarantine"},
+          {"name": "default_deliver", "condition": "true", "action": "deliver"}
+        ]
+      }
+    }
+  ],
+  "hits": {"inbound": {"av_detected": 3, "default_deliver": 120}}
+}
+```
+
+### `GET /api/v1/policy/routes/{route}`
+
+単一ルート（`{route}` はディレクトリ名。例: `10-inbound`）を返す。`operator` 以上。
+
+### `GET /api/v1/policy/stats`
+
+ルート×ルール別のヒット件数（smtp-gateway 起動時からの累積）。`operator` 以上。
+
+### `PUT /api/v1/policy/routes/{route}`
+
+ルールを更新する。`admin` のみ。リクエストボディは `{"rules": [...], "lists": {...}}`。
+
+処理順序: 構造検証 → `policy.yaml` 書き込み → smtp-gateway に `POST /reload`。
+リロードに失敗した場合は元の内容へ書き戻し、`422 RELOAD_FAILED` と gateway のパースエラーを返す。
+成功時は監査ログに `policy.updated` を記録する。
+
+**エラー:**
+- `422 VALIDATION_ERROR` — 構造検証エラー（アクション種別・デフォルトルール欠如など。書き込み前に拒否）
+- `422 RELOAD_FAILED` — smtp-gateway が新ポリシーを拒否（条件式の構文エラーなど。変更は巻き戻し済み）
+
+---
+
 ## 添付ファイル（認証済みユーザー向け）
 
 ### `GET /api/v1/attachments/{token}`
