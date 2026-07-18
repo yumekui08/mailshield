@@ -754,6 +754,54 @@ func (r *Repository) ListAssignments(ctx context.Context, mailboxID string) ([]r
 	return assignments, nil
 }
 
+// ListAssignmentSummaries は全メールボックスの role 別割り当てサマリを返す。
+// 1 クエリで有効ユーザーの割り当てを email 昇順に取得し、Go 側で mailbox×role ごとに
+// 人数を数えつつ先頭 sampleLimit 人だけ保持する。
+func (r *Repository) ListAssignmentSummaries(ctx context.Context, sampleLimit int) (map[string][]repository.MailboxRoleSummary, error) {
+	if sampleLimit <= 0 {
+		sampleLimit = 3
+	}
+	const q = `
+		SELECT ma.mailbox_id, ma.role, u.email, u.display_name
+		FROM mailbox_assignments ma
+		JOIN users u ON u.id = ma.user_id AND u.is_active = 1
+		ORDER BY ma.mailbox_id, ma.role, u.email`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("割り当てサマリ取得失敗: %w", err)
+	}
+	defer rows.Close()
+
+	// mailbox_id → role → *summary（挿入順を保つため index も保持）
+	byMailbox := make(map[string][]repository.MailboxRoleSummary)
+	roleIdx := make(map[string]map[domain.AssignmentRole]int)
+	for rows.Next() {
+		var mailboxID, role, email, displayName string
+		if err := rows.Scan(&mailboxID, &role, &email, &displayName); err != nil {
+			return nil, fmt.Errorf("割り当てサマリスキャン失敗: %w", err)
+		}
+		ar := domain.AssignmentRole(role)
+		if roleIdx[mailboxID] == nil {
+			roleIdx[mailboxID] = make(map[domain.AssignmentRole]int)
+		}
+		idx, ok := roleIdx[mailboxID][ar]
+		if !ok {
+			byMailbox[mailboxID] = append(byMailbox[mailboxID], repository.MailboxRoleSummary{Role: ar})
+			idx = len(byMailbox[mailboxID]) - 1
+			roleIdx[mailboxID][ar] = idx
+		}
+		s := &byMailbox[mailboxID][idx]
+		s.Count++
+		if len(s.Sample) < sampleLimit {
+			s.Sample = append(s.Sample, repository.AssignmentUser{Email: email, DisplayName: displayName})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("割り当てサマリイテレーション失敗: %w", err)
+	}
+	return byMailbox, nil
+}
+
 // AddAssignment はメールボックスにユーザーを割り当てる。重複は無視する。
 func (r *Repository) AddAssignment(ctx context.Context, a *repository.MailboxAssignment) error {
 	const q = `

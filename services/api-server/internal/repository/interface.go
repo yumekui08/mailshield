@@ -62,6 +62,9 @@ type Repository interface {
 
 	// ListAssignments はメールボックスの割り当て一覧を返す。
 	ListAssignments(ctx context.Context, mailboxID string) ([]MailboxAssignment, error)
+	// ListAssignmentSummaries は全メールボックスの role 別割り当てサマリ（人数 + 先頭 sampleLimit 人）を
+	// mailbox_id → サマリ一覧のマップで返す。一覧画面で各メールボックスの割り当て概要を表示するのに使う。
+	ListAssignmentSummaries(ctx context.Context, sampleLimit int) (map[string][]MailboxRoleSummary, error)
 	// AddAssignment はメールボックスにユーザーを割り当てる。重複は無視する。
 	AddAssignment(ctx context.Context, assignment *MailboxAssignment) error
 	// RemoveAssignment はメールボックスからユーザーの割り当てを削除する。
@@ -232,6 +235,19 @@ type MailboxAssignment struct {
 	UserEmail       string
 	UserDisplayName string
 	CreatedAt       time.Time
+}
+
+// MailboxRoleSummary は 1 メールボックス・1 role の割り当て概要（人数 + 先頭数人）を表す。
+type MailboxRoleSummary struct {
+	Role   domain.AssignmentRole
+	Count  int
+	Sample []AssignmentUser // 先頭 sampleLimit 人（email 昇順）
+}
+
+// AssignmentUser は割り当てサマリに含める最小のユーザー情報。
+type AssignmentUser struct {
+	Email       string
+	DisplayName string
 }
 
 // User はユーザー情報を保持する（スタンドアロン認証・OIDC/LDAP/SCIM 経由の両方）。

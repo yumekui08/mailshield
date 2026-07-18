@@ -175,6 +175,9 @@ func (m *mockRepository) ListAssignments(ctx context.Context, mailboxID string) 
 	}
 	return []repository.MailboxAssignment{}, nil
 }
+func (m *mockRepository) ListAssignmentSummaries(_ context.Context, _ int) (map[string][]repository.MailboxRoleSummary, error) {
+	return map[string][]repository.MailboxRoleSummary{}, nil
+}
 
 func (m *mockRepository) AddAssignment(ctx context.Context, assignment *repository.MailboxAssignment) error {
 	if m.addAssignmentFunc != nil {

@@ -30,6 +30,19 @@ type mailboxResponse struct {
 	EmailAddress string `json:"email_address"`
 	DisplayName  string `json:"display_name"`
 	IsActive     bool   `json:"is_active"`
+	// AssignmentSummary は一覧画面向けの role 別割り当て概要（人数 + 先頭数人）。
+	AssignmentSummary []roleSummaryResponse `json:"assignment_summary"`
+}
+
+type roleSummaryResponse struct {
+	Role   string                `json:"role"`
+	Count  int                   `json:"count"`
+	Sample []summaryUserResponse `json:"sample"`
+}
+
+type summaryUserResponse struct {
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
 }
 
 type assignmentResponse struct {
@@ -70,14 +83,34 @@ func (h *MailboxesHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 割り当てサマリ（人数 + 先頭 3 人）。取得失敗はサマリ空で続行する。
+	summaries, err := h.repo.ListAssignmentSummaries(r.Context(), 3)
+	if err != nil {
+		slog.Warn("割り当てサマリ取得失敗（サマリなしで続行）", "error", err)
+		summaries = map[string][]repository.MailboxRoleSummary{}
+	}
+
 	resp := make([]mailboxResponse, len(mailboxes))
 	for i, m := range mailboxes {
 		resp[i] = toMailboxResponse(m)
+		resp[i].AssignmentSummary = toRoleSummaryResponses(summaries[m.ID])
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": resp,
 		"meta": map[string]int{"total": len(resp)},
 	})
+}
+
+func toRoleSummaryResponses(summaries []repository.MailboxRoleSummary) []roleSummaryResponse {
+	out := make([]roleSummaryResponse, 0, len(summaries))
+	for _, s := range summaries {
+		users := make([]summaryUserResponse, 0, len(s.Sample))
+		for _, u := range s.Sample {
+			users = append(users, summaryUserResponse{Email: u.Email, DisplayName: u.DisplayName})
+		}
+		out = append(out, roleSummaryResponse{Role: string(s.Role), Count: s.Count, Sample: users})
+	}
+	return out
 }
 
 // HandleCreate は POST /api/v1/mailboxes を処理する。

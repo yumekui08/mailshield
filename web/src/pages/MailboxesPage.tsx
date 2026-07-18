@@ -34,7 +34,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "../components/ui/dialog";
-import type { MailboxRecord, AssignmentRole } from "../types";
+import type { MailboxRecord, AssignmentRole, AssignmentRoleSummary } from "../types";
 
 const roleBadgeVariant: Record<AssignmentRole, "blue" | "green" | "default"> = {
   member: "default",
@@ -140,12 +140,9 @@ function AssignmentsPanel({ mailbox, onClose }: { mailbox: MailboxRecord; onClos
             </Button>
           </div>
           <div className="mt-2 text-xs text-gray-500 space-y-0.5">
-            <div>member: 受信メールの権限（受信隔離の閲覧など。to_address が一致）</div>
-            <div>owner: 送信メールの権限（送信隔離の閲覧など。from_address が一致）</div>
-            <div>
-              admin: このメールボックスの承認者。承認フローに回ったメールの配送許可・却下と、
-              隔離の解放（mailbox_policy 設定に依存）ができる
-            </div>
+            <div>member（受信担当）: 受信隔離の閲覧・解放、添付ダウンロード（to_address が一致）</div>
+            <div>owner（送信担当）: 送信隔離の閲覧・解放、送信ディレイ操作（from_address が一致）</div>
+            <div>approver（承認担当）: 承認フローに回ったメールの承認/却下/再配送</div>
           </div>
         </div>
 
@@ -294,6 +291,7 @@ export function MailboxesPage() {
               <TableRow className="hover:bg-transparent">
                 <TableHead>メールアドレス</TableHead>
                 <TableHead>表示名</TableHead>
+                <TableHead>割り当て</TableHead>
                 <TableHead>状態</TableHead>
                 <TableHead>アクション</TableHead>
               </TableRow>
@@ -301,7 +299,7 @@ export function MailboxesPage() {
             <TableBody>
               {pagedMailboxes.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-gray-500 py-10">
+                  <TableCell colSpan={5} className="text-center text-gray-500 py-10">
                     <div className="flex flex-col items-center gap-2">
                       <Inbox className="h-8 w-8 text-gray-300" />
                       メールボックスがありません
@@ -313,6 +311,12 @@ export function MailboxesPage() {
                   <TableRow key={mailbox.id}>
                     <TableCell className="text-sm font-medium">{mailbox.email_address}</TableCell>
                     <TableCell className="text-sm text-gray-600">{mailbox.display_name}</TableCell>
+                    <TableCell>
+                      <AssignmentSummaryCell
+                        summary={mailbox.assignment_summary}
+                        onExpand={() => setAssignMailbox(mailbox)}
+                      />
+                    </TableCell>
                     <TableCell>
                       <Badge variant={mailbox.is_active ? "green" : "default"}>
                         {mailbox.is_active ? "有効" : "無効"}
@@ -449,5 +453,60 @@ export function MailboxesPage() {
         />
       )}
     </div>
+  );
+}
+
+// AssignmentSummaryCell は一覧の割り当て概要（role 別の人数 + 先頭数人）を表示する。
+// role ごとにチップを出し、ホバーで先頭数人、クリックで割り当てダイアログ（全員）を開く。
+const shortRoleLabel: Record<AssignmentRole, string> = {
+  member: "受信",
+  owner: "送信",
+  approver: "承認",
+};
+
+function AssignmentSummaryCell({
+  summary,
+  onExpand,
+}: {
+  summary: AssignmentRoleSummary[] | null;
+  onExpand: () => void;
+}) {
+  if (!summary || summary.length === 0) {
+    return <span className="text-xs text-gray-400">—</span>;
+  }
+  // role 順（受信→送信→承認）に並べる
+  const order: AssignmentRole[] = ["member", "owner", "approver"];
+  const sorted = [...summary].sort(
+    (a, b) => order.indexOf(a.role) - order.indexOf(b.role)
+  );
+  return (
+    <button
+      onClick={onExpand}
+      className="flex flex-wrap items-center gap-1.5 text-left"
+      title="クリックして割り当てを表示・編集"
+    >
+      {sorted.map((s) => {
+        const names = s.sample
+          .map((u) => u.display_name || u.email)
+          .join(", ");
+        const more = s.count - s.sample.length;
+        return (
+          <span
+            key={s.role}
+            className="inline-flex items-center gap-1 border border-gray-200 px-1.5 py-0.5 text-xs"
+            title={`${shortRoleLabel[s.role]}: ${names}${more > 0 ? ` 他${more}名` : ""}`}
+          >
+            <Badge variant={roleBadgeVariant[s.role]}>{shortRoleLabel[s.role]}</Badge>
+            <span className="text-gray-500">{s.count}</span>
+            {s.sample.length > 0 && (
+              <span className="text-gray-400 max-w-40 truncate">
+                {s.sample[0].display_name || s.sample[0].email}
+                {s.count > 1 ? ` +${s.count - 1}` : ""}
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </button>
   );
 }

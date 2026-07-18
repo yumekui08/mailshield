@@ -116,11 +116,18 @@ export interface UserRecord {
 
 export type AssignmentRole = "member" | "owner" | "approver";
 
+export interface AssignmentRoleSummary {
+  role: AssignmentRole;
+  count: number;
+  sample: { email: string; display_name: string }[];
+}
+
 export interface MailboxRecord {
   id: string;
   email_address: string;
   display_name: string;
   is_active: boolean;
+  assignment_summary: AssignmentRoleSummary[] | null;
 }
 
 export interface StatsPeriod {

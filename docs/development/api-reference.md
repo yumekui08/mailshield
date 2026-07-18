@@ -454,19 +454,39 @@ OTP コードを検証してダウンロードセッションを発行。
 ## メールボックス管理（operator / admin）
 
 ### `GET /api/v1/mailboxes`
+
+メールボックス一覧。各要素に `assignment_summary`（role 別の割り当て人数 + 先頭 3 人）を含む。
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid", "email_address": "team@example.com", "display_name": "チーム共有", "is_active": true,
+      "assignment_summary": [
+        {"role": "member", "count": 15, "sample": [{"email": "a@x", "display_name": "A"}]},
+        {"role": "owner", "count": 2, "sample": [{"email": "b@x", "display_name": "B"}]},
+        {"role": "approver", "count": 1, "sample": [{"email": "c@x", "display_name": "C"}]}
+      ]
+    }
+  ]
+}
+```
+
 ### `POST /api/v1/mailboxes`
 
 ```json
-{"address": "sales@example.com", "display_name": "Sales"}
+{"email_address": "sales@example.com", "display_name": "Sales"}
 ```
 
 ### `PATCH /api/v1/mailboxes/{id}`
 ### `DELETE /api/v1/mailboxes/{id}`
 ### `GET /api/v1/mailboxes/{id}/assignments`
 
-メールボックスに割り当てられたユーザー一覧。
+メールボックスに割り当てられたユーザー一覧（全件）。
 
 ### `POST /api/v1/mailboxes/{id}/assignments`
+
+`role` は `member`（受信担当）/ `owner`（送信担当）/ `approver`（承認担当）のいずれか。
 
 ```json
 {"user_id": "uuid", "role": "member"}

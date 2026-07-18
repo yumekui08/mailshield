@@ -540,3 +540,39 @@ func TestSyncMailboxAssignmentsForUser_KeepsPresentAssignment(t *testing.T) {
 		t.Errorf("未消化の期待値あり: %v", err)
 	}
 }
+
+func TestListAssignmentSummaries(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	defer repo.Close()
+
+	rows := sqlmock.NewRows([]string{"mailbox_id", "role", "email", "display_name"}).
+		AddRow("mb1", "member", "a@x.test", "A").
+		AddRow("mb1", "member", "b@x.test", "B").
+		AddRow("mb1", "member", "c@x.test", "C").
+		AddRow("mb1", "member", "d@x.test", "D"). // 4人目は sample には入らない
+		AddRow("mb1", "owner", "a@x.test", "A").
+		AddRow("mb2", "approver", "z@x.test", "Z")
+	mock.ExpectQuery("SELECT ma.mailbox_id, ma.role").WillReturnRows(rows)
+
+	got, err := repo.ListAssignmentSummaries(context.Background(), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb1 := got["mb1"]
+	if len(mb1) != 2 {
+		t.Fatalf("mb1 role 数 = %d, want 2", len(mb1))
+	}
+	// member: count=4, sample=3
+	var member *repository.MailboxRoleSummary
+	for i := range mb1 {
+		if mb1[i].Role == "member" {
+			member = &mb1[i]
+		}
+	}
+	if member == nil || member.Count != 4 || len(member.Sample) != 3 {
+		t.Errorf("member summary = %+v, want count=4 sample=3", member)
+	}
+	if got["mb2"][0].Role != "approver" || got["mb2"][0].Count != 1 {
+		t.Errorf("mb2 = %+v", got["mb2"])
+	}
+}

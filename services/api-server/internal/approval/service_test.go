@@ -142,6 +142,9 @@ func (s *serviceRepository) DeleteMailbox(_ context.Context, _ string) error    
 func (s *serviceRepository) ListAssignments(_ context.Context, _ string) ([]repository.MailboxAssignment, error) {
 	return nil, nil
 }
+func (s *serviceRepository) ListAssignmentSummaries(_ context.Context, _ int) (map[string][]repository.MailboxRoleSummary, error) {
+	return nil, nil
+}
 func (s *serviceRepository) AddAssignment(_ context.Context, _ *repository.MailboxAssignment) error {
 	return nil
 }
