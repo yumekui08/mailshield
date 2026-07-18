@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
 	luaworker "github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/lua"
@@ -418,5 +419,52 @@ prefix: "[危険] "
 	}
 	if r2.Subject != "virus test" {
 		t.Errorf("virus は変換されないはず: %q", r2.Subject)
+	}
+}
+
+// infiniteLoopSrc は無限ループする不正な inspect ワーカー（B-26 の回帰テスト用）。
+const infiniteLoopSrc = `
+local M = {}
+M.name = "hang"
+M.type = "inspect"
+function M.inspect(mail, config)
+    while true do end
+    return { detected = false, score = 0, details = {} }
+end
+return M
+`
+
+// TestInspect_ContextCancel_InterruptsHungScript は、無限ループする Lua スクリプトが
+// ctx のタイムアウトで確実に中断され、呼び出しが返ることを検証する（B-26）。
+// L.SetContext(ctx) により VM 自体が中断されるため goroutine が残留しない。
+func TestInspect_ContextCancel_InterruptsHungScript(t *testing.T) {
+	workersDir := t.TempDir()
+	writeWorker(t, workersDir, "hang", infiniteLoopSrc)
+
+	ins, _, err := luaworker.LoadFromDir(workersDir, "")
+	if err != nil {
+		t.Fatalf("LoadFromDir: %v", err)
+	}
+	w, ok := ins["hang"]
+	if !ok {
+		t.Fatal("hang ワーカーが見つからない")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, e := w.Inspect(ctx, &domain.Mail{Subject: "test"})
+		done <- e
+	}()
+
+	select {
+	case e := <-done:
+		if e == nil {
+			t.Fatal("無限ループスクリプトがエラーを返さなかった")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ctx タイムアウト後も Inspect が返らなかった（VM が中断されていない）")
 	}
 }

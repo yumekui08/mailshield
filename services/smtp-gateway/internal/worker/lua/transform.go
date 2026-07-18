@@ -27,7 +27,7 @@ func (w *transformWorker) Transform(ctx context.Context, mail *domain.Mail) (*do
 	}
 	ch := make(chan result, 1)
 	go func() {
-		r, err := w.runTransform(mail)
+		r, err := w.runTransform(ctx, mail)
 		ch <- result{r, err}
 	}()
 	select {
@@ -40,9 +40,12 @@ func (w *transformWorker) Transform(ctx context.Context, mail *domain.Mail) (*do
 
 // runTransform は Lua の transform(mail, config) を同期的に実行する。
 // LState はこの呼び出しごとに新規作成するため goroutine 安全。
-func (w *transformWorker) runTransform(mail *domain.Mail) (*domain.Mail, error) {
+// L.SetContext(ctx) により、無限ループ等のスクリプトも ctx キャンセルで中断され
+// goroutine が残留しない（B-26）。
+func (w *transformWorker) runTransform(ctx context.Context, mail *domain.Mail) (*domain.Mail, error) {
 	L := glua.NewState()
 	defer L.Close()
+	L.SetContext(ctx)
 
 	module, err := loadModule(L, w.source, w.name)
 	if err != nil {

@@ -27,7 +27,7 @@ func (w *inspectWorker) Inspect(ctx context.Context, mail *domain.Mail) (*domain
 	}
 	ch := make(chan result, 1)
 	go func() {
-		r, err := w.runInspect(mail)
+		r, err := w.runInspect(ctx, mail)
 		ch <- result{r, err}
 	}()
 	select {
@@ -40,9 +40,12 @@ func (w *inspectWorker) Inspect(ctx context.Context, mail *domain.Mail) (*domain
 
 // runInspect は Lua の inspect(mail, config) を同期的に実行する。
 // LState はこの呼び出しごとに新規作成するため goroutine 安全。
-func (w *inspectWorker) runInspect(mail *domain.Mail) (*domain.InspectResult, error) {
+// L.SetContext(ctx) により、無限ループ等のスクリプトも ctx キャンセルで中断され
+// goroutine が残留しない（B-26）。
+func (w *inspectWorker) runInspect(ctx context.Context, mail *domain.Mail) (*domain.InspectResult, error) {
 	L := glua.NewState()
 	defer L.Close()
+	L.SetContext(ctx)
 
 	module, err := loadModule(L, w.source, w.name)
 	if err != nil {
