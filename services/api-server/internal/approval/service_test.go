@@ -121,8 +121,11 @@ func (s *serviceRepository) UpsertFederatedUser(_ context.Context, _, _ string, 
 func (s *serviceRepository) DeactivateMissingLDAPUsers(_ context.Context, _ []string) (int, error) {
 	return 0, nil
 }
-func (s *serviceRepository) CountUsers(_ context.Context) (int, error)               { return 0, nil }
-func (s *serviceRepository) ListUsers(_ context.Context) ([]repository.User, error)  { return nil, nil }
+func (s *serviceRepository) CountUsers(_ context.Context) (int, error)              { return 0, nil }
+func (s *serviceRepository) ListUsers(_ context.Context) ([]repository.User, error) { return nil, nil }
+func (s *serviceRepository) SearchUsers(_ context.Context, _ string, _ int) ([]repository.User, error) {
+	return nil, nil
+}
 func (s *serviceRepository) UpdateUserPassword(_ context.Context, _, _ string) error { return nil }
 func (s *serviceRepository) UpdateUserRole(_ context.Context, _ string, _ domain.Role) error {
 	return nil

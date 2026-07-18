@@ -132,15 +132,22 @@ func NewRouter(
 			})
 		})
 
-		// ユーザー管理エンドポイント（admin のみ）
+		// ユーザーエンドポイント
 		r.Route("/users", func(r chi.Router) {
 			r.Use(authMW)
-			r.Use(middleware.RequireRole(domain.RoleAdmin))
 
-			r.Get("/", usersHandler.HandleList)
-			r.Post("/", usersHandler.HandleCreate)
-			r.Patch("/{id}", usersHandler.HandleUpdate)
-			r.Delete("/{id}", usersHandler.HandleDelete)
+			// 検索は operator 以上（UserPicker: メールボックス割り当て等で使用）。最小フィールドのみ返す。
+			r.With(middleware.RequireRole(domain.RoleOperator, domain.RoleAdmin)).
+				Get("/search", usersHandler.HandleSearch)
+
+			// 管理操作は admin のみ
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRole(domain.RoleAdmin))
+				r.Get("/", usersHandler.HandleList)
+				r.Post("/", usersHandler.HandleCreate)
+				r.Patch("/{id}", usersHandler.HandleUpdate)
+				r.Delete("/{id}", usersHandler.HandleDelete)
+			})
 		})
 
 		// メールボックス管理エンドポイント（operator/admin）

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { MailPlus, Pencil, Trash2, Users, Plus, X, Inbox } from "lucide-react";
+import { MailPlus, Pencil, Trash2, Users, X, Inbox, Search } from "lucide-react";
 import {
   useMailboxes,
   useCreateMailbox,
@@ -10,9 +10,9 @@ import {
   useAddAssignment,
   useRemoveAssignment,
 } from "../hooks/useMailboxes";
-import { useUsers } from "../hooks/useUsers";
 import { usePagedList } from "../hooks/usePagedList";
 import { PageHeader } from "../components/PageHeader";
+import { UserPicker } from "../components/UserPicker";
 import { Pagination } from "../components/Pagination";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -56,35 +56,31 @@ type MainDialog =
 
 function AssignmentsPanel({ mailbox, onClose }: { mailbox: MailboxRecord; onClose: () => void }) {
   const { data: assignData, isLoading: assignLoading } = useAssignments(mailbox.id);
-  const { data: usersData } = useUsers();
   const addAssignment = useAddAssignment(mailbox.id);
   const removeAssignment = useRemoveAssignment(mailbox.id);
 
-  const [addUserID, setAddUserID] = useState("");
   const [addRole, setAddRole] = useState<AssignmentRole>("member");
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const assignments = assignData?.data ?? [];
-  const users = usersData?.data ?? [];
 
-  // 既に割り当て済みの user_id+role の組み合わせを除いたユーザー候補
-  const assignedKeys = new Set(assignments.map((a) => `${a.user_id}:${a.role}`));
-  const availableUsers = users.filter((u) => !assignedKeys.has(`${u.id}:${addRole}`));
+  // 選択したロールで既に割り当て済みのユーザーは UserPicker で選べないようにする
+  const excludeIds = new Set(
+    assignments.filter((a) => a.role === addRole).map((a) => a.user_id)
+  );
 
-  function handleAdd() {
-    if (!addUserID) {
-      toast.error("ユーザーを選択してください");
-      return;
-    }
-    addAssignment.mutate(
-      { user_id: addUserID, role: addRole },
-      {
-        onSuccess: () => {
-          toast.success("割り当てを追加しました");
-          setAddUserID("");
-        },
-        onError: (err) => toast.error(`追加に失敗しました: ${err.message}`),
+  async function handleAddUsers(users: { id: string }[]) {
+    setPickerOpen(false);
+    let ok = 0;
+    for (const u of users) {
+      try {
+        await addAssignment.mutateAsync({ user_id: u.id, role: addRole });
+        ok++;
+      } catch (err) {
+        toast.error(`追加に失敗しました: ${(err as Error).message}`);
       }
-    );
+    }
+    if (ok > 0) toast.success(`${ok} 名を ${addRole} に割り当てました`);
   }
 
   function handleRemove(userID: string, role: AssignmentRole) {
@@ -113,30 +109,24 @@ function AssignmentsPanel({ mailbox, onClose }: { mailbox: MailboxRecord; onClos
 
         <div className="px-6 py-4 border-b bg-gray-50">
           <div className="text-sm font-medium text-gray-700 mb-3">ユーザーを追加</div>
-          <div className="flex gap-2">
-            <Select
-              value={addUserID}
-              onChange={(e) => setAddUserID(e.target.value)}
-              className="flex-1"
-            >
-              <option value="">ユーザーを選択…</option>
-              {availableUsers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.display_name}（{u.email}）
-                </option>
-              ))}
-            </Select>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">ロール</span>
             <Select
               value={addRole}
               onChange={(e) => setAddRole(e.target.value as AssignmentRole)}
-              className="w-40"
+              className="w-44"
             >
               <option value="member">{roleLabel.member}</option>
               <option value="owner">{roleLabel.owner}</option>
               <option value="approver">{roleLabel.approver}</option>
             </Select>
-            <Button onClick={handleAdd} disabled={addAssignment.isPending}>
-              <Plus className="h-4 w-4" />
+            <Button
+              variant="outline"
+              onClick={() => setPickerOpen(true)}
+              disabled={addAssignment.isPending}
+            >
+              <Search className="h-4 w-4 mr-1" />
+              ユーザーを検索して追加
             </Button>
           </div>
           <div className="mt-2 text-xs text-gray-500 space-y-0.5">
@@ -190,6 +180,15 @@ function AssignmentsPanel({ mailbox, onClose }: { mailbox: MailboxRecord; onClos
           )}
         </div>
       </div>
+
+      <UserPicker
+        open={pickerOpen}
+        title={`ユーザーを ${addRole} に追加`}
+        description={`${mailbox.email_address} に割り当てるユーザーを検索して選択します。`}
+        excludeIds={excludeIds}
+        onClose={() => setPickerOpen(false)}
+        onConfirm={handleAddUsers}
+      />
     </div>
   );
 }

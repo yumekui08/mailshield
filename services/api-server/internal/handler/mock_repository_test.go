@@ -112,6 +112,9 @@ func (m *mockRepository) ListUsers(ctx context.Context) ([]repository.User, erro
 	}
 	return nil, nil
 }
+func (m *mockRepository) SearchUsers(_ context.Context, _ string, _ int) ([]repository.User, error) {
+	return nil, nil
+}
 
 func (m *mockRepository) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
 	if m.updateUserPasswordFunc != nil {

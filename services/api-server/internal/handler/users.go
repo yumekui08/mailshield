@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"strconv"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
@@ -61,6 +63,29 @@ func (h *UsersHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 		"data": resp,
 		"meta": map[string]int{"total": len(resp)},
 	})
+}
+
+// HandleSearch は GET /api/v1/users/search?q=&limit= を処理する（operator 以上）。
+// UserPicker（メールボックス割り当て等）の検索・複数選択に使う。最小フィールドのみ返す。
+func (h *UsersHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	users, err := h.repo.SearchUsers(r.Context(), q, limit)
+	if err != nil {
+		slog.Error("ユーザー検索失敗", "error", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "ユーザー検索に失敗しました")
+		return
+	}
+	resp := make([]userResponse, len(users))
+	for i, u := range users {
+		resp[i] = toUserResponse(u)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": resp, "meta": map[string]int{"total": len(resp)}})
 }
 
 // HandleCreate は POST /api/v1/users を処理する。

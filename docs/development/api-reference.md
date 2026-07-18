@@ -431,7 +431,17 @@ OTP コードを検証してダウンロードセッションを発行。
 
 ---
 
-## ユーザー管理（admin のみ）
+## ユーザー管理
+
+### `GET /api/v1/users/search`
+
+email / display_name の部分一致でユーザーを検索する（`operator` 以上）。最小フィールド
+（id / email / display_name / role / is_active）のみ返す。UserPicker（メールボックス割り当ての
+検索・複数選択）で使う。
+
+**クエリパラメータ:** `q`（検索語・省略可）、`limit`（最大 100・既定 50）。
+
+以下は `admin` のみ。
 
 ### `GET /api/v1/users`
 ### `POST /api/v1/users`

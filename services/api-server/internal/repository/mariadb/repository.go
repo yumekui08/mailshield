@@ -585,6 +585,46 @@ func (r *Repository) ListUsers(ctx context.Context) ([]repository.User, error) {
 	return users, nil
 }
 
+// SearchUsers は email / display_name の部分一致で有効ユーザーを検索する（最大 limit 件）。
+// query が空の場合は先頭から limit 件を返す。UserPicker（割り当て・承認者指定）で使う。
+func (r *Repository) SearchUsers(ctx context.Context, query string, limit int) ([]repository.User, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	base := `
+		SELECT id, email, display_name, password_hash, role, is_active, provisioned_by, created_at, updated_at
+		FROM users WHERE is_active = 1`
+	var rows *sql.Rows
+	var err error
+	if q := strings.TrimSpace(query); q != "" {
+		like := "%" + q + "%"
+		rows, err = r.db.QueryContext(ctx,
+			base+` AND (email LIKE ? OR display_name LIKE ?) ORDER BY email ASC LIMIT ?`,
+			like, like, limit)
+	} else {
+		rows, err = r.db.QueryContext(ctx, base+` ORDER BY email ASC LIMIT ?`, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("ユーザー検索失敗: %w", err)
+	}
+	defer rows.Close()
+
+	users := []repository.User{}
+	for rows.Next() {
+		var u repository.User
+		var isActiveInt int
+		if err := rows.Scan(
+			&u.ID, &u.Email, &u.DisplayName,
+			&u.PasswordHash, &u.Role, &isActiveInt, &u.ProvisionedBy, &u.CreatedAt, &u.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("ユーザースキャン失敗: %w", err)
+		}
+		u.IsActive = isActiveInt == 1
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
 // UpdateUserPassword はユーザーのパスワードハッシュを更新する。
 func (r *Repository) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
 	_, err := r.db.ExecContext(ctx,

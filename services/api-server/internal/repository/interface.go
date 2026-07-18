@@ -42,6 +42,8 @@ type Repository interface {
 	CountUsers(ctx context.Context) (int, error)
 	// ListUsers はユーザー一覧を返す。
 	ListUsers(ctx context.Context) ([]User, error)
+	// SearchUsers は email / display_name の部分一致で有効ユーザーを検索する（最大 limit 件）。
+	SearchUsers(ctx context.Context, query string, limit int) ([]User, error)
 	// UpdateUserPassword はユーザーのパスワードハッシュを更新する。
 	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
 	// UpdateUserRole はユーザーのロールを更新する。

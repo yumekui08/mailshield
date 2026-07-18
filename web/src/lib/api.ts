@@ -548,3 +548,16 @@ export async function rollbackPolicy(
     { method: "POST", body: JSON.stringify({ version_id: versionId }) }
   );
 }
+
+// UserPicker 用の軽量ユーザー検索（operator 以上）
+export async function searchUsers(
+  q: string,
+  limit = 50
+): Promise<{ data: UserRecord[]; meta: { total: number } }> {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  params.set("limit", String(limit));
+  return request<{ data: UserRecord[]; meta: { total: number } }>(
+    `/users/search?${params.toString()}`
+  );
+}
