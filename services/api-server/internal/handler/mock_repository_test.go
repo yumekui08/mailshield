@@ -262,6 +262,18 @@ func (m *mockRepository) ListAuditLogs(_ context.Context, _ domain.AuditLogQuery
 	return nil, 0, nil
 }
 
+func (m *mockRepository) SavePolicyVersion(_ context.Context, _ *domain.PolicyVersion) error {
+	return nil
+}
+
+func (m *mockRepository) ListPolicyVersions(_ context.Context, _ string, _ int) ([]domain.PolicyVersion, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) GetPolicyVersion(_ context.Context, _ string) (*domain.PolicyVersion, error) {
+	return nil, nil
+}
+
 func (m *mockRepository) CreateAPIKey(_ context.Context, _ *domain.APIKey, _ string) error {
 	return nil
 }

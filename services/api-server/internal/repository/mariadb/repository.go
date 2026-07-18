@@ -1265,6 +1265,58 @@ func (r *Repository) CreateAuditLog(ctx context.Context, log *domain.AuditLog) e
 	return nil
 }
 
+// SavePolicyVersion はポリシー変更前のスナップショットを保存する。
+func (r *Repository) SavePolicyVersion(ctx context.Context, v *domain.PolicyVersion) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO policy_versions (id, route_dir, content, actor_id, actor_email, created_at)
+		VALUES (?, ?, ?, ?, ?, NOW(6))`,
+		v.ID, v.RouteDir, v.Content, v.ActorID, v.ActorEmail)
+	if err != nil {
+		return fmt.Errorf("ポリシー履歴保存失敗: %w", err)
+	}
+	return nil
+}
+
+// ListPolicyVersions は指定ルートの変更履歴を新しい順に返す（content を除く）。
+func (r *Repository) ListPolicyVersions(ctx context.Context, routeDir string, limit int) ([]domain.PolicyVersion, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, route_dir, actor_id, actor_email, created_at
+		  FROM policy_versions WHERE route_dir = ?
+		 ORDER BY created_at DESC LIMIT ?`, routeDir, limit)
+	if err != nil {
+		return nil, fmt.Errorf("ポリシー履歴取得失敗: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.PolicyVersion
+	for rows.Next() {
+		var v domain.PolicyVersion
+		if err := rows.Scan(&v.ID, &v.RouteDir, &v.ActorID, &v.ActorEmail, &v.CreatedAt); err != nil {
+			return nil, fmt.Errorf("ポリシー履歴スキャン失敗: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// GetPolicyVersion は指定 ID のスナップショット（content 含む）を返す。
+func (r *Repository) GetPolicyVersion(ctx context.Context, id string) (*domain.PolicyVersion, error) {
+	var v domain.PolicyVersion
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, route_dir, content, actor_id, actor_email, created_at
+		  FROM policy_versions WHERE id = ?`, id).
+		Scan(&v.ID, &v.RouteDir, &v.Content, &v.ActorID, &v.ActorEmail, &v.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("ポリシー履歴取得失敗: %w", err)
+	}
+	return &v, nil
+}
+
 // ListAuditLogs は監査ログを絞り込み・ページネーションして返す。
 func (r *Repository) ListAuditLogs(ctx context.Context, q domain.AuditLogQuery) ([]domain.AuditLog, int, error) {
 	if q.PerPage <= 0 {

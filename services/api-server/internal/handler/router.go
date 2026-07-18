@@ -77,6 +77,7 @@ func NewRouter(
 	policyHandler := NewPolicyHandler(
 		policyfile.RoutesDir(cfg.Settings.SmtpGatewayConfigFile),
 		cfg.Gateway.URL,
+		repo,
 		auditLogger,
 	)
 	usersHandler := NewUsersHandler(repo, auditLogger)
@@ -210,11 +211,13 @@ func NewRouter(
 			r.Use(middleware.RequireRole(domain.RoleOperator, domain.RoleAdmin))
 			r.Get("/routes", policyHandler.HandleListRoutes)
 			r.Get("/routes/{route}", policyHandler.HandleGetRoute)
+			r.Get("/routes/{route}/versions", policyHandler.HandleListVersions)
 			r.Get("/stats", policyHandler.HandleStats)
 
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireRole(domain.RoleAdmin))
 				r.Put("/routes/{route}", policyHandler.HandleUpdateRoute)
+				r.Post("/routes/{route}/rollback", policyHandler.HandleRollback)
 			})
 		})
 

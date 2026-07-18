@@ -184,6 +184,15 @@ func (s *serviceRepository) CreateAuditLog(_ context.Context, _ *domain.AuditLog
 func (s *serviceRepository) ListAuditLogs(_ context.Context, _ domain.AuditLogQuery) ([]domain.AuditLog, int, error) {
 	return nil, 0, nil
 }
+func (s *serviceRepository) SavePolicyVersion(_ context.Context, _ *domain.PolicyVersion) error {
+	return nil
+}
+func (s *serviceRepository) ListPolicyVersions(_ context.Context, _ string, _ int) ([]domain.PolicyVersion, error) {
+	return nil, nil
+}
+func (s *serviceRepository) GetPolicyVersion(_ context.Context, _ string) (*domain.PolicyVersion, error) {
+	return nil, nil
+}
 func (s *serviceRepository) CreateAPIKey(_ context.Context, _ *domain.APIKey, _ string) error {
 	return nil
 }

@@ -157,6 +157,18 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     KEY idx_audit_logs_created_at  (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ポリシー変更履歴（UI からの policy.yaml 更新の直前内容を保存・ロールバック用）
+CREATE TABLE IF NOT EXISTS policy_versions (
+    id           CHAR(36)      NOT NULL,
+    route_dir    VARCHAR(255)  NOT NULL,
+    content      MEDIUMTEXT    NOT NULL,      -- 当時の policy.yaml 全文
+    actor_id     CHAR(36)      NULL,
+    actor_email  VARCHAR(512)  NULL,
+    created_at   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    KEY idx_policy_versions_route (route_dir, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 承認依頼テーブル
 -- policy engine が action: approval を返したメールの承認ワークフローを管理する
 CREATE TABLE IF NOT EXISTS approval_requests (

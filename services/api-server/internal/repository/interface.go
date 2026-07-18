@@ -114,6 +114,13 @@ type Repository interface {
 	// ListAuditLogs は監査ログを絞り込み・ページネーションして返す。
 	ListAuditLogs(ctx context.Context, q domain.AuditLogQuery) ([]domain.AuditLog, int, error)
 
+	// SavePolicyVersion はポリシー変更前のスナップショットを保存する。
+	SavePolicyVersion(ctx context.Context, v *domain.PolicyVersion) error
+	// ListPolicyVersions は指定ルートの変更履歴を新しい順に返す（content を除く）。
+	ListPolicyVersions(ctx context.Context, routeDir string, limit int) ([]domain.PolicyVersion, error)
+	// GetPolicyVersion は指定 ID のスナップショット（content 含む）を返す。
+	GetPolicyVersion(ctx context.Context, id string) (*domain.PolicyVersion, error)
+
 	// CreateAPIKey は API キーを登録する。keyHash は SHA-256 ハッシュ値。
 	CreateAPIKey(ctx context.Context, key *domain.APIKey, keyHash string) error
 	// ListAPIKeys は API キー一覧を返す（revoked 含む）。

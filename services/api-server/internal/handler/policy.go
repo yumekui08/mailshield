@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/audit"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
 	"github.com/koizumib/mailshield/services/api-server/internal/policyfile"
+	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 )
 
 // PolicyHandler はポリシー（routes.d/<route>/policy.yaml）の閲覧・編集 API を提供する。
@@ -23,16 +25,18 @@ type PolicyHandler struct {
 	routesDir   string
 	gatewayURL  string
 	client      *http.Client
+	repo        repository.Repository
 	auditLogger *audit.Logger
 }
 
 // NewPolicyHandler は PolicyHandler を返す。
 // routesDir は routes.d の絶対パス、gatewayURL は smtp-gateway のヘルスポート URL。
-func NewPolicyHandler(routesDir, gatewayURL string, auditLogger *audit.Logger) *PolicyHandler {
+func NewPolicyHandler(routesDir, gatewayURL string, repo repository.Repository, auditLogger *audit.Logger) *PolicyHandler {
 	return &PolicyHandler{
 		routesDir:   routesDir,
 		gatewayURL:  gatewayURL,
 		client:      &http.Client{Timeout: 15 * time.Second},
+		repo:        repo,
 		auditLogger: auditLogger,
 	}
 }
@@ -98,8 +102,9 @@ func (h *PolicyHandler) HandleUpdateRoute(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// 元の内容を退避 → 書き込み → gateway リロード。失敗時は書き戻す。
+	// 元の内容を退避 → 履歴保存 → 書き込み → gateway リロード。失敗時は書き戻す。
 	backup, _ := os.ReadFile(route.PolicyPath)
+	h.saveVersion(r.Context(), dir, backup, session)
 	if err := policyfile.WriteAtomic(route.PolicyPath, data); err != nil {
 		slog.Error("policy.yaml 書き込み失敗", "path", route.PolicyPath, "error", err)
 		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "書き込みに失敗しました")
@@ -117,16 +122,100 @@ func (h *PolicyHandler) HandleUpdateRoute(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if h.auditLogger != nil && session != nil {
-		h.auditLogger.Log(domain.AuditLog{
-			EventType:  "policy.updated",
-			ActorID:    audit.StrPtr(session.User.Sub),
-			ActorEmail: audit.StrPtr(session.User.Email),
-			TargetType: audit.StrPtr("policy_route"),
-			TargetID:   audit.StrPtr(dir),
-		})
-	}
+	h.audit(session, "policy.updated", dir)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "rules": len(doc.Rules)})
+}
+
+// HandleListVersions は GET /api/v1/policy/routes/{route}/versions を処理する。
+func (h *PolicyHandler) HandleListVersions(w http.ResponseWriter, r *http.Request) {
+	dir := chi.URLParam(r, "route")
+	versions, err := h.repo.ListPolicyVersions(r.Context(), dir, 50)
+	if err != nil {
+		slog.Error("ポリシー履歴取得失敗", "route", dir, "error", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "履歴の取得に失敗しました")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"versions": versions})
+}
+
+// HandleRollback は POST /api/v1/policy/routes/{route}/rollback を処理する。
+// ボディ: {"version_id": "..."}。指定バージョンの内容を書き戻して gateway に反映する。
+func (h *PolicyHandler) HandleRollback(w http.ResponseWriter, r *http.Request) {
+	dir := chi.URLParam(r, "route")
+	session := middleware.GetSession(r.Context())
+
+	route, err := policyfile.FindRoute(h.routesDir, dir)
+	if err != nil || route == nil {
+		writeErrorResponse(w, http.StatusNotFound, "NOT_FOUND", "ルートが見つかりません")
+		return
+	}
+
+	var body struct {
+		VersionID string `json:"version_id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&body); err != nil || body.VersionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, "BAD_REQUEST", "version_id が必要です")
+		return
+	}
+	ver, err := h.repo.GetPolicyVersion(r.Context(), body.VersionID)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "履歴の取得に失敗しました")
+		return
+	}
+	if ver == nil || ver.RouteDir != dir {
+		writeErrorResponse(w, http.StatusNotFound, "NOT_FOUND", "指定のバージョンが見つかりません")
+		return
+	}
+
+	// 現在の内容を履歴に残してから書き戻す
+	backup, _ := os.ReadFile(route.PolicyPath)
+	h.saveVersion(r.Context(), dir, backup, session)
+	if err := policyfile.WriteAtomic(route.PolicyPath, []byte(ver.Content)); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "書き込みに失敗しました")
+		return
+	}
+	if err := h.reloadGateway(r.Context()); err != nil {
+		if backup != nil {
+			_ = policyfile.WriteAtomic(route.PolicyPath, backup)
+		}
+		writeErrorResponse(w, http.StatusUnprocessableEntity, "RELOAD_FAILED",
+			"smtp-gateway が復元後のポリシーを拒否しました: "+err.Error())
+		return
+	}
+	h.audit(session, "policy.rolled_back", dir)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+// saveVersion は content（変更前の policy.yaml）を履歴に保存する（best-effort）。
+func (h *PolicyHandler) saveVersion(ctx context.Context, dir string, content []byte, session *domain.Session) {
+	if content == nil {
+		return // 既存ファイルなし（初回作成）は履歴なし
+	}
+	v := &domain.PolicyVersion{
+		ID:       uuid.NewString(),
+		RouteDir: dir,
+		Content:  string(content),
+	}
+	if session != nil {
+		v.ActorID = audit.StrPtr(session.User.Sub)
+		v.ActorEmail = audit.StrPtr(session.User.Email)
+	}
+	if err := h.repo.SavePolicyVersion(ctx, v); err != nil {
+		slog.Warn("ポリシー履歴の保存失敗（続行）", "route", dir, "error", err)
+	}
+}
+
+func (h *PolicyHandler) audit(session *domain.Session, event, dir string) {
+	if h.auditLogger == nil || session == nil {
+		return
+	}
+	h.auditLogger.Log(domain.AuditLog{
+		EventType:  event,
+		ActorID:    audit.StrPtr(session.User.Sub),
+		ActorEmail: audit.StrPtr(session.User.Email),
+		TargetType: audit.StrPtr("policy_route"),
+		TargetID:   audit.StrPtr(dir),
+	})
 }
 
 // HandleStats は GET /api/v1/policy/stats を処理する（ルール別ヒット件数のプロキシ）。
