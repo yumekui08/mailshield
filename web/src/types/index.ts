@@ -195,3 +195,45 @@ export interface CreateAPIKeyResponse extends APIKey {
   key: string;
 }
 
+
+// ─── ポリシー編集（P2） ──────────────────────────────────────
+
+export interface PolicyActionSpec {
+  type: string;
+  destination?: string;
+  delay_minutes?: number;
+  name?: string;
+  value?: string;
+}
+
+export interface PolicyRule {
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  priority?: number;
+  tags?: string[];
+  condition: string;
+  action?: string;
+  destination?: string;
+  delay_minutes?: number;
+  actions?: PolicyActionSpec[];
+}
+
+export interface PolicyDocument {
+  lists?: Record<string, { values?: string[]; file?: string }>;
+  rules: PolicyRule[];
+}
+
+export interface PolicyRoute {
+  dir: string;
+  name: string;
+  direction: string;
+  policy: PolicyDocument;
+}
+
+export type PolicyHits = Record<string, Record<string, number>>;
+
+export interface PolicyRoutesResponse {
+  routes: PolicyRoute[];
+  hits: PolicyHits;
+}

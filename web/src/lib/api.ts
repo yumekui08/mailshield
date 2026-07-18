@@ -17,6 +17,10 @@ import type {
   ApprovalRequest,
   ApprovalRequestDetail,
   DelayedRelease,
+  PolicyRoute,
+  PolicyRoutesResponse,
+  PolicyDocument,
+  PolicyHits,
 } from "../types";
 
 const BASE = "/api/v1";
@@ -514,4 +518,28 @@ export async function setUserApprover(userId: string, approverId: string | null)
     method: "PUT",
     body: JSON.stringify({ approver_id: approverId }),
   });
+}
+
+// ─── ポリシー編集（P2） ──────────────────────────────────────
+
+export async function getPolicyRoutes(): Promise<PolicyRoutesResponse> {
+  return request<PolicyRoutesResponse>("/policy/routes");
+}
+
+export async function getPolicyRoute(dir: string): Promise<PolicyRoute> {
+  return request<PolicyRoute>(`/policy/routes/${encodeURIComponent(dir)}`);
+}
+
+export async function updatePolicyRoute(
+  dir: string,
+  doc: PolicyDocument
+): Promise<{ status: string; rules: number }> {
+  return request<{ status: string; rules: number }>(
+    `/policy/routes/${encodeURIComponent(dir)}`,
+    { method: "PUT", body: JSON.stringify(doc) }
+  );
+}
+
+export async function getPolicyStats(): Promise<{ hits: PolicyHits }> {
+  return request<{ hits: PolicyHits }>("/policy/stats");
 }

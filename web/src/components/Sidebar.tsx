@@ -9,6 +9,7 @@ import {
   ClipboardList,
   Key,
   FlaskConical,
+  SlidersHorizontal,
   ClipboardCheck,
   ShieldAlert,
   Clock,
@@ -55,6 +56,7 @@ const navGroups: NavGroup[] = [
     heading: "運用",
     items: [
       { to: "/mailboxes", label: "メールボックス", icon: Inbox, roles: ["admin", "operator"] },
+      { to: "/policy", label: "ポリシー", icon: SlidersHorizontal, roles: ["admin", "operator"] },
       { to: "/simulate", label: "ポリシーシミュレーター", icon: FlaskConical, roles: ["admin", "operator"] },
     ],
   },

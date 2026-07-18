@@ -15,6 +15,7 @@ import { MailboxesPage } from "./pages/MailboxesPage";
 import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { APIKeysPage } from "./pages/APIKeysPage";
 import { SimulatePage } from "./pages/SimulatePage";
+import { PolicyPage } from "./pages/PolicyPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { DelayedPage } from "./pages/DelayedPage";
 import { ApprovalDetailPage } from "./pages/ApprovalDetailPage";
@@ -60,6 +61,7 @@ export function App() {
             <Route path="/audit-logs" element={<AuditLogsPage />} />
             <Route path="/api-keys" element={<APIKeysPage />} />
             <Route path="/simulate" element={<SimulatePage />} />
+            <Route path="/policy" element={<PolicyPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
             <Route path="/delayed" element={<DelayedPage />} />
