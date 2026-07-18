@@ -3,7 +3,7 @@ package ldap
 import (
 	"context"
 	"errors"
-	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/directory"
@@ -232,18 +232,21 @@ func (f *fakeMailboxAssignmentSyncer) ListMailboxes(_ context.Context) ([]reposi
 	return f.mailboxes, nil
 }
 
-// userAttrResolution は user_attribute（dereference 無し・CN 抽出 + ドメイン補完）の
+// userAttrResolution はチェーン（memberOf → CN 抽出 + ドメイン補完）の
 // テスト用 MailboxResolution を返す。グループ CN "mbx-<name>" を <name>@example.com に解決する。
 func userAttrResolution(t *testing.T, role domain.AssignmentRole) *MailboxResolution {
 	t.Helper()
-	re := regexp.MustCompile(`^cn=mbx-(?P<value>[\w-]+),ou=Groups.*$`)
-	return &MailboxResolution{Roles: []RoleResolution{{
-		Role:            role,
-		Method:          MethodUserAttribute,
-		SourceAttribute: "memberOf",
-		SourceTransform: re,
-		MailboxDomain:   "example.com",
-	}}}
+	rr, err := CompileChainRule(role,
+		[]map[string]any{
+			{"self": "memberOf"},
+			{"regex": `^cn=mbx-(?P<value>[\w-]+),ou=Groups`},
+			{"to_mailbox": map[string]any{"domain": "example.com"}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &MailboxResolution{Roles: []RoleResolution{rr}}
 }
 
 // TestSyncer_Sync_MailboxAssignments_UserAttribute は user_attribute 方式（dereference 無し）で
@@ -307,21 +310,30 @@ func TestSyncer_Sync_MailboxAssignments_GroupSearch(t *testing.T) {
 	}
 	searcher := &fakeSearcher{searchFunc: func(baseDN, filter string, _ []string) ([]Entry, error) {
 		if baseDN == "ou=Groups,dc=corp,dc=local" {
-			return groupEntries, nil
+			// member 絞り込み: Alice の DN を含むフィルタのときだけ sales グループを返す
+			if strings.Contains(strings.ToLower(filter), "cn=alice") {
+				return groupEntries, nil
+			}
+			return nil, nil
 		}
 		return userEntries, nil
 	}}
 
 	mboxSyncer := &fakeMailboxAssignmentSyncer{}
 	cfg := testSyncConfig()
-	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{{
-		Role:            domain.AssignmentRoleOwner,
-		Method:          MethodGroupSearch,
-		BaseDN:          "ou=Groups,dc=corp,dc=local",
-		Filter:          "(mail=*)",
-		MemberAttr:      "member",
-		TargetAttribute: "mail",
-	}}}
+	// チェーン: 自分がメンバーのグループを検索し、そのグループの mail をメールボックスにする
+	ownerRule, err := CompileChainRule(domain.AssignmentRoleOwner,
+		[]map[string]any{
+			{"self": "dn"},
+			{"search": map[string]any{"base_dn": "ou=Groups,dc=corp,dc=local", "filter": "(&(mail=*)(member={value}))"}},
+			{"attr": "mail"},
+			{"to_mailbox": map[string]any{}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{ownerRule}}
 	s := NewSyncer(directory.NewProvisioner(&fakeProvisionerRepo{}), &fakeDeactivator{}, mboxSyncer, cfg)
 
 	if _, err := s.Sync(context.Background(), searcher); err != nil {
@@ -357,11 +369,9 @@ func TestSyncer_Sync_MailboxAssignments_Fixed(t *testing.T) {
 		},
 	}
 	cfg := testSyncConfig()
-	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{{
-		Role:            domain.AssignmentRoleApprover,
-		Method:          MethodFixed,
-		FixedUserEmails: []string{"Admin@corp.local"}, // 大文字小文字を無視して一致するべき
-	}}}
+	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{
+		FixedRule(domain.AssignmentRoleApprover, []string{"Admin@corp.local"}), // 大文字小文字を無視して一致するべき
+	}}
 	s := NewSyncer(directory.NewProvisioner(&fakeProvisionerRepo{}), &fakeDeactivator{}, mboxSyncer, cfg)
 
 	if _, err := s.Sync(context.Background(), searcher); err != nil {
@@ -394,12 +404,13 @@ func TestSyncer_Sync_MailboxAssignments_Fixed(t *testing.T) {
 	}
 }
 
-// TestSyncer_Sync_MailboxAssignments_GroupSearchFailureSkipsMailboxSync は
-// group_search の一括検索が失敗した場合、不完全なタプルでの reconcile による
-// 誤削除を避けるため、そのサイクルのメールボックス反映全体をスキップすることを確認する。
-func TestSyncer_Sync_MailboxAssignments_GroupSearchFailureSkipsMailboxSync(t *testing.T) {
+// TestSyncer_Sync_MailboxAssignments_ChainSearchFailureSkipsUser は
+// チェーンの search が失敗したユーザーについて、不完全なタプルでの reconcile による
+// 誤削除を避けるため、そのユーザーのメールボックス反映をスキップすることを確認する。
+func TestSyncer_Sync_MailboxAssignments_ChainSearchFailureSkipsUser(t *testing.T) {
 	userEntries := []Entry{
-		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{"mail": {"alice@corp.local"}}},
+		{DN: "cn=Alice,ou=Users,dc=corp,dc=local", Attributes: map[string][]string{
+			"mail": {"alice@corp.local"}, "memberOf": {"cn=sales,ou=Groups,dc=corp,dc=local"}}},
 	}
 	searcher := &fakeSearcher{searchFunc: func(baseDN, _ string, _ []string) ([]Entry, error) {
 		if baseDN == "ou=Groups,dc=corp,dc=local" {
@@ -409,10 +420,18 @@ func TestSyncer_Sync_MailboxAssignments_GroupSearchFailureSkipsMailboxSync(t *te
 	}}
 	mboxSyncer := &fakeMailboxAssignmentSyncer{}
 	cfg := testSyncConfig()
-	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{{
-		Role: domain.AssignmentRoleOwner, Method: MethodGroupSearch,
-		BaseDN: "ou=Groups,dc=corp,dc=local", Filter: "(mail=*)", MemberAttr: "member", TargetAttribute: "mail",
-	}}}
+	rule, err := CompileChainRule(domain.AssignmentRoleOwner,
+		[]map[string]any{
+			{"self": "memberOf"},
+			{"search": map[string]any{"base_dn": "ou=Groups,dc=corp,dc=local", "filter": "(member={value})"}},
+			{"attr": "mail"},
+			{"to_mailbox": map[string]any{}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MailboxResolution = &MailboxResolution{Roles: []RoleResolution{rule}}
 	s := NewSyncer(directory.NewProvisioner(&fakeProvisionerRepo{}), &fakeDeactivator{}, mboxSyncer, cfg)
 
 	result, err := s.Sync(context.Background(), searcher)
@@ -420,13 +439,13 @@ func TestSyncer_Sync_MailboxAssignments_GroupSearchFailureSkipsMailboxSync(t *te
 		t.Fatalf("Sync() error = %v", err)
 	}
 	if len(mboxSyncer.calls) != 0 {
-		t.Errorf("group_search 失敗時は reconcile を呼ぶべきではない（誤削除防止）: %d 回呼ばれた", len(mboxSyncer.calls))
+		t.Errorf("解決失敗時は reconcile を呼ぶべきではない（誤削除防止）: %d 回呼ばれた", len(mboxSyncer.calls))
 	}
 	if result.Synced != 1 {
 		t.Errorf("ユーザー同期自体は続行されるべき: Synced = %d", result.Synced)
 	}
 	if len(result.Errors) == 0 {
-		t.Error("group_search 失敗は Result.Errors に記録されるべき")
+		t.Error("解決失敗は Result.Errors に記録されるべき")
 	}
 }
 

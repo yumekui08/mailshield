@@ -126,19 +126,7 @@ func (s *Syncer) Sync(ctx context.Context, searcher Searcher) (Result, error) {
 	presentEmails := make([]string, 0, len(entries))
 
 	mailboxEnabled := s.mailboxSyncer != nil && !s.cfg.MailboxResolution.Empty()
-	var groupTuples map[string][]directory.MailboxAssignmentTuple
 	cache := NewDerefCache()
-	if mailboxEnabled {
-		groupTuples, err = s.cfg.MailboxResolution.ResolveGroupSearchAll(searcher)
-		if err != nil {
-			// group_search の失敗はメールボックス反映のみ諦め、ユーザー同期は続行する。
-			// 中途半端な groupTuples で reconcile すると正当な割り当てを誤削除しうるため、
-			// このサイクルの割り当て反映はまるごとスキップする。
-			slog.Error("LDAP同期: group_search 失敗（このサイクルのメールボックス反映をスキップ）", "error", err)
-			result.Errors = append(result.Errors, err)
-			mailboxEnabled = false
-		}
-	}
 
 	// fixed 方式の対象ユーザーは第2パスで処理する（第1パスの解決結果を持ち越す）
 	type pendingFixed struct {
@@ -178,8 +166,14 @@ func (s *Syncer) Sync(ctx context.Context, searcher Searcher) (Result, error) {
 			continue
 		}
 
-		tuples := s.cfg.MailboxResolution.ResolveUserAttribute(searcher, e, cache)
-		tuples = append(tuples, groupTuples[NormalizeDN(e.DN)]...)
+		tuples, rerr := s.cfg.MailboxResolution.ResolveForUser(searcher, e, cache)
+		if rerr != nil {
+			// 解決失敗（LDAP 検索エラー等）。不完全なタプルで reconcile すると
+			// 正当な既存割り当てを誤削除しうるため、このユーザーの反映はスキップして現状維持する。
+			slog.Warn("LDAP同期: メールボックス解決失敗（このユーザーの反映をスキップ）", "email", email, "error", rerr)
+			result.Errors = append(result.Errors, rerr)
+			continue
+		}
 
 		if len(s.cfg.MailboxResolution.FixedRolesForEmail(email)) > 0 {
 			pending = append(pending, pendingFixed{userID: dbUser.ID, email: email, tuples: tuples})

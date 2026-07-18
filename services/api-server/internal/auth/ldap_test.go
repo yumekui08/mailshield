@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"errors"
-	"regexp"
 	"testing"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
@@ -248,13 +247,17 @@ func TestLDAPBindProvider_Login_SyncsMailboxAssignments(t *testing.T) {
 	dial := fakeDialer(t, "cn=svc,dc=corp,dc=local", "svc-pass", entries, "cn=Alice,ou=Users,dc=corp,dc=local", "correct-password", nil)
 	repo := &fakeProvisionerRepo{}
 	p := testLDAPBindProvider(t, dial, repo)
-	p.syncCfg.MailboxResolution = &ldapsync.MailboxResolution{Roles: []ldapsync.RoleResolution{{
-		Role:            domain.AssignmentRoleMember,
-		Method:          ldapsync.MethodUserAttribute,
-		SourceAttribute: "memberOf",
-		SourceTransform: regexp.MustCompile(`^cn=mbx-(?P<value>[\w-]+),ou=Groups.*$`),
-		MailboxDomain:   "example.com",
-	}}}
+	memberRule, err := ldapsync.CompileChainRule(domain.AssignmentRoleMember,
+		[]map[string]any{
+			{"self": "memberOf"},
+			{"regex": `^cn=mbx-(?P<value>[\w-]+),ou=Groups`},
+			{"to_mailbox": map[string]any{"domain": "example.com"}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.syncCfg.MailboxResolution = &ldapsync.MailboxResolution{Roles: []ldapsync.RoleResolution{memberRule}}
 	mboxSyncer := &fakeMailboxAssignmentSyncer{}
 	p.mailboxSyncer = mboxSyncer
 
@@ -286,11 +289,9 @@ func TestLDAPBindProvider_Login_FixedRole(t *testing.T) {
 	}
 	dial := fakeDialer(t, "cn=svc,dc=corp,dc=local", "svc-pass", entries, "cn=Admin,ou=Users,dc=corp,dc=local", "correct-password", nil)
 	p := testLDAPBindProvider(t, dial, &fakeProvisionerRepo{})
-	p.syncCfg.MailboxResolution = &ldapsync.MailboxResolution{Roles: []ldapsync.RoleResolution{{
-		Role:            domain.AssignmentRoleApprover,
-		Method:          ldapsync.MethodFixed,
-		FixedUserEmails: []string{"admin@corp.local"},
-	}}}
+	p.syncCfg.MailboxResolution = &ldapsync.MailboxResolution{Roles: []ldapsync.RoleResolution{
+		ldapsync.FixedRule(domain.AssignmentRoleApprover, []string{"admin@corp.local"}),
+	}}
 	mboxSyncer := &fakeMailboxAssignmentSyncer{
 		mailboxes: []repository.Mailbox{
 			{EmailAddress: "sales@example.com", IsActive: true, ProvisionedBy: domain.ProvisionedByLDAP},

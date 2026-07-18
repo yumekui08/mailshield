@@ -84,50 +84,54 @@ directory:
     #   viewer: "cn=MailShield-Viewers,ou=Groups,dc=corp,dc=local"
     # sync_interval_minutes: 60
     # deactivate_missing_users: true  # 同期結果に含まれなくなった ldap ユーザーを無効化する
-    # メールボックス割り当て（member/owner/admin）をディレクトリ構造から自動反映する（任意）。
-    # rules はルールのリストで、同じ role に複数のルールを書ける（解決結果は合算される）。
-    # 各ルールの method:
-    #   user_attribute : ユーザー自身の属性から解決。
-    #                    source_attribute → source_transform?(正規表現・フィルタ兼抽出)
-    #                    → dereference?(再検索・最大1回) → target_attribute → target_transform?
-    #   group_search   : メールボックスを表すグループを一括検索し、member_attr の DN を対象ユーザーとする
-    #   fixed          : 列挙したユーザーへ、ldap 管理下の全メールボックスに対して当該ロールを付与
+    # メールボックス割り当て（member=受信 / owner=送信 / approver=承認）をディレクトリ構造から
+    # 自動反映する（任意）。rules は「線形チェーン（chain）」「Lua フック（lua）」「決め打ち（fixed）」
+    # のいずれかを持つルールのリスト。同じ role に複数ルールを書ける（解決結果は合算される）。
     #
-    # 典型構成: 「全ユーザーの個人メールボックス + 共有メールボックス + 全体管理者」
+    # chain のステップ（分岐・ループなし・上から順に適用）:
+    #   {self: <attr>}                起点: ユーザーの属性値（"dn" は DN 自身）
+    #   {const: [v...]}               起点: 固定値の注入
+    #   {regex: <pattern>}            値を正規表現で抽出・絞り込み（?P<value> / 先頭グループ / 全体）
+    #   {search: {base_dn:, filter:}} 値ごとに filter の {value} を差し込み再検索 → エントリ
+    #                                 （{value} は自動で LDAP エスケープされる）
+    #   {attr: <name>}                エントリから属性値を取り出す → 値
+    #   {to_mailbox: {domain:}}       終端: 値をメールボックスアドレスに確定（@ 無しは domain 補完）
+    #
+    # 典型構成: 「全ユーザーの個人メールボックス + 共有メールボックス + 全体承認者」
     # mailbox_provisioning:
     #   rules:
-    #     # ① 個人メールボックス: 各ユーザー自身の mail 属性がそのままメールボックスになり、
-    #     #    本人が owner として割り当てられる（user01 宛の隔離メールを user01 自身が
-    #     #    閲覧・解放できるようにするための基本設定。ほぼすべての環境で推奨）
+    #     # ① 個人メールボックス: 各ユーザー自身の mail 属性がメールボックスになり本人が owner
     #     - role: owner
-    #       method: user_attribute
-    #       source_attribute: mail
+    #       chain:
+    #         - self: mail
+    #         - to_mailbox: {}
     #
-    #     # ② 共有メールボックス（memberOf 起点）: 所属グループを再検索し、
-    #     #    グループ自身の mail 属性をメールボックスとして member 割り当て
+    #     # ② 共有メールボックス（memberOf 起点）: 所属グループの cn を抽出しドメイン補完
+    #     #    （例: cn=sales → sales@internal.dev の member）
     #     - role: member
-    #       method: user_attribute
-    #       source_attribute: memberOf
-    #       source_transform: '^cn=(?P<value>[^,]+),ou=Groups.*$'
-    #       dereference:
-    #         base_dn: "ou=Groups,dc=corp,dc=local"
-    #         filter: "(cn={value})"           # {value} は自動で LDAP エスケープされる
-    #       target_attribute: mail
+    #       chain:
+    #         - self: memberOf
+    #         - regex: '^cn=(?P<value>[^,]+),ou=Groups'
+    #         - to_mailbox: { domain: internal.dev }
     #
-    #     # ③ 共有メールボックス（グループ起点）: mail 属性つきグループを一括検索し、
-    #     #    owner 属性（AD なら managedBy）の DN のユーザーを owner 割り当て。
-    #     #    memberOf overlay の無い素の OpenLDAP でも動く
-    #     - role: owner
-    #       method: group_search
-    #       base_dn: "ou=Groups,dc=corp,dc=local"
-    #       filter: "(mail=*)"
-    #       member_attr: owner
-    #       target_attribute: mail
-    #
-    #     # ④ 承認者の決め打ち（複数はカンマ/セミコロン区切り）
+    #     # ③ 共有メールボックスの管理者: 自分が owner 属性に載っているグループを検索し、
+    #     #    そのグループを approver 担当にする（AD なら owner を managedBy に変える）
     #     - role: approver
-    #       method: fixed
-    #       fixed_value: "approver@internal.dev"
+    #       chain:
+    #         - self: dn
+    #         - search:
+    #             base_dn: "ou=Groups,dc=internal,dc=dev"
+    #             filter: "(&(objectClass=groupOfNames)(owner={value}))"
+    #         - attr: cn
+    #         - to_mailbox: { domain: internal.dev }
+    #
+    #     # ④ 全体承認者の決め打ち（ldap 管理下の全メールボックスに approver 付与）
+    #     - role: approver
+    #       fixed: [approver@internal.dev]
+    #
+    #     # ⑤ 変則ディレクトリ向け: Lua フック（resolve(user) が {{mailbox=, role=}} を返す）
+    #     # - role: member
+    #     #   lua: /app/config/ldap-hooks/custom.lua
 
 # メールボックス機能ロール: member=受信担当 / owner=送信担当 / approver=承認担当。
 # メールボックス自体の管理はシステム RBAC（operator/admin）が担う。

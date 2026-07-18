@@ -2,8 +2,6 @@ package auth
 
 import (
 	"fmt"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
@@ -89,91 +87,30 @@ func buildMailboxResolution(cfg config.MailboxProvisioningConfig) (*ldapsync.Mai
 }
 
 func buildRoleResolution(role domain.AssignmentRole, rc config.MailboxProvisioningRuleConfig) (ldapsync.RoleResolution, error) {
-	rr := ldapsync.RoleResolution{Role: role, Method: rc.Method}
+	// chain / lua / fixed のいずれか 1 つだけを指定する。
+	set := 0
+	if len(rc.Chain) > 0 {
+		set++
+	}
+	if rc.Lua != "" {
+		set++
+	}
+	if len(rc.Fixed) > 0 {
+		set++
+	}
+	if set == 0 {
+		return ldapsync.RoleResolution{}, fmt.Errorf("chain / lua / fixed のいずれか 1 つを指定してください")
+	}
+	if set > 1 {
+		return ldapsync.RoleResolution{}, fmt.Errorf("chain / lua / fixed は同時に指定できません")
+	}
 
-	switch rc.Method {
-	case ldapsync.MethodUserAttribute:
-		if rc.SourceAttribute == "" {
-			return rr, fmt.Errorf("method: user_attribute には source_attribute が必須です")
-		}
-		rr.SourceAttribute = rc.SourceAttribute
-		rr.MailboxDomain = rc.MailboxDomain
-
-		var err error
-		if rr.SourceTransform, err = compileTransform("source_transform", rc.SourceTransform); err != nil {
-			return rr, err
-		}
-		if rr.TargetTransform, err = compileTransform("target_transform", rc.TargetTransform); err != nil {
-			return rr, err
-		}
-
-		hasDeref := rc.Dereference.BaseDN != "" || rc.Dereference.Filter != ""
-		if hasDeref {
-			if rc.Dereference.BaseDN == "" || rc.Dereference.Filter == "" {
-				return rr, fmt.Errorf("dereference には base_dn と filter の両方が必要です")
-			}
-			if !strings.Contains(rc.Dereference.Filter, "{value}") {
-				return rr, fmt.Errorf("dereference.filter には {value} プレースホルダが必要です: %q", rc.Dereference.Filter)
-			}
-			if rc.TargetAttribute == "" {
-				return rr, fmt.Errorf("dereference を使う場合は target_attribute が必須です")
-			}
-			rr.Dereference = &ldapsync.DereferenceRule{BaseDN: rc.Dereference.BaseDN, Filter: rc.Dereference.Filter}
-			rr.TargetAttribute = rc.TargetAttribute
-		} else if rc.TargetAttribute != "" {
-			return rr, fmt.Errorf("target_attribute は dereference と併用したときのみ有効です（dereference 無しでは source の値がそのまま使われます）")
-		}
-
-	case ldapsync.MethodGroupSearch:
-		if rc.BaseDN == "" || rc.Filter == "" || rc.MemberAttr == "" || rc.TargetAttribute == "" {
-			return rr, fmt.Errorf("method: group_search には base_dn・filter・member_attr・target_attribute がすべて必須です")
-		}
-		rr.BaseDN = rc.BaseDN
-		rr.Filter = rc.Filter
-		rr.MemberAttr = rc.MemberAttr
-		rr.TargetAttribute = rc.TargetAttribute
-		rr.MailboxDomain = rc.MailboxDomain
-
-		var err error
-		if rr.TargetTransform, err = compileTransform("target_transform", rc.TargetTransform); err != nil {
-			return rr, err
-		}
-
-	case ldapsync.MethodFixed:
-		emails := splitFixedValues(rc.FixedValue)
-		if len(emails) == 0 {
-			return rr, fmt.Errorf("method: fixed には fixed_value（カンマまたはセミコロン区切りのメールアドレス）が必須です")
-		}
-		rr.FixedUserEmails = emails
-
-	case "":
-		return rr, fmt.Errorf("method は必須です（user_attribute | group_search | fixed）")
+	switch {
+	case len(rc.Chain) > 0:
+		return ldapsync.CompileChainRule(role, rc.Chain)
+	case rc.Lua != "":
+		return ldapsync.CompileLuaRule(role, rc.Lua)
 	default:
-		return rr, fmt.Errorf("未知の method です: %q（user_attribute | group_search | fixed）", rc.Method)
+		return ldapsync.FixedRule(role, rc.Fixed), nil
 	}
-
-	return rr, nil
-}
-
-// compileTransform は変換用正規表現をコンパイルする。空文字列なら nil（変換なし）。
-func compileTransform(name, pattern string) (*regexp.Regexp, error) {
-	if pattern == "" {
-		return nil, nil
-	}
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("%s のコンパイル失敗: %w", name, err)
-	}
-	return re, nil
-}
-
-// splitFixedValues はカンマ・セミコロン区切りの値リストをパースする。
-func splitFixedValues(s string) []string {
-	var out []string
-	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ';' }) {
-		if v := strings.TrimSpace(part); v != "" {
-			out = append(out, v)
-		}
-	}
-	return out
 }

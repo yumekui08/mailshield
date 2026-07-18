@@ -314,27 +314,18 @@ directory:
       rules:
         # 個人メールボックス: 自分の mail 属性 → 本人が owner
         - role: owner
-          method: user_attribute
-          source_attribute: mail
-        # 共有メールボックス: memberOf → 再検索 → member（owner ルールと role が別でも、
-        # 下の member 2 ルール目のように同一 role の複数ルールも許容される）
+          chain:
+            - self: mail
+            - to_mailbox: {}
+        # 共有メールボックス: memberOf → cn 抽出 → domain 補完
         - role: member
-          method: user_attribute
-          source_attribute: memberOf
-          source_transform: '^cn=(?P<value>[^,]+),.*$'
-          dereference:
-            base_dn: "ou=Groups,dc=corp,dc=local"
-            filter: "(cn={value})"
-          target_attribute: mail
-        - role: member
-          method: group_search
-          base_dn: "ou=Groups,dc=corp,dc=local"
-          filter: "(mail=*)"
-          member_attr: member
-          target_attribute: mail
+          chain:
+            - self: memberOf
+            - regex: '^cn=(?P<value>[^,]+),ou=Groups'
+            - to_mailbox: { domain: internal.dev }
+        # 承認者: 全 ldap メールボックスへ決め打ち付与
         - role: approver
-          method: fixed
-          fixed_value: "admin@internal.dev; backup@internal.dev"
+          fixed: [admin@internal.dev, backup@internal.dev]
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -342,19 +333,16 @@ directory:
 	}
 
 	rules := cfg.Directory.LDAP.MailboxProvisioning.Rules
-	if len(rules) != 4 {
-		t.Fatalf("Rules = %d 件, want 4", len(rules))
+	if len(rules) != 3 {
+		t.Fatalf("Rules = %d 件, want 3", len(rules))
 	}
-	if rules[0].Role != "owner" || rules[0].Method != "user_attribute" || rules[0].SourceAttribute != "mail" {
+	if rules[0].Role != "owner" || len(rules[0].Chain) != 2 {
 		t.Errorf("rules[0]（個人メールボックス）= %+v", rules[0])
 	}
-	if rules[1].Role != "member" || rules[1].Dereference.Filter != "(cn={value})" || rules[1].TargetAttribute != "mail" {
-		t.Errorf("rules[1] = %+v", rules[1])
+	if rules[1].Role != "member" || len(rules[1].Chain) != 3 {
+		t.Errorf("rules[1]（共有メールボックス）= %+v", rules[1])
 	}
-	if rules[2].Role != "member" || rules[2].Method != "group_search" || rules[2].MemberAttr != "member" {
-		t.Errorf("rules[2]（member の 2 ルール目）= %+v", rules[2])
-	}
-	if rules[3].Role != "approver" || rules[3].Method != "fixed" || rules[3].FixedValue != "admin@internal.dev; backup@internal.dev" {
-		t.Errorf("rules[3] = %+v", rules[3])
+	if rules[2].Role != "approver" || len(rules[2].Fixed) != 2 || rules[2].Fixed[0] != "admin@internal.dev" {
+		t.Errorf("rules[2]（fixed）= %+v", rules[2])
 	}
 }

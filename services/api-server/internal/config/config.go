@@ -90,7 +90,7 @@ type LDAPConfig struct {
 	// LDAP 検索が 0 件を返した場合は誤って全ユーザーを無効化しないよう何もしない。
 	DeactivateMissingUsers bool `mapstructure:"deactivate_missing_users"`
 	// MailboxProvisioning はユーザー・グループのディレクトリ構造からメールボックス割り当て
-	// （member/owner/admin）を自動反映するための設定。
+	// （member/owner/approver）を自動反映するための設定。
 	MailboxProvisioning MailboxProvisioningConfig `mapstructure:"mailbox_provisioning"`
 }
 
@@ -102,58 +102,29 @@ type MailboxProvisioningConfig struct {
 	Rules []MailboxProvisioningRuleConfig `mapstructure:"rules"`
 }
 
-// MailboxProvisioningRuleConfig は 1 ルール分の解決方式を保持する。
-// Role は member / owner / admin のいずれか。
-// Method に応じて対応するフィールド群だけが使われる:
-//   - user_attribute : ユーザー起点。ユーザー自身の属性から解決する有界パイプライン
-//     （source_attribute → source_transform? → dereference?(最大1回) → target_attribute → target_transform?）。
-//     source_attribute に mail（自分のメールアドレス属性）を指定すれば
-//     「各ユーザー自身のメールアドレスをメールボックスとして登録し本人を割り当てる」
-//     個人メールボックスの自動作成になる
-//   - group_search   : グループ起点。メールボックスを表すグループを一括検索し、
-//     そのグループの member_attr（DN 一覧）を対象ユーザーとみなす
-//   - fixed          : 決め打ち。fixed_value に列挙したメールアドレスのユーザーへ、
-//     この同期ソースが管理する全メールボックスに対して当該ロールを付与する
+// MailboxProvisioningRuleConfig は 1 ルール分の解決設定を保持する。
+// Role は member / owner / approver のいずれか。
+// Chain / Lua / Fixed のいずれか 1 つを指定する:
+//   - Chain : 線形チェーン（ユーザーの属性からメールボックスを導出する固定部品の列）。
+//     各要素は 1 キーのマップで、キーがステップ種別:
+//     {self: <attr>}                起点: ユーザーの属性値（"dn" は DN 自身）
+//     {const: [v...]}               起点: 固定値の注入
+//     {regex: <pattern>}            値を正規表現で抽出・絞り込み
+//     {search: {base_dn:, filter:}} 値ごとに filter の {value} を差し込み再検索 → エントリ
+//     {attr: <name>}                エントリから属性値を取り出す → 値
+//     {to_mailbox: {domain:}}       終端: 値をメールボックスアドレスに確定（@ 無しは domain 補完）
+//     例（個人）: [{self: mail}, {to_mailbox: {}}]
+//     例（グループメンバー）: [{self: memberOf}, {regex: '^cn=(?P<value>[^,]+),ou=Groups'}, {to_mailbox: {domain: internal.dev}}]
+//     例（グループ管理者）: [{self: dn}, {search: {base_dn:, filter: '(&(objectClass=groupOfNames)(owner={value}))'}}, {attr: cn}, {to_mailbox: {domain: internal.dev}}]
+//   - Lua   : チェーンで表現できない変則ディレクトリ向けのフック（スクリプトファイルのパス）。
+//     resolve(user) がユーザー属性テーブルを受け取り {{mailbox=, role=}, ...} を返す。LDAP 検索は不可。
+//   - Fixed : この同期ソースが管理する全メールボックスへ当該ロールを付与するユーザーの
+//     メールアドレス一覧。全メールボックス集合に依存するため 2 パスで反映する。
 type MailboxProvisioningRuleConfig struct {
-	Role   string `mapstructure:"role"`
-	Method string `mapstructure:"method"`
-
-	// ─── method: user_attribute ───
-	// SourceAttribute はユーザーエントリのどの属性を読むか（例: memberOf）。複数値なら 1 件ずつ処理する。
-	SourceAttribute string `mapstructure:"source_attribute"`
-	// SourceTransform は属性値に適用する正規表現（任意）。マッチしない値はスキップされる
-	// （memberOf に含まれる無関係なグループを取り除くフィルタを兼ねる）。
-	SourceTransform string `mapstructure:"source_transform"`
-	// Dereference は前段の値を使った再検索（任意・最大1回）。
-	Dereference MailboxDereferenceConfig `mapstructure:"dereference"`
-	// TargetAttribute は dereference 結果のエントリから読む属性（dereference 使用時は必須）。
-	TargetAttribute string `mapstructure:"target_attribute"`
-	// TargetTransform は最終値に適用する正規表現（任意）。
-	TargetTransform string `mapstructure:"target_transform"`
-	// MailboxDomain が空でなく、最終値に "@" が含まれない場合、"値@MailboxDomain" を
-	// メールボックスアドレスとして組み立てる。
-	MailboxDomain string `mapstructure:"mailbox_domain"`
-
-	// ─── method: group_search ───
-	// BaseDN / Filter はメールボックスを表すグループの検索条件。
-	BaseDN string `mapstructure:"base_dn"`
-	Filter string `mapstructure:"filter"`
-	// MemberAttr はグループエントリのメンバー（ユーザー DN 一覧）を表す属性名（例: member）。
-	MemberAttr string `mapstructure:"member_attr"`
-	// group_search でも TargetAttribute / TargetTransform / MailboxDomain を使い、
-	// グループエントリ自身からメールボックスアドレスを取り出す（例: target_attribute: mail）。
-
-	// ─── method: fixed ───
-	// FixedValue はカンマまたはセミコロン区切りのユーザーメールアドレス一覧。
-	FixedValue string `mapstructure:"fixed_value"`
-}
-
-// MailboxDereferenceConfig は user_attribute の再検索（1回まで）の設定。
-type MailboxDereferenceConfig struct {
-	BaseDN string `mapstructure:"base_dn"`
-	// Filter は "{value}" プレースホルダを含む LDAP フィルタ。
-	// プレースホルダには前段の値が LDAP エスケープされて埋め込まれる（エスケープは無効化できない）。
-	Filter string `mapstructure:"filter"`
+	Role  string           `mapstructure:"role"`
+	Chain []map[string]any `mapstructure:"chain"`
+	Lua   string           `mapstructure:"lua"`
+	Fixed []string         `mapstructure:"fixed"`
 }
 
 // LDAPAttributesConfig はユーザーエントリから読み取る属性名。

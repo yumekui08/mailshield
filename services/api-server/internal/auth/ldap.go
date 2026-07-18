@@ -131,8 +131,12 @@ func (p *LDAPBindProvider) syncMailboxAssignments(ctx context.Context, dbUser *r
 	}
 	defer searcher.Close()
 
-	tuples := mr.ResolveUserAttribute(searcher, entry, ldapsync.NewDerefCache())
-	tuples = append(tuples, mr.ResolveGroupSearchForUser(searcher, entry.DN)...)
+	tuples, rerr := mr.ResolveForUser(searcher, entry, ldapsync.NewDerefCache())
+	if rerr != nil {
+		// 解決失敗時は不完全なタプルで上書きせず現状維持する（誤削除防止）。
+		slog.Warn("LDAP bind ログイン: メールボックス解決失敗（今回の反映をスキップ）", "email", dbUser.Email, "error", rerr)
+		return
+	}
 
 	if fixedRoles := mr.FixedRolesForEmail(dbUser.Email); len(fixedRoles) > 0 {
 		mailboxes, err := p.mailboxSyncer.ListMailboxes(ctx)

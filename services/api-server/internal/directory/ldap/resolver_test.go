@@ -2,10 +2,10 @@ package ldap
 
 import (
 	"errors"
-	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/koizumib/mailshield/services/api-server/internal/directory"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 )
 
@@ -25,232 +25,188 @@ func (c *countingSearcher) SearchUsers(baseDN, filter string, attrs []string) ([
 
 func (c *countingSearcher) Close() error { return nil }
 
-// TestResolveUserAttribute_NoDereference は dereference 無しの解決
-// （source_transform によるフィルタ兼抽出 + mailbox_domain 補完）を確認する。
-func TestResolveUserAttribute_NoDereference(t *testing.T) {
-	mr := &MailboxResolution{Roles: []RoleResolution{{
-		Role:            domain.AssignmentRoleMember,
-		Method:          MethodUserAttribute,
-		SourceAttribute: "memberOf",
-		SourceTransform: regexp.MustCompile(`^cn=mbx-(?P<value>[\w-]+),.*$`),
-		MailboxDomain:   "example.com",
-	}}}
-	entry := Entry{DN: "cn=alice,ou=Users,dc=x", Attributes: map[string][]string{
-		"memberOf": {
-			"cn=mbx-sales,ou=Groups,dc=x",
-			"cn=unrelated-group,ou=Groups,dc=x", // 正規表現に一致しない → スキップ
-			"cn=mbx-hr,ou=Groups,dc=x",
-		},
-	}}
-
-	tuples := mr.ResolveUserAttribute(nil, entry, NewDerefCache())
-	if len(tuples) != 2 {
-		t.Fatalf("tuples = %d 件, want 2: %+v", len(tuples), tuples)
+func chainRule(t *testing.T, role domain.AssignmentRole, steps ...map[string]any) RoleResolution {
+	t.Helper()
+	rr, err := CompileChainRule(role, steps)
+	if err != nil {
+		t.Fatalf("CompileChainRule: %v", err)
 	}
-	if tuples[0].MailboxEmail != "sales@example.com" || tuples[1].MailboxEmail != "hr@example.com" {
-		t.Errorf("tuples = %+v", tuples)
+	return rr
+}
+
+func mailboxStrings(tuples []directory.MailboxAssignmentTuple) []string {
+	out := make([]string, len(tuples))
+	for i, t := range tuples {
+		out[i] = string(t.Role) + ":" + t.MailboxEmail
+	}
+	return out
+}
+
+// ─── チェーン: 個人メールボックス（self mail → to_mailbox） ───────────────────
+
+func TestChain_PersonalMailbox(t *testing.T) {
+	mr := &MailboxResolution{Roles: []RoleResolution{
+		chainRule(t, domain.AssignmentRoleOwner,
+			map[string]any{"self": "mail"},
+			map[string]any{"to_mailbox": map[string]any{}},
+		),
+	}}
+	entry := Entry{DN: "uid=tanaka,ou=Users,dc=x", Attributes: map[string][]string{
+		"mail": {"tanaka@internal.dev"},
+	}}
+	got, _ := mr.ResolveForUser(nil, entry, NewDerefCache())
+	if len(got) != 1 || got[0].MailboxEmail != "tanaka@internal.dev" || got[0].Role != domain.AssignmentRoleOwner {
+		t.Errorf("個人メールボックス解決が不正: %+v", got)
 	}
 }
 
-// TestResolveUserAttribute_WithDereference は dereference（1回の再検索）を含む
-// フルパイプラインと、埋め込み値の強制エスケープを確認する。
-func TestResolveUserAttribute_WithDereference(t *testing.T) {
-	groupEntry := Entry{DN: "cn=sales,ou=Groups,dc=x", Attributes: map[string][]string{
-		"mail": {"sales@example.com"},
+// ─── チェーン: グループメンバー（memberOf → regex で cn 抽出 → domain 補完） ────
+
+func TestChain_GroupMemberFromMemberOf(t *testing.T) {
+	mr := &MailboxResolution{Roles: []RoleResolution{
+		chainRule(t, domain.AssignmentRoleMember,
+			map[string]any{"self": "memberOf"},
+			map[string]any{"regex": `^cn=(?P<value>[^,]+),ou=Groups`},
+			map[string]any{"to_mailbox": map[string]any{"domain": "internal.dev"}},
+		),
 	}}
+	entry := Entry{DN: "uid=tanaka,ou=Users,dc=x", Attributes: map[string][]string{
+		"memberOf": {
+			"cn=sales,ou=Groups,dc=internal,dc=dev",
+			"cn=staff,ou=Groups,dc=internal,dc=dev",
+			"cn=mailshield-viewers,ou=AppRoles,dc=internal,dc=dev", // ou=Groups でないので除外
+		},
+	}}
+	t0, _ := mr.ResolveForUser(nil, entry, NewDerefCache())
+	got := mailboxStrings(t0)
+	want := []string{"member:sales@internal.dev", "member:staff@internal.dev"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("グループメンバー解決が不正: got=%v want=%v", got, want)
+	}
+}
+
+// ─── チェーン: グループ管理者（dn → search owner={value} → attr cn → domain） ──
+
+func TestChain_GroupOwnerViaSearch(t *testing.T) {
 	searcher := &countingSearcher{searchFunc: func(_, filter string, _ []string) ([]Entry, error) {
-		if filter == "(cn=sales)" {
-			return []Entry{groupEntry}, nil
+		if strings.Contains(filter, "uid=sato") {
+			return []Entry{{DN: "cn=sales,ou=Groups", Attributes: map[string][]string{"cn": {"sales"}}}}, nil
 		}
 		return nil, nil
 	}}
-
-	mr := &MailboxResolution{Roles: []RoleResolution{{
-		Role:            domain.AssignmentRoleMember,
-		Method:          MethodUserAttribute,
-		SourceAttribute: "memberOf",
-		SourceTransform: regexp.MustCompile(`^cn=(?P<value>[^,]+),ou=Groups.*$`),
-		Dereference:     &DereferenceRule{BaseDN: "ou=Groups,dc=x", Filter: "(cn={value})"},
-		TargetAttribute: "mail",
-	}}}
-	entry := Entry{DN: "cn=alice,ou=Users,dc=x", Attributes: map[string][]string{
-		"memberOf": {"cn=sales,ou=Groups,dc=x"},
+	mr := &MailboxResolution{Roles: []RoleResolution{
+		chainRule(t, domain.AssignmentRoleApprover,
+			map[string]any{"self": "dn"},
+			map[string]any{"search": map[string]any{
+				"base_dn": "ou=Groups,dc=x",
+				"filter":  "(&(objectClass=groupOfNames)(owner={value}))",
+				"attrs":   "cn",
+			}},
+			map[string]any{"attr": "cn"},
+			map[string]any{"to_mailbox": map[string]any{"domain": "internal.dev"}},
+		),
 	}}
-
-	tuples := mr.ResolveUserAttribute(searcher, entry, NewDerefCache())
-	if len(tuples) != 1 || tuples[0].MailboxEmail != "sales@example.com" {
-		t.Fatalf("tuples = %+v", tuples)
+	entry := Entry{DN: "uid=sato,ou=Users,dc=x"}
+	t0, _ := mr.ResolveForUser(searcher, entry, NewDerefCache())
+	got := mailboxStrings(t0)
+	if len(got) != 1 || got[0] != "approver:sales@internal.dev" {
+		t.Errorf("グループ管理者解決が不正: %v", got)
+	}
+	if len(searcher.calls) != 1 || !strings.Contains(searcher.calls[0], "owner=uid=sato") {
+		t.Errorf("owner フィルタが期待通りでない: %v", searcher.calls)
 	}
 }
 
-// TestResolveUserAttribute_DereferenceEscaping は LDAP 特殊文字を含む値が
-// 必ずエスケープされてフィルタに埋め込まれることを確認する（インジェクション対策）。
-func TestResolveUserAttribute_DereferenceEscaping(t *testing.T) {
-	searcher := &countingSearcher{}
-	mr := &MailboxResolution{Roles: []RoleResolution{{
-		Role:            domain.AssignmentRoleMember,
-		Method:          MethodUserAttribute,
-		SourceAttribute: "memberOf",
-		// 変換なし: 値がそのまま dereference に渡る
-		Dereference:     &DereferenceRule{BaseDN: "ou=Groups,dc=x", Filter: "(cn={value})"},
-		TargetAttribute: "mail",
-	}}}
-	// フィルタ構文を壊そうとする悪意ある値
-	entry := Entry{DN: "cn=mallory,ou=Users,dc=x", Attributes: map[string][]string{
-		"memberOf": {"*)(objectClass=*"},
+// ─── search の {value} は LDAP エスケープされる ────────────────────────────────
+
+func TestChain_SearchEscaping(t *testing.T) {
+	var captured string
+	searcher := &countingSearcher{searchFunc: func(_, filter string, _ []string) ([]Entry, error) {
+		captured = filter
+		return nil, nil
 	}}
-
-	mr.ResolveUserAttribute(searcher, entry, NewDerefCache())
-
-	if len(searcher.calls) != 1 {
-		t.Fatalf("検索回数 = %d, want 1", len(searcher.calls))
-	}
-	got := searcher.calls[0]
-	if strings.Contains(got, "*)(objectClass=*") {
-		t.Errorf("エスケープされていない値がフィルタに埋め込まれた: %q", got)
-	}
-	// go-ldap の EscapeFilter は * → \2a, ( → \28, ) → \29 に変換する
-	if !strings.Contains(got, `\2a`) {
-		t.Errorf("エスケープ済みの値が含まれるべき: %q", got)
+	mr := &MailboxResolution{Roles: []RoleResolution{
+		chainRule(t, domain.AssignmentRoleMember,
+			map[string]any{"self": "memberOf"},
+			map[string]any{"search": map[string]any{"base_dn": "ou=g,dc=x", "filter": "(cn={value})"}},
+			map[string]any{"attr": "mail"},
+			map[string]any{"to_mailbox": map[string]any{}},
+		),
+	}}
+	entry := Entry{Attributes: map[string][]string{"memberOf": {"ev*il)(uid=admin"}}}
+	_, _ = mr.ResolveForUser(searcher, entry, NewDerefCache())
+	if strings.Contains(captured, "*") || strings.Contains(captured, ")(") {
+		t.Errorf("LDAP メタ文字がエスケープされていない: %q", captured)
 	}
 }
 
-// TestResolveUserAttribute_DereferenceCache は同一の (base_dn, filter) の再検索が
-// キャッシュされ、実クエリが1回で済むことを確認する（N+1 対策）。
-func TestResolveUserAttribute_DereferenceCache(t *testing.T) {
+// ─── search キャッシュ: 同一 (base, filter) は 1 回だけ ──────────────────────
+
+func TestChain_SearchCache(t *testing.T) {
 	searcher := &countingSearcher{searchFunc: func(_, _ string, _ []string) ([]Entry, error) {
-		return []Entry{{DN: "cn=sales,ou=Groups,dc=x", Attributes: map[string][]string{"mail": {"sales@example.com"}}}}, nil
+		return []Entry{{Attributes: map[string][]string{"mail": {"sales@x"}}}}, nil
 	}}
-	mr := &MailboxResolution{Roles: []RoleResolution{{
-		Role:            domain.AssignmentRoleMember,
-		Method:          MethodUserAttribute,
-		SourceAttribute: "memberOf",
-		Dereference:     &DereferenceRule{BaseDN: "ou=Groups,dc=x", Filter: "(cn={value})"},
-		TargetAttribute: "mail",
-	}}}
-
+	mr := &MailboxResolution{Roles: []RoleResolution{
+		chainRule(t, domain.AssignmentRoleMember,
+			map[string]any{"self": "memberOf"},
+			map[string]any{"regex": `^cn=(?P<value>[^,]+),`},
+			map[string]any{"search": map[string]any{"base_dn": "ou=g,dc=x", "filter": "(cn={value})"}},
+			map[string]any{"attr": "mail"},
+			map[string]any{"to_mailbox": map[string]any{}},
+		),
+	}}
 	cache := NewDerefCache()
-	// 同じグループに属する2ユーザーを同一キャッシュで処理する（定期同期の1サイクルを模す）
-	for _, user := range []string{"alice", "bob"} {
-		entry := Entry{DN: "cn=" + user + ",ou=Users,dc=x", Attributes: map[string][]string{
-			"memberOf": {"sales"},
-		}}
-		tuples := mr.ResolveUserAttribute(searcher, entry, cache)
-		if len(tuples) != 1 {
-			t.Fatalf("%s の tuples = %+v", user, tuples)
-		}
-	}
-
-	if len(searcher.calls) != 1 {
-		t.Errorf("実クエリ回数 = %d, want 1（2ユーザー目はキャッシュから解決されるべき）", len(searcher.calls))
-	}
-}
-
-// TestResolveUserAttribute_DereferenceSearchErrorSkips は再検索エラーが
-// その値のスキップに留まる（他の値の処理を止めない）ことを確認する。
-func TestResolveUserAttribute_DereferenceSearchErrorSkips(t *testing.T) {
-	searcher := &countingSearcher{searchFunc: func(_, filter string, _ []string) ([]Entry, error) {
-		if strings.Contains(filter, "bad") {
-			return nil, errors.New("search failed")
-		}
-		return []Entry{{Attributes: map[string][]string{"mail": {"good@example.com"}}}}, nil
-	}}
-	mr := &MailboxResolution{Roles: []RoleResolution{{
-		Role:            domain.AssignmentRoleMember,
-		Method:          MethodUserAttribute,
-		SourceAttribute: "memberOf",
-		Dereference:     &DereferenceRule{BaseDN: "ou=Groups,dc=x", Filter: "(cn={value})"},
-		TargetAttribute: "mail",
-	}}}
-	entry := Entry{Attributes: map[string][]string{"memberOf": {"bad", "good"}}}
-
-	tuples := mr.ResolveUserAttribute(searcher, entry, NewDerefCache())
-	if len(tuples) != 1 || tuples[0].MailboxEmail != "good@example.com" {
-		t.Errorf("tuples = %+v（エラーの値はスキップ、正常な値は処理されるべき）", tuples)
-	}
-}
-
-// TestResolveGroupSearchForUser は JIT 用の member 絞り込みフィルタが
-// (&(元filter)(member_attr=エスケープ済みDN)) の形で組み立てられることを確認する。
-func TestResolveGroupSearchForUser(t *testing.T) {
-	searcher := &countingSearcher{searchFunc: func(_, filter string, _ []string) ([]Entry, error) {
-		return []Entry{{DN: "cn=sales,ou=Groups,dc=x", Attributes: map[string][]string{"mail": {"sales@example.com"}}}}, nil
-	}}
-	mr := &MailboxResolution{Roles: []RoleResolution{{
-		Role:            domain.AssignmentRoleOwner,
-		Method:          MethodGroupSearch,
-		BaseDN:          "ou=Groups,dc=x",
-		Filter:          "(mail=*)",
-		MemberAttr:      "owner",
-		TargetAttribute: "mail",
-	}}}
-
-	tuples := mr.ResolveGroupSearchForUser(searcher, "cn=Alice (Sales),ou=Users,dc=x")
-	if len(tuples) != 1 || tuples[0].Role != domain.AssignmentRoleOwner {
-		t.Fatalf("tuples = %+v", tuples)
+	for _, u := range []string{"a", "b", "c"} {
+		entry := Entry{DN: "uid=" + u, Attributes: map[string][]string{"memberOf": {"cn=sales,ou=g,dc=x"}}}
+		_, _ = mr.ResolveForUser(searcher, entry, cache)
 	}
 	if len(searcher.calls) != 1 {
-		t.Fatalf("検索回数 = %d, want 1", len(searcher.calls))
-	}
-	got := searcher.calls[0]
-	if !strings.HasPrefix(got, "(&(mail=*)(owner=") {
-		t.Errorf("フィルタの形が期待と異なる: %q", got)
-	}
-	// DN 内の括弧はエスケープされているべき
-	if strings.Contains(got, "(Sales)") {
-		t.Errorf("DN 内の特殊文字がエスケープされていない: %q", got)
+		t.Errorf("同一グループの検索は 1 回のはず: %d 回", len(searcher.calls))
 	}
 }
 
-// TestApplyTransform は変換の抽出順序（named group "value" > 最初のキャプチャ > 全体）を確認する。
-func TestApplyTransform(t *testing.T) {
-	tests := []struct {
-		name   string
-		re     *regexp.Regexp
-		in     string
-		want   string
-		wantOK bool
-	}{
-		{"named value グループ", regexp.MustCompile(`^cn=(?P<value>[^,]+),`), "cn=sales,ou=g", "sales", true},
-		{"無名キャプチャ", regexp.MustCompile(`^cn=([^,]+),`), "cn=sales,ou=g", "sales", true},
-		{"キャプチャ無し（全体マッチ）", regexp.MustCompile(`^[a-z]+$`), "sales", "sales", true},
-		{"不一致はスキップ", regexp.MustCompile(`^cn=`), "ou=only", "", false},
-		{"nil はそのまま", nil, "raw-value", "raw-value", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := applyTransform(tt.re, tt.in)
-			if ok != tt.wantOK || got != tt.want {
-				t.Errorf("applyTransform() = (%q, %v), want (%q, %v)", got, ok, tt.want, tt.wantOK)
-			}
-		})
+// ─── search エラーはそのルールをスキップ（他ルール・同期は止めない） ───────────
+
+func TestChain_SearchErrorSkips(t *testing.T) {
+	searcher := &countingSearcher{searchFunc: func(_, _ string, _ []string) ([]Entry, error) {
+		return nil, errors.New("boom")
+	}}
+	mr := &MailboxResolution{Roles: []RoleResolution{
+		// エラーになるチェーン
+		chainRule(t, domain.AssignmentRoleMember,
+			map[string]any{"self": "memberOf"},
+			map[string]any{"search": map[string]any{"base_dn": "ou=g,dc=x", "filter": "(cn={value})"}},
+			map[string]any{"attr": "mail"},
+			map[string]any{"to_mailbox": map[string]any{}},
+		),
+		// 正常な個人ルール
+		chainRule(t, domain.AssignmentRoleOwner,
+			map[string]any{"self": "mail"},
+			map[string]any{"to_mailbox": map[string]any{}},
+		),
+	}}
+	entry := Entry{Attributes: map[string][]string{"memberOf": {"cn=x,ou=g,dc=x"}, "mail": {"me@x"}}}
+	t0, _ := mr.ResolveForUser(searcher, entry, NewDerefCache())
+	got := mailboxStrings(t0)
+	if len(got) != 1 || got[0] != "owner:me@x" {
+		t.Errorf("エラールールはスキップし正常ルールは残るべき: %v", got)
 	}
 }
 
-// TestNormalizeDN は表記ゆれ（大文字小文字・空白）の吸収を確認する。
-func TestNormalizeDN(t *testing.T) {
-	a := NormalizeDN("CN=Alice, OU=Users, DC=corp, DC=local")
-	b := NormalizeDN("cn=alice,ou=users,dc=corp,dc=local")
-	if a != b {
-		t.Errorf("正規化後は一致するべき: %q != %q", a, b)
-	}
-}
+// ─── fixed: FixedRolesForEmail ────────────────────────────────────────────────
 
-// TestFixedRolesForEmail は大文字小文字を無視した一致と複数ロールの返却を確認する。
 func TestFixedRolesForEmail(t *testing.T) {
 	mr := &MailboxResolution{Roles: []RoleResolution{
-		{Role: domain.AssignmentRoleApprover, Method: MethodFixed, FixedUserEmails: []string{"Admin@X.com"}},
-		{Role: domain.AssignmentRoleOwner, Method: MethodFixed, FixedUserEmails: []string{"admin@x.com", "other@x.com"}},
-		{Role: domain.AssignmentRoleMember, Method: MethodUserAttribute, SourceAttribute: "memberOf"},
+		FixedRule(domain.AssignmentRoleApprover, []string{"admin@internal.dev", "backup@internal.dev"}),
 	}}
-	roles := mr.FixedRolesForEmail("admin@x.com")
-	if len(roles) != 2 {
-		t.Fatalf("roles = %v, want [admin owner]", roles)
+	if roles := mr.FixedRolesForEmail("admin@internal.dev"); len(roles) != 1 || roles[0] != domain.AssignmentRoleApprover {
+		t.Errorf("fixed 承認者が解決されない: %v", roles)
 	}
-	if roles[0] != domain.AssignmentRoleApprover || roles[1] != domain.AssignmentRoleOwner {
-		t.Errorf("roles = %v", roles)
+	if roles := mr.FixedRolesForEmail("other@internal.dev"); len(roles) != 0 {
+		t.Errorf("対象外に fixed が付与された: %v", roles)
 	}
-	if got := mr.FixedRolesForEmail("nobody@x.com"); len(got) != 0 {
-		t.Errorf("該当なしは空であるべき: %v", got)
+	// fixed は ResolveForUser では解決しない
+	if got, _ := mr.ResolveForUser(nil, Entry{Attributes: map[string][]string{"mail": {"admin@internal.dev"}}}, NewDerefCache()); len(got) != 0 {
+		t.Errorf("fixed は ResolveForUser で解決してはいけない: %v", got)
 	}
 }

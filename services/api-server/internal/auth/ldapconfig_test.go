@@ -5,81 +5,55 @@ import (
 	"testing"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	ldapsync "github.com/koizumib/mailshield/services/api-server/internal/directory/ldap"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 )
 
-func TestBuildLDAPConnConfig_MailboxProvisioning_UserAttribute(t *testing.T) {
+// TestBuildLDAPConnConfig_MailboxProvisioning_Chain はチェーン方式が構築されることを確認する。
+func TestBuildLDAPConnConfig_MailboxProvisioning_Chain(t *testing.T) {
 	cfg := &config.LDAPConfig{
 		Host: "ldap.corp.local",
 		MailboxProvisioning: config.MailboxProvisioningConfig{
 			Rules: []config.MailboxProvisioningRuleConfig{
-				{
-					Role:            "member",
-					Method:          ldapsync.MethodUserAttribute,
-					SourceAttribute: "memberOf",
-					SourceTransform: `^cn=(?P<value>[^,]+),.*$`,
-					Dereference: config.MailboxDereferenceConfig{
-						BaseDN: "ou=Groups,dc=corp,dc=local",
-						Filter: "(cn={value})",
-					},
-					TargetAttribute: "mail",
-				},
+				{Role: "owner", Chain: []map[string]any{
+					{"self": "mail"},
+					{"to_mailbox": map[string]any{}},
+				}},
+				{Role: "member", Chain: []map[string]any{
+					{"self": "memberOf"},
+					{"regex": `^cn=(?P<value>[^,]+),ou=Groups`},
+					{"to_mailbox": map[string]any{"domain": "internal.dev"}},
+				}},
 			},
 		},
 	}
-
 	_, syncCfg, err := BuildLDAPConnConfig(cfg)
 	if err != nil {
 		t.Fatalf("BuildLDAPConnConfig() error = %v", err)
 	}
-	if syncCfg.MailboxResolution.Empty() {
-		t.Fatal("MailboxResolution が構築されるべき")
+	if syncCfg.MailboxResolution.Empty() || len(syncCfg.MailboxResolution.Roles) != 2 {
+		t.Fatalf("2 ルールが構築されるべき: %+v", syncCfg.MailboxResolution)
 	}
-	rr := syncCfg.MailboxResolution.Roles[0]
-	if rr.Role != domain.AssignmentRoleMember || rr.Method != ldapsync.MethodUserAttribute {
-		t.Errorf("rr = %+v", rr)
-	}
-	if rr.SourceTransform == nil || rr.Dereference == nil || rr.TargetAttribute != "mail" {
-		t.Errorf("パイプライン構成が不完全: %+v", rr)
+	if syncCfg.MailboxResolution.Roles[0].Role != domain.AssignmentRoleOwner {
+		t.Errorf("rule[0].Role = %q", syncCfg.MailboxResolution.Roles[0].Role)
 	}
 }
 
-// TestBuildLDAPConnConfig_MailboxProvisioning_MultipleRulesSameRole は同じロールに
-// 複数のルールを設定できることを確認する（個人メールボックス + 共有メールボックスの併用）。
-func TestBuildLDAPConnConfig_MailboxProvisioning_MultipleRulesSameRole(t *testing.T) {
+// TestBuildLDAPConnConfig_MailboxProvisioning_Fixed は fixed 方式を確認する。
+func TestBuildLDAPConnConfig_MailboxProvisioning_Fixed(t *testing.T) {
 	cfg := &config.LDAPConfig{
 		Host: "ldap.corp.local",
 		MailboxProvisioning: config.MailboxProvisioningConfig{
 			Rules: []config.MailboxProvisioningRuleConfig{
-				// 個人メールボックス: 自分の mail 属性（変換・再検索なし）
-				{Role: "owner", Method: ldapsync.MethodUserAttribute, SourceAttribute: "mail"},
-				// 共有メールボックス: memberOf → 再検索
-				{
-					Role: "member", Method: ldapsync.MethodUserAttribute, SourceAttribute: "memberOf",
-					Dereference:     config.MailboxDereferenceConfig{BaseDN: "ou=g", Filter: "(cn={value})"},
-					TargetAttribute: "mail",
-				},
-				// 同じ member ロールに group_search の 2 ルール目
-				{
-					Role: "member", Method: ldapsync.MethodGroupSearch,
-					BaseDN: "ou=g", Filter: "(mail=*)", MemberAttr: "member", TargetAttribute: "mail",
-				},
+				{Role: "approver", Fixed: []string{"a@x.com", "b@x.com"}},
 			},
 		},
 	}
-
 	_, syncCfg, err := BuildLDAPConnConfig(cfg)
 	if err != nil {
 		t.Fatalf("BuildLDAPConnConfig() error = %v", err)
 	}
-	if len(syncCfg.MailboxResolution.Roles) != 3 {
-		t.Fatalf("Roles = %d 件, want 3（同一ロールの複数ルールが保持されるべき）", len(syncCfg.MailboxResolution.Roles))
-	}
-	// 個人メールボックスルール: 変換・再検索なしで自分の mail をそのまま使う
-	self := syncCfg.MailboxResolution.Roles[0]
-	if self.Role != domain.AssignmentRoleOwner || self.SourceAttribute != "mail" || self.Dereference != nil {
-		t.Errorf("個人メールボックスルール = %+v", self)
+	if roles := syncCfg.MailboxResolution.FixedRolesForEmail("a@x.com"); len(roles) != 1 {
+		t.Errorf("fixed 承認者が解決されない: %v", roles)
 	}
 }
 
@@ -91,69 +65,61 @@ func TestBuildLDAPConnConfig_MailboxProvisioning_Validation(t *testing.T) {
 	}{
 		{
 			name:    "不正なロール",
-			rc:      config.MailboxProvisioningRuleConfig{Role: "superuser", Method: ldapsync.MethodFixed, FixedValue: "a@b.c"},
+			rc:      config.MailboxProvisioningRuleConfig{Role: "superuser", Fixed: []string{"a@b.c"}},
 			wantErr: "role が不正",
 		},
 		{
-			name:    "role 未指定",
-			rc:      config.MailboxProvisioningRuleConfig{Method: ldapsync.MethodFixed, FixedValue: "a@b.c"},
-			wantErr: "role が不正",
-		},
-		{
-			name:    "method 未指定",
+			name:    "chain / lua / fixed いずれも未指定",
 			rc:      config.MailboxProvisioningRuleConfig{Role: "member"},
-			wantErr: "method は必須",
+			wantErr: "いずれか 1 つを指定",
 		},
 		{
-			name:    "未知の method",
-			rc:      config.MailboxProvisioningRuleConfig{Role: "member", Method: "magic"},
-			wantErr: "未知の method",
+			name: "chain と fixed の同時指定",
+			rc: config.MailboxProvisioningRuleConfig{
+				Role: "member", Fixed: []string{"a@b.c"},
+				Chain: []map[string]any{{"self": "mail"}, {"to_mailbox": map[string]any{}}},
+			},
+			wantErr: "同時に指定できません",
 		},
 		{
-			name:    "user_attribute で source_attribute 欠落",
-			rc:      config.MailboxProvisioningRuleConfig{Role: "member", Method: ldapsync.MethodUserAttribute},
-			wantErr: "source_attribute が必須",
+			name: "chain が to_mailbox で終わらない",
+			rc: config.MailboxProvisioningRuleConfig{
+				Role: "member", Chain: []map[string]any{{"self": "mail"}},
+			},
+			wantErr: "to_mailbox で終える",
+		},
+		{
+			name: "chain が self / const で始まらない",
+			rc: config.MailboxProvisioningRuleConfig{
+				Role: "member", Chain: []map[string]any{{"regex": "x"}, {"to_mailbox": map[string]any{}}},
+			},
+			wantErr: "self または const で始める",
 		},
 		{
 			name: "不正な正規表現",
 			rc: config.MailboxProvisioningRuleConfig{
-				Role: "member", Method: ldapsync.MethodUserAttribute, SourceAttribute: "memberOf", SourceTransform: "(unclosed",
+				Role: "member", Chain: []map[string]any{{"self": "memberOf"}, {"regex": "(unclosed"}, {"to_mailbox": map[string]any{}}},
 			},
-			wantErr: "コンパイル失敗",
+			wantErr: "正規表現のコンパイル失敗",
 		},
 		{
-			name: "dereference filter に {value} プレースホルダ無し",
+			name: "search filter に {value} プレースホルダ無し",
 			rc: config.MailboxProvisioningRuleConfig{
-				Role: "member", Method: ldapsync.MethodUserAttribute, SourceAttribute: "memberOf",
-				Dereference:     config.MailboxDereferenceConfig{BaseDN: "ou=g", Filter: "(cn=static)"},
-				TargetAttribute: "mail",
+				Role: "member", Chain: []map[string]any{
+					{"self": "memberOf"},
+					{"search": map[string]any{"base_dn": "ou=g", "filter": "(cn=static)"}},
+					{"attr": "mail"},
+					{"to_mailbox": map[string]any{}},
+				},
 			},
 			wantErr: "{value} プレースホルダが必要",
 		},
 		{
-			name: "dereference 使用時に target_attribute 欠落",
+			name: "未知のステップ種別",
 			rc: config.MailboxProvisioningRuleConfig{
-				Role: "member", Method: ldapsync.MethodUserAttribute, SourceAttribute: "memberOf",
-				Dereference: config.MailboxDereferenceConfig{BaseDN: "ou=g", Filter: "(cn={value})"},
+				Role: "member", Chain: []map[string]any{{"self": "mail"}, {"teleport": "x"}, {"to_mailbox": map[string]any{}}},
 			},
-			wantErr: "target_attribute が必須",
-		},
-		{
-			name: "dereference 無しで target_attribute 指定",
-			rc: config.MailboxProvisioningRuleConfig{
-				Role: "member", Method: ldapsync.MethodUserAttribute, SourceAttribute: "memberOf", TargetAttribute: "mail",
-			},
-			wantErr: "dereference と併用したときのみ有効",
-		},
-		{
-			name:    "group_search で必須フィールド欠落",
-			rc:      config.MailboxProvisioningRuleConfig{Role: "owner", Method: ldapsync.MethodGroupSearch, BaseDN: "ou=g"},
-			wantErr: "すべて必須",
-		},
-		{
-			name:    "fixed で fixed_value 欠落",
-			rc:      config.MailboxProvisioningRuleConfig{Role: "approver", Method: ldapsync.MethodFixed},
-			wantErr: "fixed_value",
+			wantErr: "未知のステップ種別",
 		},
 	}
 	for _, tt := range tests {
@@ -169,25 +135,6 @@ func TestBuildLDAPConnConfig_MailboxProvisioning_Validation(t *testing.T) {
 				t.Errorf("err = %v, want contains %q", err, tt.wantErr)
 			}
 		})
-	}
-}
-
-func TestBuildLDAPConnConfig_MailboxProvisioning_Fixed(t *testing.T) {
-	cfg := &config.LDAPConfig{
-		Host: "ldap.corp.local",
-		MailboxProvisioning: config.MailboxProvisioningConfig{
-			Rules: []config.MailboxProvisioningRuleConfig{
-				{Role: "approver", Method: ldapsync.MethodFixed, FixedValue: "a@x.com, b@x.com; c@x.com"},
-			},
-		},
-	}
-	_, syncCfg, err := BuildLDAPConnConfig(cfg)
-	if err != nil {
-		t.Fatalf("BuildLDAPConnConfig() error = %v", err)
-	}
-	rr := syncCfg.MailboxResolution.Roles[0]
-	if len(rr.FixedUserEmails) != 3 {
-		t.Errorf("FixedUserEmails = %v, want 3 件（カンマ・セミコロン混在で分割されるべき）", rr.FixedUserEmails)
 	}
 }
 
