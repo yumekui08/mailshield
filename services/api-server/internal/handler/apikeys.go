@@ -37,6 +37,10 @@ func (h *APIKeysHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "API キー一覧の取得に失敗しました")
 		return
 	}
+	// 空のときも JSON では null ではなく [] を返す（フロントの data.length 参照を壊さない）
+	if keys == nil {
+		keys = []domain.APIKey{}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": keys,

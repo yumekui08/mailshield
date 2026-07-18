@@ -58,7 +58,8 @@ export function APIKeysPage() {
   const [expiresAt, setExpiresAt] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
 
-  const { pageItems: pagedKeys, meta, setPage } = usePagedList(data?.data, 20);
+  const keys = data?.data ?? [];
+  const { pageItems: pagedKeys, meta, setPage } = usePagedList(keys, 20);
 
   if (me?.role !== "admin") {
     return (
@@ -88,7 +89,7 @@ export function APIKeysPage() {
       <PageHeader
         title="API キー管理"
         description="REST API を機械間連携で利用するための Bearer トークン"
-        count={data ? data.data.length : undefined}
+        count={data ? keys.length : undefined}
         actions={
           <Button onClick={() => setShowForm(!showForm)}>
             <Plus size={14} className="mr-1" />
