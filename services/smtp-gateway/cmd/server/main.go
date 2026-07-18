@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/policy"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/repository/mariadb"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/router"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/rulestats"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/smtp"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/storage"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker"
@@ -311,12 +313,13 @@ func main() {
 			os.Exit(1)
 		}
 
-		routeHandlers[routeCfg.Name] = &routeHandler{
+		rh := &routeHandler{
 			cfg:       routeCfg,
 			inspect:   pipeline.NewInspectPipeline(mgr.InspectEntries()),
 			transform: pipeline.NewTransformPipeline(mgr.TransformWorkers()),
-			policy:    pe,
 		}
+		rh.policy.Store(pe)
+		routeHandlers[routeCfg.Name] = rh
 
 		slog.Info("ルート初期化完了",
 			"route", routeCfg.Name,
@@ -347,6 +350,7 @@ func main() {
 
 	mtr := metrics.New(version)
 
+	hits := rulestats.New()
 	handler := &mailHandler{
 		storage:        emlStorage,
 		archiveStorage: archiveStorage,
@@ -358,6 +362,14 @@ func main() {
 		approvalCfg:    cfg.Approval,
 		notifier:       quarantineNotifier,
 		metrics:        mtr,
+		deliverReg:     deliverReg,
+		hits:           hits,
+	}
+	// 起動時に全ルールを 0 件で登録（一度も当たっていないルールも UI に出す）
+	for name, rh := range routeHandlers {
+		for _, rule := range rh.engine().Rules() {
+			hits.Ensure(name, rule.Name)
+		}
 	}
 
 	smtpServer := smtp.New(smtp.Options{
@@ -380,6 +392,28 @@ func main() {
 	})
 	healthMux.HandleFunc("/simulate", handler.handleSimulate)
 	healthMux.Handle("/metrics", mtr.Handler())
+	// POST /reload: policy.yaml を再パースしてアトミックに差し替える（管理操作）。
+	// パースに失敗した場合は 400 とエラー本文を返し、稼働中のポリシーは変更しない。
+	healthMux.HandleFunc("/reload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if err := handler.reloadPolicies(); err != nil {
+			slog.Warn("ポリシーリロード失敗（設定は変更されていません）", "error", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "error", "error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+	// GET /policy/stats: ルート×ルール別のヒット件数（プロセス起動時からの累積）。
+	healthMux.HandleFunc("/policy/stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"hits": handler.hits.Snapshot()})
+	})
 	// /readyz は依存サービス（MariaDB）への疎通を含むレディネスチェック。
 	// /healthz はプロセス生存確認のみ（liveness）として残す。
 	healthMux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
@@ -455,8 +489,12 @@ type routeHandler struct {
 	cfg       *config.RouteConfig
 	inspect   *pipeline.InspectPipeline
 	transform *pipeline.TransformPipeline
-	policy    *policy.Engine
+	// policy はホットリロード（POST /reload）でアトミックに差し替えられる。
+	policy atomic.Pointer[policy.Engine]
 }
+
+// engine は現在のポリシーエンジンを返す。
+func (rh *routeHandler) engine() *policy.Engine { return rh.policy.Load() }
 
 type mailHandler struct {
 	storage        domain.EMLStorage
@@ -470,6 +508,34 @@ type mailHandler struct {
 	notifier       *notify.QuarantineNotifier // nil の場合は通知しない
 	metrics        *metrics.Metrics
 	archiveWg      sync.WaitGroup
+	// deliverReg はリロード時に policy.New へ渡す配送レジストリ。
+	deliverReg *deliver.Registry
+	// hits はルール別ヒット件数（管理 UI 用）。
+	hits *rulestats.Counter
+}
+
+// reloadPolicies は各ルートの policy.yaml を再パースし、全ルートが成功したときだけ
+// アトミックに差し替える。1 つでもパースに失敗した場合は一切差し替えず error を返す
+// （不正な設定で稼働中のポリシーを壊さない）。api-server の保存時検証に使われる。
+func (h *mailHandler) reloadPolicies() error {
+	// まず全ルートを新規パース（副作用なし）
+	newEngines := make(map[string]*policy.Engine, len(h.routeHandlers))
+	for name, rh := range h.routeHandlers {
+		pe, err := policy.New(rh.cfg.Policy.RulesFile, h.deliverReg)
+		if err != nil {
+			return fmt.Errorf("ルート %q のポリシー再読み込み失敗: %w", name, err)
+		}
+		newEngines[name] = pe
+	}
+	// 全て成功 → アトミックに差し替え
+	for name, rh := range h.routeHandlers {
+		rh.policy.Store(newEngines[name])
+		for _, rule := range newEngines[name].Rules() {
+			h.hits.Ensure(name, rule.Name)
+		}
+	}
+	slog.Info("ポリシーをリロードしました", "routes", len(newEngines))
+	return nil
 }
 
 func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
@@ -597,13 +663,14 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 
 	// 7. ポリシーエンジンでアクション決定・実行
 	log.Info("[7/7] ポリシー評価開始", "route", route.Name)
-	result, err := rh.policy.EvaluateAndAct(ctx, transformed, inspectResults)
+	result, err := rh.engine().EvaluateAndAct(ctx, transformed, inspectResults)
 	if err != nil {
 		h.metrics.IncError("policy")
 		log.Error("[7/7] ポリシーエンジンエラー", "error", err)
 		return fmt.Errorf("ポリシー実行失敗: %w", err)
 	}
 	action := result.Action
+	h.hits.Inc(route.Name, result.MatchedRule)
 
 	// B-3: マッチするルールがない場合はメールを消失させず 550 を返す
 	if action == "" {
@@ -910,7 +977,7 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		transformErrMsg = transformErr.Error()
 		action = policy.ActionQuarantine
 	} else {
-		action, matchedRule = rh.policy.Evaluate(transformed, inspectResults)
+		action, matchedRule = rh.engine().Evaluate(transformed, inspectResults)
 	}
 	out := SimulateResult{
 		RouteName:          route.Name,

@@ -245,3 +245,34 @@ func TestEvalCondition_NotInValueNotTreatedAsOperator(t *testing.T) {
 		t.Error("値中の not を演算子と誤認している")
 	}
 }
+
+// TestValidateCondition は条件式の構文検証を確認する（P2 リロード検証）。
+func TestValidateCondition(t *testing.T) {
+	valid := []string{
+		"true", "false",
+		"a.detected == true",
+		"c.score >= 50",
+		"(a == 1 || b == 2) && not c == 3",
+		"mail.subject contains foo",
+		"mail.from in_list deny",
+	}
+	for _, c := range valid {
+		if err := ValidateCondition(c); err != nil {
+			t.Errorf("valid condition %q rejected: %v", c, err)
+		}
+	}
+	invalid := []string{
+		"",               // 空
+		"(a == 1",        // 括弧不一致
+		"a == 1)",        // 余分な閉じ括弧
+		"c.score >= abc", // 数値比較の右辺が非整数
+		"just_a_word",    // 演算子なし
+		"a == 1 &&",      // 末尾に演算子
+		"== 1",           // 左辺なし
+	}
+	for _, c := range invalid {
+		if err := ValidateCondition(c); err == nil {
+			t.Errorf("invalid condition %q was accepted", c)
+		}
+	}
+}

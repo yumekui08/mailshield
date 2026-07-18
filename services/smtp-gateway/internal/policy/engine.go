@@ -118,6 +118,8 @@ type ActionResult struct {
 	Action ActionType
 	// DelayMinutes は Action が delay のときの保留時間（分）。
 	DelayMinutes int
+	// MatchedRule は終端アクションを決定したルール名（ヒット計測・ログ用）。
+	MatchedRule string
 }
 
 // ListConfig は名前付きリストの定義。values（インライン）と file（1 行 1 要素の
@@ -188,6 +190,9 @@ func prepareRules(raw []Rule) ([]Rule, error) {
 	for _, r := range raw {
 		if !r.isEnabled() {
 			continue
+		}
+		if err := ValidateCondition(r.Condition); err != nil {
+			return nil, fmt.Errorf("ルール %q の条件式が不正です: %w", r.Name, err)
 		}
 		specs := r.specs()
 		if len(specs) == 0 {
@@ -334,26 +339,31 @@ func (e *Engine) EvaluateAndAct(ctx context.Context, mail *domain.Mail, results 
 		if err := e.deliver(ctx, mail, spec.Destination); err != nil {
 			return ActionResult{}, err
 		}
-		return ActionResult{Action: ActionDeliver}, nil
+		return ActionResult{Action: ActionDeliver, MatchedRule: rule.Name}, nil
 	case ActionReject:
 		slog.Info("メール拒否", "message_id", mail.MessageID, "rule", rule.Name)
-		return ActionResult{Action: ActionReject}, nil
+		return ActionResult{Action: ActionReject, MatchedRule: rule.Name}, nil
 	case ActionQuarantine:
 		slog.Info("メール隔離", "message_id", mail.MessageID, "rule", rule.Name)
-		return ActionResult{Action: ActionQuarantine}, nil
+		return ActionResult{Action: ActionQuarantine, MatchedRule: rule.Name}, nil
 	case ActionApproval:
 		slog.Info("承認フロー保留", "message_id", mail.MessageID, "rule", rule.Name)
-		return ActionResult{Action: ActionApproval}, nil
+		return ActionResult{Action: ActionApproval, MatchedRule: rule.Name}, nil
 	case ActionDelay:
 		delay := spec.DelayMinutes
 		if delay <= 0 {
 			delay = 5
 		}
 		slog.Info("送信ディレイ保留", "message_id", mail.MessageID, "rule", rule.Name, "delay_minutes", delay)
-		return ActionResult{Action: ActionDelay, DelayMinutes: delay}, nil
+		return ActionResult{Action: ActionDelay, DelayMinutes: delay, MatchedRule: rule.Name}, nil
 	default:
 		return ActionResult{}, fmt.Errorf("未知のアクション: %s", spec.Type)
 	}
+}
+
+// Rules は現在のルール一覧（優先度順・enabled のみ）を返す。ヒット件数の初期化等に使う。
+func (e *Engine) Rules() []Rule {
+	return e.rules
 }
 
 // deliver は注入された Deliverer 経由でメールを配送する。

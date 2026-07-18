@@ -226,6 +226,126 @@ func evalLeaf(clause string, ctx evalContext) (bool, error) {
 	return evalClause(clause, ctx)
 }
 
+// leafOperators は比較式で認識する演算子トークン（長いものから先に評価する）。
+var leafOperators = []string{" contains ", " in_list ", " == ", " != ", " >= ", " <= ", " > ", " < "}
+
+// ValidateCondition は条件式の構文（括弧の対応・演算子の有無・数値比較の右辺）を検証する。
+// fact やリストの存在（意味論）は検証しない。ポリシー読み込み時に不正な式を早期に弾く用途。
+func ValidateCondition(condition string) error {
+	condition = strings.TrimSpace(condition)
+	if condition == "" {
+		return fmt.Errorf("条件式が空です")
+	}
+	tokens, err := tokenizeCondition(condition)
+	if err != nil {
+		return err
+	}
+	p := &condParser{tokens: tokens}
+	if err := p.validateOr(); err != nil {
+		return err
+	}
+	if p.pos != len(p.tokens) {
+		return fmt.Errorf("条件式の構文エラー（余分なトークン）: %s", condition)
+	}
+	return nil
+}
+
+func (p *condParser) validateOr() error {
+	if err := p.validateAnd(); err != nil {
+		return err
+	}
+	for {
+		t, ok := p.peek()
+		if !ok || t.kind != tokOr {
+			break
+		}
+		p.pos++
+		if err := p.validateAnd(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *condParser) validateAnd() error {
+	if err := p.validateUnary(); err != nil {
+		return err
+	}
+	for {
+		t, ok := p.peek()
+		if !ok || t.kind != tokAnd {
+			break
+		}
+		p.pos++
+		if err := p.validateUnary(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *condParser) validateUnary() error {
+	t, ok := p.peek()
+	if ok && t.kind == tokNot {
+		p.pos++
+		return p.validateUnary()
+	}
+	return p.validatePrimary()
+}
+
+func (p *condParser) validatePrimary() error {
+	t, ok := p.peek()
+	if !ok {
+		return fmt.Errorf("条件式が途中で終了しました")
+	}
+	switch t.kind {
+	case tokLParen:
+		p.pos++
+		if err := p.validateOr(); err != nil {
+			return err
+		}
+		closing, ok := p.peek()
+		if !ok || closing.kind != tokRParen {
+			return fmt.Errorf("閉じ括弧が見つかりません")
+		}
+		p.pos++
+		return nil
+	case tokLeaf:
+		p.pos++
+		return validateLeafSyntax(t.text)
+	default:
+		return fmt.Errorf("予期しないトークンです（条件式の構文エラー）")
+	}
+}
+
+// validateLeafSyntax は単一比較式の構文を検証する（演算子の有無・数値比較の右辺）。
+func validateLeafSyntax(clause string) error {
+	switch strings.ToLower(strings.TrimSpace(clause)) {
+	case "true", "false":
+		return nil
+	}
+	for _, op := range leafOperators {
+		if idx := strings.Index(clause, op); idx >= 0 {
+			key := strings.TrimSpace(clause[:idx])
+			val := strings.TrimSpace(clause[idx+len(op):])
+			if key == "" {
+				return fmt.Errorf("条件式の左辺が空です: %q", clause)
+			}
+			if val == "" {
+				return fmt.Errorf("条件式の右辺が空です: %q", clause)
+			}
+			switch strings.TrimSpace(op) {
+			case ">=", "<=", ">", "<":
+				if _, err := strconv.Atoi(val); err != nil {
+					return fmt.Errorf("数値比較の右辺が整数ではありません (%q): %q", val, clause)
+				}
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("未対応の条件式（演算子が見つかりません）: %q", clause)
+}
+
 // evalClause は単一の比較式を評価する。
 func evalClause(clause string, ctx evalContext) (bool, error) {
 	// 演算子は長いものから順に試す（">=" を ">" より先に）
