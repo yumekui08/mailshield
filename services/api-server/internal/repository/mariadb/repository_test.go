@@ -330,9 +330,9 @@ func TestUpsertFederatedUser_NewUser(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT id, email, display_name").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "approver_id", "provisioned_by", "created_at", "updated_at"},
+			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "provisioned_by", "created_at", "updated_at"},
 		).AddRow(
-			"new-user-id", "new@example.com", "New User", "", "operator", 1, nil, "oidc", now, now,
+			"new-user-id", "new@example.com", "New User", "", "operator", 1, "oidc", now, now,
 		))
 
 	u, err := repo.UpsertFederatedUser(ctx, "new@example.com", "New User", domain.RoleOperator, domain.ProvisionedByOIDC)
@@ -358,9 +358,9 @@ func TestUpsertFederatedUser_ManualRolePreserved(t *testing.T) {
 	// 実際に適用された結果として、DB は manual のまま admin を返す想定。
 	mock.ExpectQuery("SELECT id, email, display_name").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "approver_id", "provisioned_by", "created_at", "updated_at"},
+			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "provisioned_by", "created_at", "updated_at"},
 		).AddRow(
-			"existing-admin-id", "admin@example.com", "Admin", "$2a$hash", "admin", 1, nil, "manual", now, now,
+			"existing-admin-id", "admin@example.com", "Admin", "$2a$hash", "admin", 1, "manual", now, now,
 		))
 
 	u, err := repo.UpsertFederatedUser(ctx, "admin@example.com", "Admin (IdP name)", domain.RoleViewer, domain.ProvisionedByOIDC)
@@ -389,9 +389,9 @@ func TestUpsertFederatedUser_LDAPRoleProtectedFromOIDC(t *testing.T) {
 	// （SQL の CASE 分岐: provisioned_by IN ('ldap','scim') AND VALUES(provisioned_by)='oidc' → 既存値保持）。
 	mock.ExpectQuery("SELECT id, email, display_name").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "approver_id", "provisioned_by", "created_at", "updated_at"},
+			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "provisioned_by", "created_at", "updated_at"},
 		).AddRow(
-			"ldap-user-id", "ldapuser@example.com", "LDAP User", "", "operator", 1, nil, "ldap", now, now,
+			"ldap-user-id", "ldapuser@example.com", "LDAP User", "", "operator", 1, "ldap", now, now,
 		))
 
 	u, err := repo.UpsertFederatedUser(ctx, "ldapuser@example.com", "LDAP User (IdP name)", domain.RoleViewer, domain.ProvisionedByOIDC)
@@ -419,9 +419,9 @@ func TestUpsertFederatedUser_LDAPCanUpdateOwnSync(t *testing.T) {
 	// provisioned_by=ldap の行に対する ldap 側の再同期は role を更新してよい（同格の権威）。
 	mock.ExpectQuery("SELECT id, email, display_name").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "approver_id", "provisioned_by", "created_at", "updated_at"},
+			[]string{"id", "email", "display_name", "password_hash", "role", "is_active", "provisioned_by", "created_at", "updated_at"},
 		).AddRow(
-			"ldap-user-id", "ldapuser@example.com", "LDAP User", "", "admin", 1, nil, "ldap", now, now,
+			"ldap-user-id", "ldapuser@example.com", "LDAP User", "", "admin", 1, "ldap", now, now,
 		))
 
 	u, err := repo.UpsertFederatedUser(ctx, "ldapuser@example.com", "LDAP User", domain.RoleAdmin, domain.ProvisionedByLDAP)

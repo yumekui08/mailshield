@@ -109,7 +109,7 @@ rules:
 | `deliver` | `destination` で指定した MTA へ SMTP 送信する |
 | `quarantine` | メールを隔離する。受信者に即時通知メールを送信（設定による） |
 | `reject` | 送信者にバウンスを返す |
-| `approval` | 承認キューに保留する。承認者はメールボックスの admin 割り当て（優先）→ ユーザー個人の `approver_id` → `approval.global_approver_email` の順で解決される（詳細: [設定リファレンスの approval](../specs/configuration.md#approval)） |
+| `approval` | 承認キューに保留する。承認者はメールボックスの admin 割り当て → `approval.global_approver_email`（メールボックスに承認者がいない場合のフォールバック）の順で解決される（詳細: [設定リファレンスの approval](../specs/configuration.md#approval)） |
 | `delay` | 送信を一定時間保留する（送信ディレイ）。`delay_minutes` で保留時間を指定（省略時 5 分）。保留中は送信者が Web UI から取消・即時送信でき、時間が来ると自動送信される |
 | `redirect` | 宛先を `value`（差し替え先アドレス・カンマ区切りで複数可）に差し替えて配送する。誤送信の受け皿や監査用アドレスへの付け替えに使う。`destination` で配送先 MTA も指定できる |
 

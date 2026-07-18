@@ -7,8 +7,9 @@ import (
 
 // ApprovalRequest は承認依頼レコードを表す。
 // ApproverID と MailboxEmails はどちらか一方のみ設定する:
-//   - ApproverID     : ユーザー個人を承認者に指定（users.approver_id 経由の解決）
-//   - MailboxEmails  : メールボックス承認。対象メールボックス（1..n）のいずれかに
+//   - ApproverID     : システム全体のフォールバック承認者（approval.global_approver_email）。
+//     メールボックスに承認者がいない場合のみ使う
+//   - MailboxEmails  : メールボックス承認（主経路）。対象メールボックス（1..n）のいずれかに
 //     role=admin で割り当てられたユーザー全員が承認できる
 type ApprovalRequest struct {
 	ID            string
@@ -29,10 +30,6 @@ type MailRepository interface {
 	// UpdateProcessedEMLPath は変換後 EML の MinIO パスを mail_messages テーブルに記録する。
 	// archiveAsync が MinIO への保存完了後に呼び出す。
 	UpdateProcessedEMLPath(ctx context.Context, messageID, path string) error
-	// FindApproverForSender は送信者メールアドレスから承認者のユーザーIDを解決する。
-	// 送信者が users テーブルに存在し approver_id が設定されている場合にそれを返す。
-	// 見つからない場合は ("", nil) を返す（呼び出し元が fallback を処理する）。
-	FindApproverForSender(ctx context.Context, fromAddress string) (approverID string, err error)
 	// FindUserIDByEmail はメールアドレスからユーザーIDを返す。承認者フォールバック解決に使用する。
 	FindUserIDByEmail(ctx context.Context, email string) (userID string, err error)
 	// CountMailboxAdmins は指定メールボックスに role=admin で割り当てられた

@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { UserPlus, Pencil, Trash2, Users, UserCheck } from "lucide-react";
+import { UserPlus, Pencil, Trash2, Users } from "lucide-react";
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from "../hooks/useUsers";
-import { useSetUserApprover } from "../hooks/useApprovals";
 import { usePagedList } from "../hooks/usePagedList";
 import { useMe } from "../hooks/useAuth";
 import { PageHeader } from "../components/PageHeader";
@@ -45,7 +44,6 @@ type DialogState =
   | { type: "create" }
   | { type: "edit"; user: UserRecord }
   | { type: "delete"; user: UserRecord }
-  | { type: "approver"; user: UserRecord }
   | null;
 
 export function UsersPage() {
@@ -54,12 +52,9 @@ export function UsersPage() {
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
-  const setApprover = useSetUserApprover();
 
   const [dialog, setDialog] = useState<DialogState>(null);
-  const [approverSelectId, setApproverSelectId] = useState<string>("");
 
-  // 行の表示のみページングする（承認者ルックアップ等は全件リストを使う）
   const { pageItems: pagedUsers, meta, setPage } = usePagedList(data?.data, 20);
 
   // フォームステート（作成）
@@ -166,28 +161,6 @@ export function UsersPage() {
     });
   }
 
-  function openApprover(user: UserRecord) {
-    setApproverSelectId(user.approver_id ?? "");
-    setDialog({ type: "approver", user });
-  }
-
-  function handleSetApprover() {
-    if (dialog?.type !== "approver") return;
-    const approverId = approverSelectId || null;
-    setApprover.mutate(
-      { userId: dialog.user.id, approverId },
-      {
-        onSuccess: () => {
-          toast.success("承認者を設定しました");
-          setDialog(null);
-        },
-        onError: (err) => toast.error(`設定に失敗しました: ${err.message}`),
-      }
-    );
-  }
-
-  const users = data?.data ?? [];
-
   return (
     <div className="p-6 space-y-4">
       <PageHeader
@@ -223,7 +196,6 @@ export function UsersPage() {
                 <TableHead>表示名</TableHead>
                 <TableHead>ロール</TableHead>
                 <TableHead>状態</TableHead>
-                <TableHead>承認者</TableHead>
                 <TableHead>アクション</TableHead>
               </TableRow>
             </TableHeader>
@@ -252,11 +224,6 @@ export function UsersPage() {
                         {user.is_active ? "有効" : "無効"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-gray-500">
-                      {user.approver_id
-                        ? users.find((u) => u.id === user.approver_id)?.email ?? user.approver_id.slice(0, 8) + "…"
-                        : "—"}
-                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Button
@@ -267,14 +234,6 @@ export function UsersPage() {
                         >
                           <Pencil className="h-3.5 w-3.5 mr-1" />
                           編集
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openApprover(user)}
-                        >
-                          <UserCheck className="h-3.5 w-3.5 mr-1" />
-                          承認者
                         </Button>
                         <Button
                           variant="destructive"
@@ -425,42 +384,6 @@ export function UsersPage() {
             disabled={deleteUser.isPending}
           >
             {deleteUser.isPending ? "削除中..." : "削除する"}
-          </Button>
-        </DialogFooter>
-      </Dialog>
-
-      {/* 承認者設定ダイアログ */}
-      <Dialog open={dialog?.type === "approver"} onClose={() => setDialog(null)}>
-        <DialogHeader>
-          <DialogTitle>承認者を設定</DialogTitle>
-          <DialogDescription>
-            {dialog?.type === "approver" && (
-              <>「{dialog.user.email}」のメール送信を承認するユーザーを選択します。</>
-            )}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="px-5 py-4 space-y-1">
-          <label className="text-sm font-medium text-gray-700">承認者</label>
-          <Select
-            value={approverSelectId}
-            onChange={(e) => setApproverSelectId(e.target.value)}
-          >
-            <option value="">（設定なし）</option>
-            {users
-              .filter((u) => dialog?.type === "approver" && u.id !== dialog.user.id)
-              .map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.display_name} ({u.email})
-                </option>
-              ))}
-          </Select>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setDialog(null)}>
-            キャンセル
-          </Button>
-          <Button onClick={handleSetApprover} disabled={setApprover.isPending}>
-            {setApprover.isPending ? "設定中..." : "保存する"}
           </Button>
         </DialogFooter>
       </Dialog>

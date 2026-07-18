@@ -507,19 +507,6 @@ export async function sendDelayedNow(id: string): Promise<{ status: string }> {
   return request<{ status: string }>(`/delayed/${id}/send-now`, { method: "POST" });
 }
 
-// ─── ユーザー承認者設定 ─────────────────────────────────────
-
-export async function getUserApprover(userId: string): Promise<{ approver_id: string | null }> {
-  return request<{ approver_id: string | null }>(`/users/${userId}/approver`);
-}
-
-export async function setUserApprover(userId: string, approverId: string | null): Promise<void> {
-  return request<void>(`/users/${userId}/approver`, {
-    method: "PUT",
-    body: JSON.stringify({ approver_id: approverId }),
-  });
-}
-
 // ─── ポリシー編集（P2） ──────────────────────────────────────
 
 export async function getPolicyRoutes(): Promise<PolicyRoutesResponse> {

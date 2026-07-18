@@ -289,9 +289,6 @@ func (s *serviceRepository) ExpireApprovals(ctx context.Context) ([]string, erro
 func (s *serviceRepository) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	return s.stubRepository.GetUser(ctx, id)
 }
-func (s *serviceRepository) UpdateUserApprover(_ context.Context, _ string, _ *string) error {
-	return nil
-}
 func (s *serviceRepository) FindUserByEmailInternal(ctx context.Context, email string) (*repository.User, error) {
 	return s.stubRepository.FindUserByEmailInternal(ctx, email)
 }

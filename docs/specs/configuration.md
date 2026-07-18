@@ -223,8 +223,9 @@ policy アクションが `approval` を返したとき、smtp-gateway がデー
 **承認者の解決順:**
 
 1. **メールボックスの承認者（role=admin）** — outbound は送信元、inbound は宛先のメールボックスを調べ、`mailbox_assignments` に role=admin で割り当てられた有効ユーザーが 1 人以上いる**すべての**メールボックスを依頼の対象にする（受信メールの複数宛先対応）。対象メールボックスのいずれかの admin が承認・却下でき、先に決定した人の判断が有効になる。admin の割り当ては Web UI での手動追加のほか、`directory.ldap.mailbox_provisioning`（`role: admin`）で LDAP から member/owner と同様に自動同期できる
-2. **ユーザー個人の承認者** — 送信者の `users.approver_id` → 受信者の `users.approver_id`
-3. **グローバルフォールバック** — `global_approver_email`
+2. **グローバルフォールバック** — メールボックスに承認者がいない場合のみ `global_approver_email` の 1 名が承認者になる（任意）
+
+> ユーザー個人に承認者を指定する方式（旧 `users.approver_id`）は廃止された。承認者はメールボックスの `role=admin` 割り当てに一本化されている。
 
 | キー | 型 | デフォルト | 説明 |
 |-----|-----|----------|------|

@@ -223,8 +223,9 @@ const (
 
 // ApprovalRequest は承認依頼レコードを表す。
 // ApproverID と MailboxEmails はどちらか一方のみ設定される:
-//   - ApproverID    : ユーザー個人が承認者（users.approver_id 経由の解決）
-//   - MailboxEmails : メールボックス承認。対象メールボックス（1..n）のいずれかに
+//   - ApproverID    : システム全体のフォールバック承認者（approval.global_approver_email）。
+//     メールボックスに承認者がいない場合のみ使う
+//   - MailboxEmails : メールボックス承認（主経路）。対象メールボックス（1..n）のいずれかに
 //     role=admin で割り当てられたユーザー全員が承認・却下できる（先に決定した人が有効）
 type ApprovalRequest struct {
 	ID               string         `json:"id"`

@@ -4,7 +4,6 @@ import {
   getApproval,
   approveRequest,
   rejectRequest,
-  setUserApprover,
 } from "../lib/api";
 
 export function useApprovalList() {
@@ -42,17 +41,6 @@ export function useReject() {
     onSuccess: (_data, { id }) => {
       queryClient.removeQueries({ queryKey: ["approvals", "detail", id] });
       queryClient.invalidateQueries({ queryKey: ["approvals", "list"] });
-    },
-  });
-}
-
-export function useSetUserApprover() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ userId, approverId }: { userId: string; approverId: string | null }) =>
-      setUserApprover(userId, approverId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 }

@@ -13,8 +13,7 @@ import (
 // approvalStubRepo は createApprovalRequest の承認者解決をテストするためのスタブ。
 type approvalStubRepo struct {
 	mailboxAdmins map[string]int    // mailboxEmail → admin 数
-	approvers     map[string]string // email → approver_id（users.approver_id）
-	userIDs       map[string]string // email → user_id
+	userIDs       map[string]string // email → user_id（グローバルフォールバック解決用）
 	saved         *domain.ApprovalRequest
 }
 
@@ -27,10 +26,6 @@ func (r *approvalStubRepo) SaveInspectResult(context.Context, *domain.InspectRes
 }
 func (r *approvalStubRepo) SaveAttachment(context.Context, *domain.MailAttachment) error { return nil }
 func (r *approvalStubRepo) UpdateProcessedEMLPath(context.Context, string, string) error { return nil }
-
-func (r *approvalStubRepo) FindApproverForSender(_ context.Context, email string) (string, error) {
-	return r.approvers[email], nil
-}
 
 func (r *approvalStubRepo) FindUserIDByEmail(_ context.Context, email string) (string, error) {
 	return r.userIDs[email], nil
@@ -68,8 +63,6 @@ func testMail(direction domain.Direction, from string, to []string) *domain.Mail
 func TestCreateApprovalRequest_MailboxAdminOutbound(t *testing.T) {
 	repo := &approvalStubRepo{
 		mailboxAdmins: map[string]int{"sales@internal.test": 2},
-		// approver_id も設定されているが、mailbox admin が優先される
-		approvers: map[string]string{"sales@internal.test": "user-legacy"},
 	}
 	h := newApprovalHandler(repo, "")
 
@@ -108,25 +101,6 @@ func TestCreateApprovalRequest_MailboxAdminInboundAllRecipients(t *testing.T) {
 	if len(repo.saved.MailboxEmails) != 2 ||
 		repo.saved.MailboxEmails[0] != want[0] || repo.saved.MailboxEmails[1] != want[1] {
 		t.Errorf("MailboxEmails = %v, want %v", repo.saved.MailboxEmails, want)
-	}
-}
-
-func TestCreateApprovalRequest_FallbackToUserApprover(t *testing.T) {
-	// mailbox admin がいない場合は users.approver_id（送信者）にフォールバック
-	repo := &approvalStubRepo{
-		approvers: map[string]string{"taro@internal.test": "user-approver-1"},
-	}
-	h := newApprovalHandler(repo, "")
-
-	mail := testMail(domain.DirectionOutbound, "taro@internal.test", []string{"cust@external.test"})
-	if err := h.createApprovalRequest(context.Background(), mail, slog.Default()); err != nil {
-		t.Fatalf("createApprovalRequest 失敗: %v", err)
-	}
-	if repo.saved.ApproverID != "user-approver-1" {
-		t.Errorf("ApproverID = %q, want user-approver-1", repo.saved.ApproverID)
-	}
-	if len(repo.saved.MailboxEmails) != 0 {
-		t.Errorf("MailboxEmails = %v, want 空", repo.saved.MailboxEmails)
 	}
 }
 

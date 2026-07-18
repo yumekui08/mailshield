@@ -179,12 +179,8 @@ type Repository interface {
 	// 対象の message_id 一覧を返す（呼び出し元が MinIO 削除・ステータス更新を行う）。
 	ExpireApprovals(ctx context.Context) ([]string, error)
 
-	// ─── ユーザー承認者設定 ──────────────────────────────────────────────────
-
 	// GetUser は指定 ID のユーザーを返す。
 	GetUser(ctx context.Context, id string) (*User, error)
-	// UpdateUserApprover はユーザーの承認者を設定する（nil で解除）。
-	UpdateUserApprover(ctx context.Context, userID string, approverID *string) error
 	// FindUserByEmailInternal はメールアドレスでユーザーを検索する（承認通知送信先解決用）。
 	FindUserByEmailInternal(ctx context.Context, email string) (*User, error)
 
@@ -246,7 +242,6 @@ type User struct {
 	PasswordHash  string
 	Role          domain.Role
 	IsActive      bool
-	ApproverID    *string
 	ProvisionedBy domain.ProvisionedBy
 	CreatedAt     time.Time
 	UpdatedAt     time.Time

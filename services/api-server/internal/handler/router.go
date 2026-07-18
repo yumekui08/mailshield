@@ -260,15 +260,6 @@ func NewRouter(
 			r.Post("/{id}/cancel", delayHandler.HandleCancel)
 			r.Post("/{id}/send-now", delayHandler.HandleSendNow)
 		})
-
-		// ユーザー承認者設定（admin のみ）
-		r.Route("/users/{id}/approver", func(r chi.Router) {
-			r.Use(authMW)
-			r.Use(middleware.RequireRole(domain.RoleAdmin))
-
-			r.Get("/", approvalHandler.HandleGetUserApprover)
-			r.Put("/", approvalHandler.HandleSetUserApprover)
-		})
 	})
 
 	return r

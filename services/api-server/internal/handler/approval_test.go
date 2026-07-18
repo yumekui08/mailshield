@@ -17,7 +17,6 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 )
 
 // viewerSession は閲覧者ロールのセッションを返す。
@@ -437,99 +436,6 @@ func TestApprovalHandleGet_Viewer_MailboxAdmin_Allowed(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ステータスコード 期待: 200, 実際: %d", rr.Code)
-	}
-}
-
-// ─── HandleGetUserApprover ────────────────────────────────────────────────────
-
-func TestApprovalHandleGetUserApprover_Found(t *testing.T) {
-	approverID := "approver-xyz"
-	repo := &mockRepository{
-		getUserFunc: func(_ context.Context, id string) (*repository.User, error) {
-			return &repository.User{ID: id, Email: "u@example.com", ApproverID: &approverID}, nil
-		},
-	}
-	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
-	req := requestWithSessionAndURLParam(http.MethodGet, "/api/v1/users/user-1/approver", "id", "user-1", adminSession())
-	rr := httptest.NewRecorder()
-	h.HandleGetUserApprover(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("ステータスコード 期待: 200, 実際: %d", rr.Code)
-	}
-	var got struct {
-		ApproverID *string `json:"approver_id"`
-	}
-	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
-		t.Fatalf("JSONデコード失敗: %v", err)
-	}
-	if got.ApproverID == nil || *got.ApproverID != approverID {
-		t.Errorf("approver_id 期待: %s, 実際: %v", approverID, got.ApproverID)
-	}
-}
-
-func TestApprovalHandleGetUserApprover_NotFound(t *testing.T) {
-	repo := &mockRepository{
-		getUserFunc: func(_ context.Context, _ string) (*repository.User, error) {
-			return nil, nil
-		},
-	}
-	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
-	req := requestWithSessionAndURLParam(http.MethodGet, "/api/v1/users/nonexistent/approver", "id", "nonexistent", adminSession())
-	rr := httptest.NewRecorder()
-	h.HandleGetUserApprover(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("ステータスコード 期待: 404, 実際: %d", rr.Code)
-	}
-}
-
-// ─── HandleSetUserApprover ───────────────────────────────────────────────────
-
-func TestApprovalHandleSetUserApprover_Success(t *testing.T) {
-	var capturedApproverID *string
-	repo := &mockRepository{
-		updateUserApproverFunc: func(_ context.Context, _ string, id *string) error {
-			capturedApproverID = id
-			return nil
-		},
-	}
-	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
-
-	bodyJSON := []byte(`{"approver_id":"new-approver-id"}`)
-	req := requestWithSessionURLParamAndBody(http.MethodPut, "/api/v1/users/user-1/approver", "id", "user-1", bodyJSON, adminSession())
-	rr := httptest.NewRecorder()
-	h.HandleSetUserApprover(rr, req)
-
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("ステータスコード 期待: 204, 実際: %d", rr.Code)
-	}
-	if capturedApproverID == nil || *capturedApproverID != "new-approver-id" {
-		t.Errorf("approver_id 期待: new-approver-id, 実際: %v", capturedApproverID)
-	}
-}
-
-func TestApprovalHandleSetUserApprover_Clear(t *testing.T) {
-	var capturedApproverID *string = func() *string { s := "dummy"; return &s }()
-	repo := &mockRepository{
-		updateUserApproverFunc: func(_ context.Context, _ string, id *string) error {
-			capturedApproverID = id
-			return nil
-		},
-	}
-	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
-
-	// approver_id: null で承認者を解除
-	bodyJSON := []byte(`{"approver_id":null}`)
-	req := requestWithSessionURLParamAndBody(http.MethodPut, "/api/v1/users/user-1/approver", "id", "user-1", bodyJSON, adminSession())
-	rr := httptest.NewRecorder()
-	h.HandleSetUserApprover(rr, req)
-
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("ステータスコード 期待: 204, 実際: %d", rr.Code)
-	}
-	if capturedApproverID != nil {
-		t.Errorf("approver_id は nil であるべき, 実際: %v", *capturedApproverID)
 	}
 }
 

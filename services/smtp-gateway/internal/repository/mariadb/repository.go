@@ -184,25 +184,6 @@ func (r *Repository) UpdateProcessedEMLPath(ctx context.Context, messageID, path
 	return nil
 }
 
-// FindApproverForSender は送信者メールアドレスから承認者のユーザーIDを解決する。
-func (r *Repository) FindApproverForSender(ctx context.Context, fromAddress string) (string, error) {
-	var approverID sql.NullString
-	err := r.db.QueryRowContext(ctx,
-		`SELECT approver_id FROM users WHERE email = ? AND is_active = 1 LIMIT 1`,
-		fromAddress,
-	).Scan(&approverID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", nil
-		}
-		return "", fmt.Errorf("承認者解決失敗 (from=%s): %w", fromAddress, err)
-	}
-	if !approverID.Valid {
-		return "", nil
-	}
-	return approverID.String, nil
-}
-
 // FindUserIDByEmail はメールアドレスからユーザーIDを返す。
 func (r *Repository) FindUserIDByEmail(ctx context.Context, email string) (string, error) {
 	var userID string

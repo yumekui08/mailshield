@@ -446,7 +446,7 @@ func scanMessages(rows *sql.Rows) ([]domain.Message, error) {
 // FindUserByEmail はメールアドレスでユーザーを検索する。
 func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, provisioned_by, created_at, updated_at
 		FROM users
 		WHERE email = ? AND is_active = 1
 		LIMIT 1`
@@ -500,7 +500,7 @@ func (r *Repository) UpsertFederatedUser(ctx context.Context, email, displayName
 	}
 
 	const sel = `
-		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, provisioned_by, created_at, updated_at
 		FROM users WHERE email = ? LIMIT 1`
 	row := r.db.QueryRowContext(ctx, sel, email)
 	u, err := scanUser(row)
@@ -553,7 +553,7 @@ func (r *Repository) CountUsers(ctx context.Context) (int, error) {
 // ListUsers はユーザー一覧を返す。
 func (r *Repository) ListUsers(ctx context.Context) ([]repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, provisioned_by, created_at, updated_at
 		FROM users
 		WHERE is_active = 1
 		ORDER BY created_at ASC`
@@ -569,7 +569,7 @@ func (r *Repository) ListUsers(ctx context.Context) ([]repository.User, error) {
 		var isActiveInt int
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.DisplayName,
-			&u.PasswordHash, &u.Role, &isActiveInt, &u.ApproverID, &u.ProvisionedBy, &u.CreatedAt, &u.UpdatedAt,
+			&u.PasswordHash, &u.Role, &isActiveInt, &u.ProvisionedBy, &u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("ユーザースキャン失敗: %w", err)
 		}
@@ -1398,7 +1398,7 @@ func scanUser(row *sql.Row) (*repository.User, error) {
 	var isActiveInt int
 	if err := row.Scan(
 		&u.ID, &u.Email, &u.DisplayName,
-		&u.PasswordHash, &u.Role, &isActiveInt, &u.ApproverID, &u.ProvisionedBy, &u.CreatedAt, &u.UpdatedAt,
+		&u.PasswordHash, &u.Role, &isActiveInt, &u.ProvisionedBy, &u.CreatedAt, &u.UpdatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("ユーザーが見つかりません")
@@ -1910,7 +1910,7 @@ func (r *Repository) scanDelayedReleases(ctx context.Context, q string, args ...
 // GetUser は指定 ID のユーザーを返す。
 func (r *Repository) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, provisioned_by, created_at, updated_at
 		FROM users WHERE id = ? LIMIT 1`
 	row := r.db.QueryRowContext(ctx, q, id)
 	u, err := scanUser(row)
@@ -1920,22 +1920,10 @@ func (r *Repository) GetUser(ctx context.Context, id string) (*repository.User, 
 	return u, nil
 }
 
-// UpdateUserApprover はユーザーの approver_id を更新する（nil で解除）。
-func (r *Repository) UpdateUserApprover(ctx context.Context, userID string, approverID *string) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE users SET approver_id = ? WHERE id = ?`,
-		approverID, userID,
-	)
-	if err != nil {
-		return fmt.Errorf("承認者設定失敗 (user_id=%s): %w", userID, err)
-	}
-	return nil
-}
-
 // FindUserByEmailInternal はメールアドレスでアクティブユーザーを検索する（通知送信先解決用）。
 func (r *Repository) FindUserByEmailInternal(ctx context.Context, email string) (*repository.User, error) {
 	const q = `
-		SELECT id, email, display_name, password_hash, role, is_active, approver_id, provisioned_by, created_at, updated_at
+		SELECT id, email, display_name, password_hash, role, is_active, provisioned_by, created_at, updated_at
 		FROM users WHERE email = ? AND is_active = 1 LIMIT 1`
 	row := r.db.QueryRowContext(ctx, q, email)
 	u, err := scanUser(row)

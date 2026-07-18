@@ -30,7 +30,7 @@ export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 export interface ApprovalRequest {
   id: string;
   message_id: string;
-  /** ユーザー個人が承認者の場合のユーザー ID（メールボックス承認では null） */
+  /** グローバルフォールバック承認者のユーザー ID（メールボックス承認では null） */
   approver_id: string | null;
   /** メールボックス承認の対象アドレス（1..n）。いずれかの admin 割り当てユーザーが承認可 */
   mailbox_emails: string[] | null;
@@ -112,7 +112,6 @@ export interface UserRecord {
   display_name: string;
   role: Role;
   is_active: boolean;
-  approver_id: string | null;
 }
 
 export type AssignmentRole = "member" | "owner" | "admin";

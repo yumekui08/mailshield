@@ -44,7 +44,6 @@ type mockRepository struct {
 	getApprovalRequestFunc      func(ctx context.Context, id string) (*domain.ApprovalRequest, error)
 	updateApprovalStatusFunc    func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error
 	getUserFunc                 func(ctx context.Context, id string) (*repository.User, error)
-	updateUserApproverFunc      func(ctx context.Context, userID string, approverID *string) error
 
 	// 送信ディレイ
 	listDelayedReleasesFunc func(ctx context.Context, filter *domain.MailboxVisibilityFilter) ([]domain.DelayedRelease, error)
@@ -378,12 +377,6 @@ func (m *mockRepository) GetUser(ctx context.Context, id string) (*repository.Us
 		return m.getUserFunc(ctx, id)
 	}
 	return nil, nil
-}
-func (m *mockRepository) UpdateUserApprover(ctx context.Context, userID string, approverID *string) error {
-	if m.updateUserApproverFunc != nil {
-		return m.updateUserApproverFunc(ctx, userID, approverID)
-	}
-	return nil
 }
 func (m *mockRepository) FindUserByEmailInternal(_ context.Context, _ string) (*repository.User, error) {
 	return nil, nil

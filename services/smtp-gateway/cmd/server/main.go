@@ -811,8 +811,8 @@ func (h *mailHandler) archiveAsync(messageID string, eml []byte, receivedAt time
 //  1. メールボックスの承認者（role=admin）: outbound は送信元、inbound は宛先の
 //     メールボックスを調べ、admin 割り当てが 1 人以上いる**すべての**メールボックスを
 //     依頼の対象にする（いずれかのメールボックスの admin が承認すれば配送される）
-//  2. ユーザー個人の承認者（users.approver_id）: 送信者 → 受信者
-//  3. グローバルフォールバック（approval.global_approver_email）
+//  2. グローバルフォールバック（approval.global_approver_email）: メールボックスに
+//     承認者がいない場合のシステム全体の受け皿（任意・デフォルト無効）
 func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Mail, log *slog.Logger) error {
 	// 1. メールボックス承認者（role=admin）
 	candidates := mail.ToAddresses
@@ -831,28 +831,13 @@ func (h *mailHandler) createApprovalRequest(ctx context.Context, mail *domain.Ma
 		}
 	}
 
-	// 2. ユーザー個人の承認者（送信者 → 受信者）
+	// 2. グローバルフォールバック（メールボックスに承認者がいない場合のみ）
 	var approverID string
-	if len(mailboxEmails) == 0 {
+	if len(mailboxEmails) == 0 && h.approvalCfg.GlobalApproverEmail != "" {
 		var err error
-		approverID, err = h.repo.FindApproverForSender(ctx, mail.FromAddress)
+		approverID, err = h.repo.FindUserIDByEmail(ctx, h.approvalCfg.GlobalApproverEmail)
 		if err != nil {
-			log.Warn("承認者解決エラー（送信者）", "from", mail.FromAddress, "error", err)
-		}
-
-		if approverID == "" && len(mail.ToAddresses) > 0 {
-			approverID, err = h.repo.FindApproverForSender(ctx, mail.ToAddresses[0])
-			if err != nil {
-				log.Warn("承認者解決エラー（受信者）", "to", mail.ToAddresses[0], "error", err)
-			}
-		}
-
-		// 3. グローバルフォールバック
-		if approverID == "" && h.approvalCfg.GlobalApproverEmail != "" {
-			approverID, err = h.repo.FindUserIDByEmail(ctx, h.approvalCfg.GlobalApproverEmail)
-			if err != nil {
-				log.Warn("承認者解決エラー（グローバル）", "email", h.approvalCfg.GlobalApproverEmail, "error", err)
-			}
+			log.Warn("承認者解決エラー（グローバル）", "email", h.approvalCfg.GlobalApproverEmail, "error", err)
 		}
 	}
 
