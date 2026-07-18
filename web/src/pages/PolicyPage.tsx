@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Pencil,
@@ -8,10 +9,14 @@ import {
   ArrowDown,
   Save,
   ScrollText,
+  History,
+  LayoutTemplate,
+  RotateCcw,
 } from "lucide-react";
 import { usePolicyRoutes, useUpdatePolicyRoute } from "../hooks/usePolicy";
 import { useMe } from "../hooks/useAuth";
-import { ApiError } from "../lib/api";
+import { ApiError, getPolicyVersions, rollbackPolicy } from "../lib/api";
+import { POLICY_TEMPLATES } from "../lib/policyTemplates";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -129,6 +134,8 @@ export function PolicyPage() {
   const [editing, setEditing] = useState<{ index: number; rule: PolicyRule } | null>(
     null
   );
+  const [showHistory, setShowHistory] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const routes = data?.routes ?? [];
   const hits: PolicyHits = data?.hits ?? {};
@@ -166,6 +173,19 @@ export function PolicyPage() {
     const cur = next[index].enabled;
     next[index] = { ...next[index], enabled: cur === false ? true : false };
     setRules(next);
+  }
+
+  function insertTemplate(templateRules: PolicyRule[]) {
+    const normalized = templateRules.map(normalizeRule);
+    // フォールバック（condition:"true"）の手前に挿入する
+    const idx = rules.findIndex((r) => r.condition.trim() === "true");
+    const next =
+      idx >= 0
+        ? [...rules.slice(0, idx), ...normalized, ...rules.slice(idx)]
+        : [...rules, ...normalized];
+    setRules(next);
+    setShowTemplates(false);
+    toast.success("テンプレートを挿入しました。内容を確認して保存してください");
   }
 
   function saveRule(rule: PolicyRule) {
@@ -246,6 +266,22 @@ export function PolicyPage() {
           </div>
           {canEdit && (
             <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowHistory(true)}
+              >
+                <History className="mr-1 h-3.5 w-3.5" />
+                履歴
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowTemplates(true)}
+              >
+                <LayoutTemplate className="mr-1 h-3.5 w-3.5" />
+                テンプレート
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -404,7 +440,130 @@ export function PolicyPage() {
           onSave={saveRule}
         />
       )}
+
+      {showTemplates && (
+        <TemplatesDialog
+          onClose={() => setShowTemplates(false)}
+          onInsert={insertTemplate}
+        />
+      )}
+
+      {showHistory && activeRoute && (
+        <HistoryDialog
+          dir={activeRoute.dir}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
     </div>
+  );
+}
+
+function TemplatesDialog({
+  onClose,
+  onInsert,
+}: {
+  onClose: () => void;
+  onInsert: (rules: PolicyRule[]) => void;
+}) {
+  return (
+    <Dialog open onClose={onClose}>
+      <DialogHeader>
+        <DialogTitle>シナリオテンプレート</DialogTitle>
+        <DialogDescription>
+          定型ルールをフォールバックの手前に挿入します。挿入後に内容を調整して保存してください。
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-2">
+        {POLICY_TEMPLATES.map((t) => (
+          <div
+            key={t.id}
+            className="flex items-start justify-between gap-3 border border-gray-200 p-2"
+          >
+            <div>
+              <div className="text-sm font-medium">{t.name}</div>
+              <div className="text-xs text-gray-500">{t.description}</div>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => onInsert(t.rules)}>
+              <Plus className="mr-1 h-3 w-3" />
+              挿入
+            </Button>
+          </div>
+        ))}
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose}>
+          閉じる
+        </Button>
+      </DialogFooter>
+    </Dialog>
+  );
+}
+
+function HistoryDialog({ dir, onClose }: { dir: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["policy", "versions", dir],
+    queryFn: () => getPolicyVersions(dir),
+  });
+  const rollback = useMutation({
+    mutationFn: (versionId: string) => rollbackPolicy(dir, versionId),
+    onSuccess: () => {
+      toast.success("以前のバージョンに戻し、smtp-gateway に反映しました");
+      qc.invalidateQueries({ queryKey: ["policy", "routes"] });
+      qc.invalidateQueries({ queryKey: ["policy", "versions", dir] });
+      onClose();
+    },
+    onError: (e) => {
+      const msg = e instanceof ApiError ? extractMessage(e.message) : String(e);
+      toast.error(msg, { duration: 8000 });
+    },
+  });
+  const versions = data?.versions ?? [];
+
+  return (
+    <Dialog open onClose={onClose}>
+      <DialogHeader>
+        <DialogTitle>変更履歴（{dir}）</DialogTitle>
+        <DialogDescription>
+          各行は「その時点より前の内容」です。復元すると現在の内容も履歴に残ります。
+        </DialogDescription>
+      </DialogHeader>
+      <div className="max-h-96 space-y-1 overflow-y-auto">
+        {isLoading && <Skeleton className="h-20 w-full" />}
+        {!isLoading && versions.length === 0 && (
+          <div className="text-sm text-gray-500">履歴はまだありません。</div>
+        )}
+        {versions.map((v) => (
+          <div
+            key={v.id}
+            className="flex items-center justify-between gap-3 border border-gray-200 px-2 py-1.5"
+          >
+            <div className="text-xs">
+              <div className="tabular-nums">
+                {new Date(v.created_at).toLocaleString()}
+              </div>
+              <div className="text-gray-500">{v.actor_email ?? "—"}</div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (confirm("この時点の内容に復元しますか？")) rollback.mutate(v.id);
+              }}
+              disabled={rollback.isPending}
+            >
+              <RotateCcw className="mr-1 h-3 w-3" />
+              復元
+            </Button>
+          </div>
+        ))}
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose}>
+          閉じる
+        </Button>
+      </DialogFooter>
+    </Dialog>
   );
 }
 

@@ -543,3 +543,21 @@ export async function updatePolicyRoute(
 export async function getPolicyStats(): Promise<{ hits: PolicyHits }> {
   return request<{ hits: PolicyHits }>("/policy/stats");
 }
+
+export async function getPolicyVersions(
+  dir: string
+): Promise<{ versions: import("../types").PolicyVersion[] }> {
+  return request<{ versions: import("../types").PolicyVersion[] }>(
+    `/policy/routes/${encodeURIComponent(dir)}/versions`
+  );
+}
+
+export async function rollbackPolicy(
+  dir: string,
+  versionId: string
+): Promise<{ status: string }> {
+  return request<{ status: string }>(
+    `/policy/routes/${encodeURIComponent(dir)}/rollback`,
+    { method: "POST", body: JSON.stringify({ version_id: versionId }) }
+  );
+}

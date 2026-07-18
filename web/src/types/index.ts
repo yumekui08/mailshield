@@ -237,3 +237,10 @@ export interface PolicyRoutesResponse {
   routes: PolicyRoute[];
   hits: PolicyHits;
 }
+
+export interface PolicyVersion {
+  id: string;
+  route_dir: string;
+  actor_email?: string | null;
+  created_at: string;
+}
