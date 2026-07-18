@@ -352,9 +352,19 @@ policy アクション `delay` で保留された送信メールの管理 API。
 
 ルールを更新する。`admin` のみ。リクエストボディは `{"rules": [...], "lists": {...}}`。
 
-処理順序: 構造検証 → `policy.yaml` 書き込み → smtp-gateway に `POST /reload`。
-リロードに失敗した場合は元の内容へ書き戻し、`422 RELOAD_FAILED` と gateway のパースエラーを返す。
-成功時は監査ログに `policy.updated` を記録する。
+処理順序: 構造検証 → 変更前スナップショットを履歴保存 → `policy.yaml` 書き込み →
+smtp-gateway に `POST /reload`。リロードに失敗した場合は元の内容へ書き戻し、
+`422 RELOAD_FAILED` と gateway のパースエラーを返す。成功時は監査ログに `policy.updated` を記録する。
+
+### `GET /api/v1/policy/routes/{route}/versions`
+
+ポリシー変更履歴（新しい順・最大 50 件）を返す。`operator` 以上。各要素は変更前スナップショットのメタ情報（`id` / `actor_email` / `created_at`）。
+
+### `POST /api/v1/policy/routes/{route}/rollback`
+
+指定バージョンの内容へ復元する。`admin` のみ。リクエストボディは `{"version_id": "..."}`。
+復元前に現在の内容も履歴に保存する。書き込み → `POST /reload`、失敗時は巻き戻す。
+監査ログに `policy.rolled_back` を記録する。
 
 **エラー:**
 - `422 VALIDATION_ERROR` — 構造検証エラー（アクション種別・デフォルトルール欠如など。書き込み前に拒否）
