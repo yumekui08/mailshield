@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -35,18 +36,21 @@ const (
 	ActionQuarantine ActionType = "quarantine"
 	ActionApproval   ActionType = "approval"
 	ActionDelay      ActionType = "delay"
+	// ActionRedirect は宛先を差し替えて配送する終端アクション（誤送信の受け皿等）。
+	ActionRedirect ActionType = "redirect"
 
 	// 非終端アクション: メールを加工して次のルール評価へ続行する。
 	ActionAddHeader        ActionType = "add_header"
 	ActionRemoveHeader     ActionType = "remove_header"
 	ActionAddSubjectPrefix ActionType = "add_subject_prefix"
+	ActionStripAttachments ActionType = "strip_attachments"
 	ActionLogOnly          ActionType = "log_only"
 )
 
 // isTerminalAction は指定アクションが終端（ルール評価を止める）かを返す。
 func isTerminalAction(t string) bool {
 	switch ActionType(t) {
-	case ActionDeliver, ActionReject, ActionQuarantine, ActionApproval, ActionDelay:
+	case ActionDeliver, ActionReject, ActionQuarantine, ActionApproval, ActionDelay, ActionRedirect:
 		return true
 	}
 	return false
@@ -55,8 +59,8 @@ func isTerminalAction(t string) bool {
 // isKnownAction は指定アクションがサポートされているかを返す。
 func isKnownAction(t string) bool {
 	switch ActionType(t) {
-	case ActionDeliver, ActionReject, ActionQuarantine, ActionApproval, ActionDelay,
-		ActionAddHeader, ActionRemoveHeader, ActionAddSubjectPrefix, ActionLogOnly:
+	case ActionDeliver, ActionReject, ActionQuarantine, ActionApproval, ActionDelay, ActionRedirect,
+		ActionAddHeader, ActionRemoveHeader, ActionAddSubjectPrefix, ActionStripAttachments, ActionLogOnly:
 		return true
 	}
 	return false
@@ -299,6 +303,26 @@ func (e *Engine) applyNonTerminal(mail *domain.Mail, rule *Rule, spec ActionSpec
 		slog.Info("ポリシー: ヘッダー削除",
 			"rule", rule.Name, "message_id", mail.MessageID, "header", spec.Name)
 		return true
+	case ActionStripAttachments:
+		var exts []string
+		if v := strings.TrimSpace(spec.Value); v != "" {
+			exts = strings.Split(v, ",")
+		}
+		out, changed, err := eml.StripAttachments(
+			mail.RawEML, mail.FromAddress, mail.ToAddresses, mail.Subject, mail.ReceivedAt, exts)
+		if err != nil {
+			slog.Warn("ポリシー: 添付除去失敗（続行）",
+				"rule", rule.Name, "message_id", mail.MessageID, "error", err)
+			return false
+		}
+		if !changed {
+			return false
+		}
+		mail.RawEML = out
+		mail.HasAttachment = false
+		slog.Info("ポリシー: 添付ファイル除去",
+			"rule", rule.Name, "message_id", mail.MessageID, "extensions", spec.Value)
+		return true
 	case ActionLogOnly:
 		slog.Info("ポリシー: log_only マッチ",
 			"rule", rule.Name, "message_id", mail.MessageID)
@@ -340,6 +364,19 @@ func (e *Engine) EvaluateAndAct(ctx context.Context, mail *domain.Mail, results 
 			return ActionResult{}, err
 		}
 		return ActionResult{Action: ActionDeliver, MatchedRule: rule.Name}, nil
+	case ActionRedirect:
+		// 宛先を差し替えて配送する（誤送信の受け皿・監査用アドレス等）。
+		// value に差し替え先アドレス（カンマ区切りで複数可）を指定する。
+		targets := splitAddresses(spec.Value)
+		if len(targets) == 0 {
+			return ActionResult{}, fmt.Errorf("redirect アクションに value（差し替え先アドレス）が必要です")
+		}
+		mail.ToAddresses = targets
+		slog.Info("ポリシー: 宛先を差し替えて配送", "message_id", mail.MessageID, "rule", rule.Name, "redirect_to", targets)
+		if err := e.deliver(ctx, mail, spec.Destination); err != nil {
+			return ActionResult{}, err
+		}
+		return ActionResult{Action: ActionRedirect, MatchedRule: rule.Name}, nil
 	case ActionReject:
 		slog.Info("メール拒否", "message_id", mail.MessageID, "rule", rule.Name)
 		return ActionResult{Action: ActionReject, MatchedRule: rule.Name}, nil
@@ -412,8 +449,63 @@ func buildFacts(mail *domain.Mail, results []*domain.InspectResult) map[string]a
 		facts["mail.size_bytes"] = int(mail.SizeBytes)
 		facts["mail.has_attachment"] = mail.HasAttachment
 		facts["mail.direction"] = string(mail.Direction)
+		facts["mail.recipient_count"] = len(mail.ToAddresses)
+		if !mail.ReceivedAt.IsZero() {
+			facts["mail.hour"] = mail.ReceivedAt.UTC().Hour()
+			facts["mail.weekday"] = weekdayShort(mail.ReceivedAt.UTC().Weekday())
+		}
+		// ヘッダー由来の fact（mail.has_header.<name> / mail.header.<name>）。
+		for name, val := range parseHeaderFacts(mail.RawEML) {
+			facts["mail.has_header."+name] = true
+			facts["mail.header."+name] = val
+		}
 	}
 	return facts
+}
+
+// weekdayShort は曜日を小文字 3 文字（sun..sat）で返す（条件式での比較用）。
+func weekdayShort(d time.Weekday) string {
+	return [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}[d]
+}
+
+// parseHeaderFacts は EML のヘッダーブロックを走査し、ヘッダー名（小文字）→ 値のマップを返す。
+// 折り畳み継続行を結合する。同名ヘッダーは最初の 1 つを採用する。本文は読まない。
+func parseHeaderFacts(rawEML []byte) map[string]string {
+	out := make(map[string]string)
+	s := string(rawEML)
+	// ヘッダー部（最初の空行まで）を切り出す
+	if i := strings.Index(s, "\r\n\r\n"); i >= 0 {
+		s = s[:i]
+	} else if i := strings.Index(s, "\n\n"); i >= 0 {
+		s = s[:i]
+	}
+	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
+	curName, curVal := "", ""
+	commit := func() {
+		if curName != "" {
+			if _, exists := out[curName]; !exists {
+				out[curName] = strings.TrimSpace(curVal)
+			}
+		}
+	}
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		if line[0] == ' ' || line[0] == '\t' {
+			curVal += " " + strings.TrimSpace(line) // 折り畳み継続行
+			continue
+		}
+		commit()
+		if colon := strings.IndexByte(line, ':'); colon >= 0 {
+			curName = strings.ToLower(strings.TrimSpace(line[:colon]))
+			curVal = line[colon+1:]
+		} else {
+			curName, curVal = "", ""
+		}
+	}
+	commit()
+	return out
 }
 
 func domainOf(addr string) string {
@@ -422,6 +514,17 @@ func domainOf(addr string) string {
 		return addr[at+1:]
 	}
 	return ""
+}
+
+// splitAddresses はカンマ区切りのアドレス文字列を配列に分解する（空要素は除外）。
+func splitAddresses(s string) []string {
+	var out []string
+	for _, a := range strings.Split(s, ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func joinDomains(addrs []string) string {

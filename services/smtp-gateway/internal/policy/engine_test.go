@@ -1,10 +1,14 @@
 package policy
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jhillyerd/enmime"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
 )
@@ -467,4 +471,109 @@ rules:
 	if result.Action != ActionQuarantine {
 		t.Errorf("タグ付け後の件名を条件にした quarantine になるべき: %s", result.Action)
 	}
+}
+
+// ─── P3: 新 fact・アクション ─────────────────────────────────────────────────
+
+func TestBuildFacts_P3(t *testing.T) {
+	mail := &domain.Mail{
+		ToAddresses: []string{"a@x.test", "b@x.test", "c@x.test"},
+		ReceivedAt:  time.Date(2026, 7, 18, 20, 0, 0, 0, time.UTC), // 土曜 20:00 UTC
+		RawEML:      []byte("From: s@x.test\r\nList-Unsubscribe: <mailto:u@x.test>\r\nX-Priority: 1\r\n\r\nbody\r\n"),
+	}
+	facts := buildFacts(mail, nil)
+	if facts["mail.recipient_count"] != 3 {
+		t.Errorf("recipient_count = %v, want 3", facts["mail.recipient_count"])
+	}
+	if facts["mail.hour"] != 20 {
+		t.Errorf("hour = %v, want 20", facts["mail.hour"])
+	}
+	if facts["mail.weekday"] != "sat" {
+		t.Errorf("weekday = %v, want sat", facts["mail.weekday"])
+	}
+	if facts["mail.has_header.list-unsubscribe"] != true {
+		t.Errorf("has_header.list-unsubscribe should be true: %v", facts["mail.has_header.list-unsubscribe"])
+	}
+	if facts["mail.header.x-priority"] != "1" {
+		t.Errorf("header.x-priority = %v, want 1", facts["mail.header.x-priority"])
+	}
+}
+
+func TestEvaluateAndAct_Redirect(t *testing.T) {
+	fd := &fakeDeliverer{}
+	e := newEngineFromYAML(t, `
+rules:
+  - name: catch_all
+    condition: "true"
+    actions:
+      - type: redirect
+        value: "quarantine@internal.test"
+        destination: "mailpit:1025"
+`, fd)
+	mail := &domain.Mail{ToAddresses: []string{"orig@x.test"}, RawEML: []byte("Subject: x\r\n\r\nb\r\n")}
+	result, err := e.EvaluateAndAct(context.Background(), mail, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != ActionRedirect {
+		t.Errorf("action = %s, want redirect", result.Action)
+	}
+	if !fd.called || fd.destination != "mailpit:1025" {
+		t.Errorf("配送されていない: called=%v dest=%s", fd.called, fd.destination)
+	}
+	if len(mail.ToAddresses) != 1 || mail.ToAddresses[0] != "quarantine@internal.test" {
+		t.Errorf("宛先が差し替わっていない: %v", mail.ToAddresses)
+	}
+}
+
+func TestEvaluateAndAct_StripAttachments(t *testing.T) {
+	fd := &fakeDeliverer{}
+	e := newEngineFromYAML(t, `
+rules:
+  - name: strip
+    condition: "mail.has_attachment == true"
+    actions:
+      - type: strip_attachments
+  - name: default
+    condition: "true"
+    action: deliver
+`, fd)
+	// 添付付き multipart メールを構築
+	rawEML := buildMailWithAttachment(t)
+	mail := &domain.Mail{
+		FromAddress:   "s@x.test",
+		ToAddresses:   []string{"r@x.test"},
+		Subject:       "has attach",
+		HasAttachment: true,
+		ReceivedAt:    time.Now().UTC(),
+		RawEML:        rawEML,
+	}
+	if _, err := e.EvaluateAndAct(context.Background(), mail, nil); err != nil {
+		t.Fatal(err)
+	}
+	if mail.HasAttachment {
+		t.Error("HasAttachment が false になっていない")
+	}
+	if strings.Contains(string(mail.RawEML), "evil.exe") {
+		t.Errorf("添付が除去されていない:\n%s", mail.RawEML)
+	}
+}
+
+func buildMailWithAttachment(t *testing.T) []byte {
+	t.Helper()
+	b := enmime.Builder().
+		From("", "s@x.test").
+		To("", "r@x.test").
+		Subject("has attach").
+		Text([]byte("hello")).
+		AddAttachment([]byte("MZ..."), "application/octet-stream", "evil.exe")
+	root, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := root.Encode(&buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }

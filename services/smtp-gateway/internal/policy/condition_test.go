@@ -276,3 +276,40 @@ func TestValidateCondition(t *testing.T) {
 		}
 	}
 }
+
+// TestEvalCondition_NewOperators は P3 の matches / starts_with / ends_with を検証する。
+func TestEvalCondition_NewOperators(t *testing.T) {
+	facts := map[string]any{
+		"mail.subject":        "Invoice #12345",
+		"mail.from":           "billing@example.com",
+		"mail.header.list-id": "<newsletter.example.com>",
+	}
+	lists := map[string]map[string]bool{}
+	cases := []struct {
+		cond string
+		want bool
+	}{
+		{"mail.subject starts_with invoice", true},
+		{"mail.subject starts_with receipt", false},
+		{"mail.from ends_with @example.com", true},
+		{"mail.from ends_with @evil.com", false},
+		{`mail.subject matches ^Invoice #\d+$`, true},
+		{`mail.subject matches ^Receipt`, false},
+		{"mail.header.list-id contains newsletter", true},
+	}
+	for _, tc := range cases {
+		if got := evalWith(t, tc.cond, facts, lists); got != tc.want {
+			t.Errorf("cond=%q got=%v want=%v", tc.cond, got, tc.want)
+		}
+	}
+}
+
+// TestValidateCondition_BadRegex は不正な正規表現が検証で弾かれることを確認する。
+func TestValidateCondition_BadRegex(t *testing.T) {
+	if err := ValidateCondition(`mail.subject matches (unclosed`); err == nil {
+		t.Error("不正な正規表現は検証エラーになるべき")
+	}
+	if err := ValidateCondition(`mail.subject matches ^ok$`); err != nil {
+		t.Errorf("正当な正規表現がエラー: %v", err)
+	}
+}

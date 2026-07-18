@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -227,7 +228,7 @@ func evalLeaf(clause string, ctx evalContext) (bool, error) {
 }
 
 // leafOperators は比較式で認識する演算子トークン（長いものから先に評価する）。
-var leafOperators = []string{" contains ", " in_list ", " == ", " != ", " >= ", " <= ", " > ", " < "}
+var leafOperators = []string{" contains ", " starts_with ", " ends_with ", " matches ", " in_list ", " == ", " != ", " >= ", " <= ", " > ", " < "}
 
 // ValidateCondition は条件式の構文（括弧の対応・演算子の有無・数値比較の右辺）を検証する。
 // fact やリストの存在（意味論）は検証しない。ポリシー読み込み時に不正な式を早期に弾く用途。
@@ -339,6 +340,10 @@ func validateLeafSyntax(clause string) error {
 				if _, err := strconv.Atoi(val); err != nil {
 					return fmt.Errorf("数値比較の右辺が整数ではありません (%q): %q", val, clause)
 				}
+			case "matches":
+				if _, err := regexp.Compile(strings.Trim(val, `"`)); err != nil {
+					return fmt.Errorf("正規表現が不正です (%q): %w", val, err)
+				}
 			}
 			return nil
 		}
@@ -355,6 +360,9 @@ func evalClause(clause string, ctx evalContext) (bool, error) {
 	}
 	ops := []op{
 		{" contains ", evalContains},
+		{" starts_with ", evalStartsWith},
+		{" ends_with ", evalEndsWith},
+		{" matches ", evalMatches},
 		{" in_list ", evalInList},
 		{" == ", evalEquals},
 		{" != ", evalNotEquals},
@@ -387,6 +395,41 @@ func evalNotEquals(key, val string, ctx evalContext) (bool, error) {
 		return true, nil // 未定義 fact は「その値ではない」
 	}
 	return !strings.EqualFold(fmt.Sprintf("%v", fact), val), nil
+}
+
+func evalStartsWith(key, prefix string, ctx evalContext) (bool, error) {
+	fact, ok := ctx.facts[key]
+	if !ok {
+		return false, nil
+	}
+	return strings.HasPrefix(
+		strings.ToLower(fmt.Sprintf("%v", fact)),
+		strings.ToLower(strings.Trim(prefix, `"`)),
+	), nil
+}
+
+func evalEndsWith(key, suffix string, ctx evalContext) (bool, error) {
+	fact, ok := ctx.facts[key]
+	if !ok {
+		return false, nil
+	}
+	return strings.HasSuffix(
+		strings.ToLower(fmt.Sprintf("%v", fact)),
+		strings.ToLower(strings.Trim(suffix, `"`)),
+	), nil
+}
+
+// evalMatches は fact 値が正規表現にマッチするかを返す（Go RE2 構文）。
+func evalMatches(key, pattern string, ctx evalContext) (bool, error) {
+	fact, ok := ctx.facts[key]
+	if !ok {
+		return false, nil
+	}
+	re, err := regexp.Compile(strings.Trim(pattern, `"`))
+	if err != nil {
+		return false, fmt.Errorf("正規表現が不正です (%q): %w", pattern, err)
+	}
+	return re.MatchString(fmt.Sprintf("%v", fact)), nil
 }
 
 func evalContains(key, substr string, ctx evalContext) (bool, error) {

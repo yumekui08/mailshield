@@ -683,6 +683,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 
 	actionStatusMap := map[policy.ActionType]domain.MessageStatus{
 		policy.ActionDeliver:    domain.StatusDelivered,
+		policy.ActionRedirect:   domain.StatusDelivered,
 		policy.ActionReject:     domain.StatusRejected,
 		policy.ActionQuarantine: domain.StatusQuarantined,
 		policy.ActionApproval:   domain.StatusApprovalPending,
@@ -697,7 +698,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	// アーカイブを非同期実行（配送フローをブロックしない）。
 	// delay は後で自動配送する際に処理済み EML を取得するため、必ずアーカイブする。
 	switch action {
-	case policy.ActionDeliver, policy.ActionApproval, policy.ActionQuarantine, policy.ActionDelay:
+	case policy.ActionDeliver, policy.ActionRedirect, policy.ActionApproval, policy.ActionQuarantine, policy.ActionDelay:
 		h.archiveWg.Add(1)
 		go h.archiveAsync(mail.MessageID, transformed.RawEML, mail.ReceivedAt)
 	}
