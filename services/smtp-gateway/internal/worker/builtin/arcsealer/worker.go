@@ -138,11 +138,18 @@ func (w *Worker) sealARC(rawEML []byte) ([]byte, error) {
 	// 現在の ARC インスタンス番号を決定（既存 ARC-Seal の最大値 + 1）
 	n := countARCSets(originalHeaders) + 1
 
-	// チェーン検証結果（cv）を決定
-	// i=1 は cv=none 固定。i>1 は cv=pass とする（厳密な検証は省略）。
+	// チェーン検証結果（cv）を決定（RFC 8617 §5.1.1）。
+	// i=1（既存チェーンなし）は cv=none。
+	// i>1（既存 ARC チェーンあり）の場合、cv=pass を主張するには前段チェーン全体の
+	// 暗号検証（各 AMS/AS 署名の DNS 公開鍵照合）が必須だが、本ワーカーは検証を
+	// 実装していない。未検証で cv=pass を付けると偽造チェーンに正当性を与えてしまう
+	// ため、安全側に倒して cv=fail とする（B-22）。
+	// 注: MailShield は通常 Postfix→Rspamd→MailShield の初段シーラーとして i=1
+	// （cv=none）で動作するため、この分岐に入るのは既に上流で ARC 署名された
+	// メールを転送する構成のみ。完全な前段チェーン検証は将来対応。
 	cv := "none"
 	if n > 1 {
-		cv = "pass"
+		cv = "fail"
 	}
 
 	// 1. AAR を構築

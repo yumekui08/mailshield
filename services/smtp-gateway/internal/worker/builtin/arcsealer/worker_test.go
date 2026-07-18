@@ -91,13 +91,17 @@ func TestSealARC_ChainValidation(t *testing.T) {
 		t.Error("1 回目のシールで cv=none が見つかりません")
 	}
 
-	// 2 回目: cv=pass
+	// 2 回目: 既存チェーンあり。前段チェーンの暗号検証は未実装のため、
+	// 未検証で cv=pass を主張せず安全側に cv=fail とする（B-22）。
 	result2, err := w.sealARC(result)
 	if err != nil {
 		t.Fatalf("2 回目のシール失敗: %v", err)
 	}
-	if !strings.Contains(string(result2), "cv=pass") {
-		t.Error("2 回目のシールで cv=pass が見つかりません")
+	if !strings.Contains(string(result2), "cv=fail") {
+		t.Error("2 回目のシールで cv=fail が見つかりません（未検証チェーンに cv=pass を付けてはいけない）")
+	}
+	if strings.Contains(string(result2), "cv=pass") {
+		t.Error("未検証の前段チェーンに cv=pass を付けてはいけない")
 	}
 }
 

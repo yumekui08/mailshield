@@ -389,6 +389,8 @@ private_key_path: /app/config/arc/private.pem
 
 > **注意:** 署名アルゴリズムは `a=rsa-sha256` 固定のため、RSA 以外の鍵（Ed25519 等）は起動時にエラーになる。
 
+> **チェーン検証（cv）について:** 既存の ARC チェーンがないメール（初段シール）は `cv=none` で署名する。既に上流で ARC 署名済みのメールを転送する場合（i>1）、本ワーカーは前段チェーンの暗号検証（各署名の DNS 公開鍵照合）を行わないため、未検証のまま `cv=pass` を主張せず安全側に `cv=fail` とする。MailShield は通常 `Postfix→Rspamd→MailShield` の初段シーラー（`cv=none`）として動作するため、この分岐に入るのは ARC 済みメールの転送構成のみ。完全な前段チェーン検証は将来対応。
+
 Exchange Online と Google Workspace への登録手順は [ARC 署名統合ガイド](../setup/arc-integration.md) を参照。
 
 ---
