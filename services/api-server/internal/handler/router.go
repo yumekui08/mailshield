@@ -14,6 +14,7 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
 	"github.com/koizumib/mailshield/services/api-server/internal/otp"
+	"github.com/koizumib/mailshield/services/api-server/internal/policyfile"
 	"github.com/koizumib/mailshield/services/api-server/internal/pwreset"
 	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 	"github.com/koizumib/mailshield/services/api-server/internal/storage"
@@ -73,6 +74,11 @@ func NewRouter(
 	approvalHandler := NewApprovalHandler(repo, stor, cfg.Notification, auditLogger)
 	delayHandler := NewDelayHandler(repo, delayService, cfg.MailboxPolicy, auditLogger)
 	statsHandler := NewStatsHandler(repo, cfg.MailboxPolicy)
+	policyHandler := NewPolicyHandler(
+		policyfile.RoutesDir(cfg.Settings.SmtpGatewayConfigFile),
+		cfg.Gateway.URL,
+		auditLogger,
+	)
 	usersHandler := NewUsersHandler(repo, auditLogger)
 	mailboxesHandler := NewMailboxesHandler(repo, auditLogger)
 	auditHandler := NewAuditHandler(repo)
@@ -196,6 +202,20 @@ func NewRouter(
 			r.Use(authMW)
 			r.Use(middleware.RequireRole(domain.RoleOperator, domain.RoleAdmin))
 			r.Post("/", simulateHandler.HandleSimulate)
+		})
+
+		// ポリシー編集エンドポイント（閲覧: operator/admin、更新: admin のみ）
+		r.Route("/policy", func(r chi.Router) {
+			r.Use(authMW)
+			r.Use(middleware.RequireRole(domain.RoleOperator, domain.RoleAdmin))
+			r.Get("/routes", policyHandler.HandleListRoutes)
+			r.Get("/routes/{route}", policyHandler.HandleGetRoute)
+			r.Get("/stats", policyHandler.HandleStats)
+
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRole(domain.RoleAdmin))
+				r.Put("/routes/{route}", policyHandler.HandleUpdateRoute)
+			})
 		})
 
 		// 隔離エンドポイント

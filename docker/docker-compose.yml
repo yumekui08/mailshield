@@ -228,7 +228,9 @@ services:
       NOTIFICATION_AUTH_PASS: ${NOTIFICATION_AUTH_PASS:-}
       OIDC_CLIENT_SECRET:     ${OIDC_CLIENT_SECRET:-}
     volumes:
-      - ../config:/app/config:ro
+      # rw: 管理 UI のポリシーエディタが routes.d/<route>/policy.yaml を書き込むため。
+      # smtp-gateway 側は読み取りのみ（ro）で、書き込み後に POST /reload で反映する。
+      - ../config:/app/config
     depends_on:
       mariadb:
         condition: service_healthy
