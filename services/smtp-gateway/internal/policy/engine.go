@@ -8,11 +8,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/eml"
 )
 
 // Deliverer は deliver アクション実行時にメールを配送先へ送信する。
@@ -27,21 +29,88 @@ type Deliverer interface {
 type ActionType string
 
 const (
+	// 終端アクション: 適用するとルール評価を停止する。
 	ActionDeliver    ActionType = "deliver"
 	ActionReject     ActionType = "reject"
 	ActionQuarantine ActionType = "quarantine"
 	ActionApproval   ActionType = "approval"
 	ActionDelay      ActionType = "delay"
+
+	// 非終端アクション: メールを加工して次のルール評価へ続行する。
+	ActionAddHeader        ActionType = "add_header"
+	ActionRemoveHeader     ActionType = "remove_header"
+	ActionAddSubjectPrefix ActionType = "add_subject_prefix"
+	ActionLogOnly          ActionType = "log_only"
 )
+
+// isTerminalAction は指定アクションが終端（ルール評価を止める）かを返す。
+func isTerminalAction(t string) bool {
+	switch ActionType(t) {
+	case ActionDeliver, ActionReject, ActionQuarantine, ActionApproval, ActionDelay:
+		return true
+	}
+	return false
+}
+
+// isKnownAction は指定アクションがサポートされているかを返す。
+func isKnownAction(t string) bool {
+	switch ActionType(t) {
+	case ActionDeliver, ActionReject, ActionQuarantine, ActionApproval, ActionDelay,
+		ActionAddHeader, ActionRemoveHeader, ActionAddSubjectPrefix, ActionLogOnly:
+		return true
+	}
+	return false
+}
+
+// ActionSpec は 1 つのアクションとそのパラメータを表す（actions: リスト要素）。
+type ActionSpec struct {
+	Type string `yaml:"type"`
+	// Destination は deliver 時の宛先（deliverer 名 または host:port）。
+	Destination string `yaml:"destination"`
+	// DelayMinutes は delay 時の保留分数（0 以下は既定 5 分）。
+	DelayMinutes int `yaml:"delay_minutes"`
+	// Name は add_header / remove_header のヘッダー名。
+	Name string `yaml:"name"`
+	// Value は add_header / add_subject_prefix の値。
+	Value string `yaml:"value"`
+}
 
 // Rule は policy.yaml の単一ルールを表す。
 type Rule struct {
 	Name        string `yaml:"name"`
-	Condition   string `yaml:"condition"`
+	Description string `yaml:"description"`
+	// Enabled が false のルールは評価対象から除外される（nil / 省略時は有効）。
+	Enabled *bool `yaml:"enabled"`
+	// Priority は評価順（昇順・小さいほど先）。同値はファイル定義順を保持する。
+	Priority  int      `yaml:"priority"`
+	Tags      []string `yaml:"tags"`
+	Condition string   `yaml:"condition"`
+
+	// 単一アクション（後方互換）。actions: が指定されている場合はそちらを優先する。
 	Action      string `yaml:"action"`
 	Destination string `yaml:"destination"` // deliver 時の宛先（host:port）
 	// DelayMinutes は delay アクション時の保留時間（分）。0 以下の場合は既定 5 分。
 	DelayMinutes int `yaml:"delay_minutes"`
+
+	// Actions は複数アクション（非終端アクション + 終端アクション）を順に適用する。
+	Actions []ActionSpec `yaml:"actions"`
+}
+
+// specs はルールのアクションを ActionSpec のスライスに正規化する。
+// actions: が指定されていればそれを、なければ単一 action: を 1 要素として返す。
+func (r *Rule) specs() []ActionSpec {
+	if len(r.Actions) > 0 {
+		return r.Actions
+	}
+	if r.Action != "" {
+		return []ActionSpec{{Type: r.Action, Destination: r.Destination, DelayMinutes: r.DelayMinutes}}
+	}
+	return nil
+}
+
+// isEnabled はルールが有効か（enabled 省略時は有効）を返す。
+func (r *Rule) isEnabled() bool {
+	return r.Enabled == nil || *r.Enabled
 }
 
 // ActionResult は EvaluateAndAct が返すアクションと付随パラメータ。
@@ -104,7 +173,37 @@ func New(rulesFile string, deliverer Deliverer) (*Engine, error) {
 		return nil, err
 	}
 
-	return &Engine{rules: pr.Rules, lists: lists, deliverer: deliverer}, nil
+	rules, err := prepareRules(pr.Rules)
+	if err != nil {
+		return nil, fmt.Errorf("policy.yaml (%s): %w", rulesFile, err)
+	}
+
+	return &Engine{rules: rules, lists: lists, deliverer: deliverer}, nil
+}
+
+// prepareRules は enabled=false を除外し、priority 昇順（同値はファイル順）に安定ソートし、
+// 各ルールのアクション種別を検証する。
+func prepareRules(raw []Rule) ([]Rule, error) {
+	var rules []Rule
+	for _, r := range raw {
+		if !r.isEnabled() {
+			continue
+		}
+		specs := r.specs()
+		if len(specs) == 0 {
+			return nil, fmt.Errorf("ルール %q にアクションがありません", r.Name)
+		}
+		for _, s := range specs {
+			if !isKnownAction(s.Type) {
+				return nil, fmt.Errorf("ルール %q の未知のアクション: %q", r.Name, s.Type)
+			}
+		}
+		rules = append(rules, r)
+	}
+	sort.SliceStable(rules, func(i, j int) bool {
+		return rules[i].Priority < rules[j].Priority
+	})
+	return rules, nil
 }
 
 // loadLists は名前付きリストを小文字正規化した集合に変換する。
@@ -139,76 +238,122 @@ func loadLists(configs map[string]ListConfig, baseDir string) (map[string]map[st
 	return lists, nil
 }
 
-// Evaluate は検査結果とメール属性を評価してアクション種別とマッチしたルール名を返す。
-// アクション（SMTP 配送・拒否等）の実行は行わない（シミュレーター用）。
-func (e *Engine) Evaluate(mail *domain.Mail, results []*domain.InspectResult) (action ActionType, matchedRule string) {
-	ctx := evalContext{facts: buildFacts(mail, results), lists: e.lists}
-	for _, rule := range e.rules {
-		matched, err := evalCondition(rule.Condition, ctx)
-		if err != nil || !matched {
+// decide はルールを優先度順に評価する。マッチしたルールの非終端アクション
+// （add_header / add_subject_prefix / remove_header / log_only）は mail を加工して
+// 次のルール評価へ続行し、最初の終端アクション（deliver/reject/quarantine/approval/delay）
+// で停止してそのルールと ActionSpec を返す。
+// 非終端アクションによる mail の変更は後続ルールの条件評価にも反映される。
+// 終端アクションに到達しなかった場合は matched=false を返す。
+func (e *Engine) decide(mail *domain.Mail, results []*domain.InspectResult) (rule *Rule, terminal ActionSpec, matched bool) {
+	ec := evalContext{facts: buildFacts(mail, results), lists: e.lists}
+	for i := range e.rules {
+		r := &e.rules[i]
+		ok, err := evalCondition(r.Condition, ec)
+		if err != nil {
+			slog.Warn("ルール評価エラー（スキップ）",
+				"rule", r.Name, "message_id", mail.MessageID, "error", err)
 			continue
 		}
-		return ActionType(rule.Action), rule.Name
+		if !ok {
+			continue
+		}
+
+		mutated := false
+		for _, spec := range r.specs() {
+			if isTerminalAction(spec.Type) {
+				return r, spec, true
+			}
+			if e.applyNonTerminal(mail, r, spec) {
+				mutated = true
+			}
+		}
+		// このルールは非終端アクションのみ → 変更を反映して次のルールへ続行
+		if mutated {
+			ec.facts = buildFacts(mail, results)
+		}
 	}
-	return "", ""
+	return nil, ActionSpec{}, false
+}
+
+// applyNonTerminal は非終端アクションを mail に適用する。mail を変更した場合 true を返す。
+func (e *Engine) applyNonTerminal(mail *domain.Mail, rule *Rule, spec ActionSpec) bool {
+	switch ActionType(spec.Type) {
+	case ActionAddSubjectPrefix:
+		mail.RawEML = eml.PrependSubjectPrefix(mail.RawEML, spec.Value)
+		mail.Subject = spec.Value + mail.Subject
+		slog.Info("ポリシー: 件名プレフィックス付与",
+			"rule", rule.Name, "message_id", mail.MessageID, "prefix", spec.Value)
+		return true
+	case ActionAddHeader:
+		mail.RawEML = eml.AddHeaderTop(mail.RawEML, spec.Name, spec.Value)
+		slog.Info("ポリシー: ヘッダー追加",
+			"rule", rule.Name, "message_id", mail.MessageID, "header", spec.Name)
+		return true
+	case ActionRemoveHeader:
+		mail.RawEML = eml.RemoveHeader(mail.RawEML, spec.Name)
+		slog.Info("ポリシー: ヘッダー削除",
+			"rule", rule.Name, "message_id", mail.MessageID, "header", spec.Name)
+		return true
+	case ActionLogOnly:
+		slog.Info("ポリシー: log_only マッチ",
+			"rule", rule.Name, "message_id", mail.MessageID)
+		return false
+	}
+	return false
+}
+
+// Evaluate は検査結果とメール属性を評価してアクション種別とマッチしたルール名を返す。
+// 終端アクション（SMTP 配送・拒否等）の実行は行わないが、非終端アクション
+// （タグ付け等）は mail に適用されるため、シミュレーターは加工後の EML を報告できる。
+func (e *Engine) Evaluate(mail *domain.Mail, results []*domain.InspectResult) (action ActionType, matchedRule string) {
+	rule, spec, ok := e.decide(mail, results)
+	if !ok {
+		return "", ""
+	}
+	return ActionType(spec.Type), rule.Name
 }
 
 // EvaluateAndAct は検査結果を評価してアクションを実行し、実行したアクションと
 // 付随パラメータ（delay 時の保留分数など）を返す。
-// ルールは上から順に評価し、最初にマッチしたルールのアクションを実行する。
-// マッチするルールがない場合は空の ActionResult と nil を返す。
+// 非終端アクションは mail を加工しつつ次のルールへ続行し、最初の終端アクションで停止する。
+// マッチする終端ルールがない場合は空の ActionResult と nil を返す。
 func (e *Engine) EvaluateAndAct(ctx context.Context, mail *domain.Mail, results []*domain.InspectResult) (ActionResult, error) {
-	ec := evalContext{facts: buildFacts(mail, results), lists: e.lists}
-
-	for _, rule := range e.rules {
-		matched, err := evalCondition(rule.Condition, ec)
-		if err != nil {
-			slog.Warn("ルール評価エラー（スキップ）",
-				"rule", rule.Name,
-				"message_id", mail.MessageID,
-				"error", err)
-			continue
-		}
-		if !matched {
-			continue
-		}
-
-		action := ActionType(rule.Action)
-		slog.Info("ポリシーマッチ",
-			"rule", rule.Name,
-			"action", rule.Action,
+	rule, spec, ok := e.decide(mail, results)
+	if !ok {
+		slog.Warn("マッチするルールがありません（デフォルト配送なし）",
 			"message_id", mail.MessageID)
-
-		switch action {
-		case ActionDeliver:
-			if err := e.deliver(ctx, mail, rule.Destination); err != nil {
-				return ActionResult{}, err
-			}
-			return ActionResult{Action: ActionDeliver}, nil
-		case ActionReject:
-			slog.Info("メール拒否", "message_id", mail.MessageID, "rule", rule.Name)
-			return ActionResult{Action: ActionReject}, nil
-		case ActionQuarantine:
-			slog.Info("メール隔離", "message_id", mail.MessageID, "rule", rule.Name)
-			return ActionResult{Action: ActionQuarantine}, nil
-		case ActionApproval:
-			slog.Info("承認フロー保留", "message_id", mail.MessageID, "rule", rule.Name)
-			return ActionResult{Action: ActionApproval}, nil
-		case ActionDelay:
-			delay := rule.DelayMinutes
-			if delay <= 0 {
-				delay = 5
-			}
-			slog.Info("送信ディレイ保留", "message_id", mail.MessageID, "rule", rule.Name, "delay_minutes", delay)
-			return ActionResult{Action: ActionDelay, DelayMinutes: delay}, nil
-		default:
-			return ActionResult{}, fmt.Errorf("未知のアクション: %s", rule.Action)
-		}
+		return ActionResult{}, nil
 	}
 
-	slog.Warn("マッチするルールがありません（デフォルト配送なし）",
-		"message_id", mail.MessageID)
-	return ActionResult{}, nil
+	action := ActionType(spec.Type)
+	slog.Info("ポリシーマッチ",
+		"rule", rule.Name, "action", spec.Type, "message_id", mail.MessageID)
+
+	switch action {
+	case ActionDeliver:
+		if err := e.deliver(ctx, mail, spec.Destination); err != nil {
+			return ActionResult{}, err
+		}
+		return ActionResult{Action: ActionDeliver}, nil
+	case ActionReject:
+		slog.Info("メール拒否", "message_id", mail.MessageID, "rule", rule.Name)
+		return ActionResult{Action: ActionReject}, nil
+	case ActionQuarantine:
+		slog.Info("メール隔離", "message_id", mail.MessageID, "rule", rule.Name)
+		return ActionResult{Action: ActionQuarantine}, nil
+	case ActionApproval:
+		slog.Info("承認フロー保留", "message_id", mail.MessageID, "rule", rule.Name)
+		return ActionResult{Action: ActionApproval}, nil
+	case ActionDelay:
+		delay := spec.DelayMinutes
+		if delay <= 0 {
+			delay = 5
+		}
+		slog.Info("送信ディレイ保留", "message_id", mail.MessageID, "rule", rule.Name, "delay_minutes", delay)
+		return ActionResult{Action: ActionDelay, DelayMinutes: delay}, nil
+	default:
+		return ActionResult{}, fmt.Errorf("未知のアクション: %s", spec.Type)
+	}
 }
 
 // deliver は注入された Deliverer 経由でメールを配送する。

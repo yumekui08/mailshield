@@ -199,3 +199,49 @@ rules:
 		t.Errorf("フリーメール宛送信は approval になるべき: action=%s rule=%s", action, rule)
 	}
 }
+
+// TestEvalCondition_OrAndParensNot は || / () / not と優先順位を検証する（P1）。
+func TestEvalCondition_OrAndParensNot(t *testing.T) {
+	facts := map[string]any{
+		"a.detected":     true,
+		"b.detected":     false,
+		"c.score":        50,
+		"mail.direction": "inbound",
+	}
+	lists := map[string]map[string]bool{}
+	cases := []struct {
+		cond string
+		want bool
+	}{
+		{"a.detected == true || b.detected == true", true},
+		{"b.detected == true || a.detected == true", true},
+		{"b.detected == true || c.score >= 100", false},
+		{"a.detected == true && b.detected == true", false},
+		{"not b.detected == true", true},
+		{"not a.detected == true", false},
+		{"not (a.detected == true && b.detected == true)", true},
+		{"(b.detected == true || a.detected == true) && c.score >= 40", true},
+		{"(b.detected == true || a.detected == true) && c.score >= 60", false},
+		// 優先順位: && が || より強い → false || (true && false) = false
+		{"b.detected == true || a.detected == true && b.detected == true", false},
+		// not > && : (not b.detected==true) && a.detected==true = true && true
+		{"not b.detected == true && a.detected == true", true},
+		{"mail.direction == inbound || mail.direction == outbound", true},
+	}
+	for _, tc := range cases {
+		got := evalWith(t, tc.cond, facts, lists)
+		if got != tc.want {
+			t.Errorf("cond=%q got=%v want=%v", tc.cond, got, tc.want)
+		}
+	}
+}
+
+// TestEvalCondition_NotInValueNotTreatedAsOperator は値の一部の "not" を演算子扱いしないことを確認する。
+func TestEvalCondition_NotInValueNotTreatedAsOperator(t *testing.T) {
+	facts := map[string]any{"mail.subject": "notice of meeting"}
+	lists := map[string]map[string]bool{}
+	// "notice" の "not" は演算子ではない。contains で正しくマッチする。
+	if !evalWith(t, "mail.subject contains notice", facts, lists) {
+		t.Error("値中の not を演算子と誤認している")
+	}
+}

@@ -55,9 +55,36 @@ rules:
     destination: "postfix:10025"
 ```
 
+### ルールのメタ属性
+
+各ルールには以下の任意属性を付けられる。
+
+| 属性 | 説明 |
+|------|------|
+| `description` | ルールの説明（管理用）。動作には影響しない |
+| `enabled` | `false` にすると評価対象から除外する（省略時は有効）。デプロイせず ON/OFF できる |
+| `priority` | 評価順（**昇順・小さいほど先**）。同じ値はファイル定義順を保持する。省略時は 0。既存ファイル（priority なし）はファイル順のまま |
+| `tags` | 分類・検索用のラベル（文字列リスト）。動作には影響しない |
+
+```yaml
+rules:
+  - name: attachment_review
+    description: "添付付きの外部送信は上長承認へ"
+    enabled: true
+    priority: 100
+    tags: [dlp]
+    condition: "mail.direction == outbound && mail.has_attachment == true"
+    action: approval
+```
+
 ---
 
 ## アクション
+
+アクションは **終端アクション**（適用するとルール評価を止める）と **非終端アクション**
+（メールを加工して次のルール評価へ続行する）の 2 種類がある。
+
+### 終端アクション
 
 | アクション | 説明 |
 |-----------|------|
@@ -66,6 +93,40 @@ rules:
 | `reject` | 送信者にバウンスを返す |
 | `approval` | 承認キューに保留する。承認者はメールボックスの admin 割り当て（優先）→ ユーザー個人の `approver_id` → `approval.global_approver_email` の順で解決される（詳細: [設定リファレンスの approval](../specs/configuration.md#approval)） |
 | `delay` | 送信を一定時間保留する（送信ディレイ）。`delay_minutes` で保留時間を指定（省略時 5 分）。保留中は送信者が Web UI から取消・即時送信でき、時間が来ると自動送信される |
+
+### 非終端アクション
+
+| アクション | パラメータ | 説明 |
+|-----------|-----------|------|
+| `add_subject_prefix` | `value` | 件名の先頭に文字列を付加する（例: `[EXTERNAL] `）。受信外部メールの可視化に使う |
+| `add_header` | `name` / `value` | ヘッダーを 1 行追加する（例: `X-MailShield-Origin: external`）。下流メールクライアントの振り分けに使う |
+| `remove_header` | `name` | 指定名のヘッダー（折り畳み継続行を含む）をすべて削除する |
+| `log_only` | — | メールを変更せず監査ログのみ残す（ルールのシャドー運用・試験導入に使う） |
+
+非終端アクションを持つルールは、アクション適用後も**次のルールの評価を続行する**。
+これにより「まずタグを付け、後続ルールでそのタグを条件に判定する」といった多段処理ができる。
+
+### 複数アクション（`actions:`）
+
+1 ルールに複数のアクションを順に適用するには `actions:` リストを使う。上から順に適用され、
+最初の終端アクションで評価が止まる（それ以降の要素は無視される）。
+
+```yaml
+rules:
+  # 受信外部メールに [EXTERNAL] タグとヘッダーを付与（非終端のみ → 次のルールへ続行）
+  - name: tag_external
+    condition: "mail.direction == inbound"
+    actions:
+      - type: add_subject_prefix
+        value: "[EXTERNAL] "
+      - type: add_header
+        name: X-MailShield-Origin
+        value: external
+
+  - name: default_deliver
+    condition: "true"
+    action: deliver          # 単一 action: も従来どおり使える（後方互換）
+```
 
 ### `delay` の `delay_minutes`
 
@@ -117,7 +178,8 @@ SendGrid / Amazon SES 等の外部 SMTP エンドポイントの定義方法は 
 
 ## 条件式（condition）
 
-条件は 1 行で書きます。`&&`（論理積）で複数の比較をつなげられます。OR は複数のルールに分けて表現します（上から評価され最初にマッチしたルールが採用されるため）。
+条件は 1 行で書きます。`&&`（論理積）・`||`（論理和）・`not`（否定）・`( )`（グルーピング）で
+複数の比較を組み合わせられます。
 
 ### 演算子
 
@@ -128,7 +190,23 @@ SendGrid / Amazon SES 等の外部 SMTP エンドポイントの定義方法は 
 | `>=` `>` `<=` `<` | `dlp-worker.score >= 80` | 数値比較 |
 | `contains` | `mail.subject contains 請求書` | 部分文字列（大文字小文字を無視） |
 | `in_list` | `mail.from_domain in_list freemail` | 名前付きリストに含まれるか（下記） |
-| `&&` | `A == 1 && B >= 50` | 論理積 |
+| `&&` | `A == 1 && B >= 50` | 論理積（AND） |
+| `\|\|` | `A == 1 \|\| B == 1` | 論理和（OR） |
+| `not` | `not (A == 1 && B == 1)` | 否定 |
+| `( )` | `(A \|\| B) && C` | グルーピング |
+
+**優先順位（高い順）:** `not` > `&&` > `||`。括弧で上書きできます。
+
+```yaml
+# 例: 添付があり、かつ (ヘッダー検知 または URL 検知) のとき隔離
+- name: attach_and_suspicious
+  condition: "mail.has_attachment == true && (header-inspector.detected == true || url-worker.detected == true)"
+  action: quarantine
+```
+
+> [!NOTE]
+> 構造トークン（`&&` `||` `(` `)`）は値の中に含めないでください（例: 件名に `(` を含む照合は不可）。
+> 文字列先頭の `not ` は否定演算子として解釈されます（値の途中の "not" は影響しません）。
 
 ### 名前付きリスト（lists）と `in_list`
 

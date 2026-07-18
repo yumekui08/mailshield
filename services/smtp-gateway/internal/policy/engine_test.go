@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
@@ -345,5 +346,125 @@ func TestNewEngine_InvalidFile(t *testing.T) {
 	_, err := New("/nonexistent/policy.yaml", nil)
 	if err == nil {
 		t.Error("New() should return error for nonexistent file")
+	}
+}
+
+// ─── P1: enabled / priority / 非終端アクション ───────────────────────────────
+
+func TestPrepareRules_DisabledExcluded(t *testing.T) {
+	e := newEngineFromYAML(t, `
+rules:
+  - name: off
+    enabled: false
+    condition: "true"
+    action: reject
+  - name: on
+    condition: "true"
+    action: deliver
+`, &fakeDeliverer{})
+	action, rule := e.Evaluate(&domain.Mail{}, nil)
+	if action != ActionDeliver || rule != "on" {
+		t.Errorf("無効ルールは除外され deliver/on になるべき: action=%s rule=%s", action, rule)
+	}
+}
+
+func TestPrepareRules_PrioritySort(t *testing.T) {
+	// ファイル順では reject が先だが priority で deliver を先にする
+	e := newEngineFromYAML(t, `
+rules:
+  - name: later
+    priority: 100
+    condition: "true"
+    action: reject
+  - name: earlier
+    priority: 10
+    condition: "true"
+    action: deliver
+`, &fakeDeliverer{})
+	action, rule := e.Evaluate(&domain.Mail{}, nil)
+	if action != ActionDeliver || rule != "earlier" {
+		t.Errorf("priority 昇順で earlier/deliver が先に評価されるべき: action=%s rule=%s", action, rule)
+	}
+}
+
+func TestNew_UnknownActionRejected(t *testing.T) {
+	f, _ := os.CreateTemp(t.TempDir(), "policy*.yaml")
+	f.WriteString("rules:\n  - name: bad\n    condition: \"true\"\n    action: teleport\n")
+	f.Close()
+	if _, err := New(f.Name(), nil); err == nil {
+		t.Error("未知のアクションはエラーになるべき")
+	}
+}
+
+func TestEvaluateAndAct_NonTerminalThenTerminal(t *testing.T) {
+	// タグ付け（非終端）→ 次のルールで配送（終端）
+	e := newEngineFromYAML(t, `
+rules:
+  - name: tag_external
+    condition: "mail.direction == inbound"
+    actions:
+      - type: add_subject_prefix
+        value: "[EXTERNAL] "
+      - type: add_header
+        name: X-MailShield-Origin
+        value: external
+  - name: default
+    condition: "true"
+    action: deliver
+`, &fakeDeliverer{})
+
+	mail := &domain.Mail{
+		MessageID: "m1",
+		Direction: domain.DirectionInbound,
+		Subject:   "Hello",
+		RawEML:    []byte("Subject: Hello\r\n\r\nbody\r\n"),
+	}
+	result, err := e.EvaluateAndAct(context.Background(), mail, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != ActionDeliver {
+		t.Errorf("最終アクションは deliver であるべき: %s", result.Action)
+	}
+	if mail.Subject != "[EXTERNAL] Hello" {
+		t.Errorf("件名プレフィックスが適用されていない: %q", mail.Subject)
+	}
+	eml := string(mail.RawEML)
+	if !strings.Contains(eml, "Subject: [EXTERNAL] Hello") {
+		t.Errorf("EML の件名が更新されていない:\n%s", eml)
+	}
+	if !strings.Contains(eml, "X-MailShield-Origin: external") {
+		t.Errorf("EML にヘッダーが追加されていない:\n%s", eml)
+	}
+}
+
+func TestEvaluateAndAct_NonTerminalAffectsLaterCondition(t *testing.T) {
+	// 非終端でタグ付け → 後続ルールがそのタグを条件にできる
+	e := newEngineFromYAML(t, `
+rules:
+  - name: tag
+    condition: "mail.direction == inbound"
+    actions:
+      - type: add_subject_prefix
+        value: "[EXTERNAL] "
+  - name: catch_tagged
+    condition: "mail.subject contains [EXTERNAL]"
+    action: quarantine
+  - name: default
+    condition: "true"
+    action: deliver
+`, &fakeDeliverer{})
+
+	mail := &domain.Mail{
+		Direction: domain.DirectionInbound,
+		Subject:   "Hi",
+		RawEML:    []byte("Subject: Hi\r\n\r\nbody\r\n"),
+	}
+	result, err := e.EvaluateAndAct(context.Background(), mail, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != ActionQuarantine {
+		t.Errorf("タグ付け後の件名を条件にした quarantine になるべき: %s", result.Action)
 	}
 }

@@ -8,7 +8,7 @@ import (
 
 // 条件式の評価。
 //
-// サポートする構文（1 行・左結合の AND のみ。OR は複数ルールで表現する）:
+// サポートする構文（1 行。文字列リテラル内に構造トークン && || ( ) は想定しない）:
 //
 //	true / false
 //	{key} == {value}            等値（ブールは大文字小文字を無視）
@@ -16,8 +16,12 @@ import (
 //	{key} >= {int}              数値比較（>= > <= <）
 //	{key} contains {substr}     部分文字列（大文字小文字を無視）
 //	{key} in_list {listname}    lists で定義した集合に {key} の値（またはドメイン部）が含まれる
-//	A && B && ...               上記の論理積
+//	A && B                      論理積（AND）
+//	A || B                      論理和（OR）
+//	not X / not (A && B)        否定
+//	(A || B) && C               グルーピング
 //
+// 演算子の優先順位（高い順）: not > && > ||。括弧で上書きできる。
 // {key} は buildFacts が組み立てた fact 名（例: "av-worker.detected"、"mail.from"、
 // "mail.from_domain"、"total_score"）。
 type evalContext struct {
@@ -26,34 +30,200 @@ type evalContext struct {
 	lists map[string]map[string]bool
 }
 
-// evalCondition は AND で連結された条件式を評価する。
+// evalCondition は論理式（AND / OR / NOT / 括弧）を評価する。
 func evalCondition(condition string, ctx evalContext) (bool, error) {
 	condition = strings.TrimSpace(condition)
 	if condition == "" {
 		return false, nil
 	}
-	if condition == "true" {
-		return true, nil
+	tokens, err := tokenizeCondition(condition)
+	if err != nil {
+		return false, err
 	}
-	if condition == "false" {
-		return false, nil
+	p := &condParser{tokens: tokens}
+	result, err := p.parseOr(ctx)
+	if err != nil {
+		return false, err
 	}
+	if p.pos != len(p.tokens) {
+		return false, fmt.Errorf("条件式の解析に失敗（余分なトークン）: %s", condition)
+	}
+	return result, nil
+}
 
-	for _, clause := range splitAND(condition) {
-		ok, err := evalClause(strings.TrimSpace(clause), ctx)
+// ─── 条件式パーサ（再帰下降） ──────────────────────────────────────────────
+
+type condTokenKind int
+
+const (
+	tokLeaf condTokenKind = iota
+	tokAnd
+	tokOr
+	tokNot
+	tokLParen
+	tokRParen
+)
+
+type condToken struct {
+	kind condTokenKind
+	text string // tokLeaf のときの比較式
+}
+
+// tokenizeCondition は構造トークン（&& || ( )）で分割し、前置 not を切り出す。
+func tokenizeCondition(s string) ([]condToken, error) {
+	var raw []condToken
+	var buf strings.Builder
+	flush := func() {
+		if t := strings.TrimSpace(buf.String()); t != "" {
+			raw = append(raw, condToken{kind: tokLeaf, text: t})
+		}
+		buf.Reset()
+	}
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], "&&"):
+			flush()
+			raw = append(raw, condToken{kind: tokAnd})
+			i += 2
+		case strings.HasPrefix(s[i:], "||"):
+			flush()
+			raw = append(raw, condToken{kind: tokOr})
+			i += 2
+		case s[i] == '(':
+			flush()
+			raw = append(raw, condToken{kind: tokLParen})
+			i++
+		case s[i] == ')':
+			flush()
+			raw = append(raw, condToken{kind: tokRParen})
+			i++
+		default:
+			buf.WriteByte(s[i])
+			i++
+		}
+	}
+	flush()
+
+	// 前置 not をリーフから切り出す（"not" 単独、または "not " で始まるリーフ）。
+	var tokens []condToken
+	for _, t := range raw {
+		if t.kind == tokLeaf {
+			lower := strings.ToLower(t.text)
+			if lower == "not" {
+				tokens = append(tokens, condToken{kind: tokNot})
+				continue
+			}
+			if strings.HasPrefix(lower, "not ") {
+				tokens = append(tokens, condToken{kind: tokNot})
+				tokens = append(tokens, condToken{kind: tokLeaf, text: strings.TrimSpace(t.text[4:])})
+				continue
+			}
+		}
+		tokens = append(tokens, t)
+	}
+	return tokens, nil
+}
+
+type condParser struct {
+	tokens []condToken
+	pos    int
+}
+
+func (p *condParser) peek() (condToken, bool) {
+	if p.pos < len(p.tokens) {
+		return p.tokens[p.pos], true
+	}
+	return condToken{}, false
+}
+
+func (p *condParser) parseOr(ctx evalContext) (bool, error) {
+	result, err := p.parseAnd(ctx)
+	if err != nil {
+		return false, err
+	}
+	for {
+		t, ok := p.peek()
+		if !ok || t.kind != tokOr {
+			break
+		}
+		p.pos++
+		rhs, err := p.parseAnd(ctx)
 		if err != nil {
 			return false, err
 		}
-		if !ok {
-			return false, nil
-		}
+		result = result || rhs
 	}
-	return true, nil
+	return result, nil
 }
 
-// splitAND は "&&" で条件を分割する（文字列リテラル内の && は想定しない）。
-func splitAND(condition string) []string {
-	return strings.Split(condition, "&&")
+func (p *condParser) parseAnd(ctx evalContext) (bool, error) {
+	result, err := p.parseUnary(ctx)
+	if err != nil {
+		return false, err
+	}
+	for {
+		t, ok := p.peek()
+		if !ok || t.kind != tokAnd {
+			break
+		}
+		p.pos++
+		rhs, err := p.parseUnary(ctx)
+		if err != nil {
+			return false, err
+		}
+		result = result && rhs
+	}
+	return result, nil
+}
+
+func (p *condParser) parseUnary(ctx evalContext) (bool, error) {
+	t, ok := p.peek()
+	if ok && t.kind == tokNot {
+		p.pos++
+		v, err := p.parseUnary(ctx)
+		if err != nil {
+			return false, err
+		}
+		return !v, nil
+	}
+	return p.parsePrimary(ctx)
+}
+
+func (p *condParser) parsePrimary(ctx evalContext) (bool, error) {
+	t, ok := p.peek()
+	if !ok {
+		return false, fmt.Errorf("条件式が途中で終了しました")
+	}
+	switch t.kind {
+	case tokLParen:
+		p.pos++
+		v, err := p.parseOr(ctx)
+		if err != nil {
+			return false, err
+		}
+		closing, ok := p.peek()
+		if !ok || closing.kind != tokRParen {
+			return false, fmt.Errorf("閉じ括弧が見つかりません")
+		}
+		p.pos++
+		return v, nil
+	case tokLeaf:
+		p.pos++
+		return evalLeaf(t.text, ctx)
+	default:
+		return false, fmt.Errorf("予期しないトークンです（条件式の構文エラー）")
+	}
+}
+
+// evalLeaf は単一の比較式（true/false 定数を含む）を評価する。
+func evalLeaf(clause string, ctx evalContext) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(clause)) {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	}
+	return evalClause(clause, ctx)
 }
 
 // evalClause は単一の比較式を評価する。
