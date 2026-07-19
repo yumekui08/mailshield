@@ -15,7 +15,6 @@ import { MailboxesPage } from "./pages/MailboxesPage";
 import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { APIKeysPage } from "./pages/APIKeysPage";
 import { SimulatePage } from "./pages/SimulatePage";
-import { PolicyPage } from "./pages/PolicyPage";
 import { WorkerInstancesPage } from "./pages/WorkerInstancesPage";
 import { RoutingsPage } from "./pages/RoutingsPage";
 import { PolicyInstancesPage } from "./pages/PolicyInstancesPage";
@@ -65,7 +64,6 @@ export function App() {
             <Route path="/audit-logs" element={<AuditLogsPage />} />
             <Route path="/api-keys" element={<APIKeysPage />} />
             <Route path="/simulate" element={<SimulatePage />} />
-            <Route path="/policy" element={<PolicyPage />} />
             <Route path="/worker-instances" element={<WorkerInstancesPage />} />
             <Route path="/routings" element={<RoutingsPage />} />
             <Route path="/policy-instances" element={<PolicyInstancesPage />} />
