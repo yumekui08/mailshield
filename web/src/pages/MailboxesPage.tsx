@@ -319,7 +319,7 @@ export function MailboxesPage() {
       />
 
       {/* 検索・絞り込みバー */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" data-help="mailboxes-filter">
         <div className="relative flex-1 min-w-56">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input

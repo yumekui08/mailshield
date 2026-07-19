@@ -237,7 +237,7 @@ export function PolicyPage() {
       />
 
       {/* ルート切替タブ */}
-      <div className="flex flex-wrap gap-1 border-b border-gray-200">
+      <div className="flex flex-wrap gap-1 border-b border-gray-200" data-help="policy-routes">
         {routes.map((r) => (
           <button
             key={r.dir}

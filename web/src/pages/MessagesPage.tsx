@@ -116,7 +116,7 @@ export function MessagesPage() {
         count={data?.meta.total}
       />
 
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap" data-help="messages-filter">
         <Input
           placeholder="送信元で絞り込み"
           value={fromFilter}
@@ -159,7 +159,7 @@ export function MessagesPage() {
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden">
+      <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden" data-help="messages-table">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}

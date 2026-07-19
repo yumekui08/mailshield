@@ -64,7 +64,7 @@ export function DashboardPage() {
       {statsLoading || !stats ? (
         <StatsSkeleton />
       ) : (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-help="dashboard-stats">
           <StatTile label="本日の処理" today={stats.today.total} week={stats.week.total} />
           <StatTile
             label="配送"
@@ -88,7 +88,7 @@ export function DashboardPage() {
       )}
 
       {/* 日別推移チャート */}
-      <div className="rounded-lg border border-gray-200 bg-surface p-4">
+      <div className="rounded-lg border border-gray-200 bg-surface p-4" data-help="dashboard-chart">
         <div className="mb-4 flex items-baseline justify-between">
           <h2 className="text-sm font-semibold text-gray-900">処理件数の推移</h2>
           <span className="text-xs text-gray-400">直近14日間・日次</span>

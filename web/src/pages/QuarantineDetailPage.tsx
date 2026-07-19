@@ -25,6 +25,7 @@ import {
 } from "../components/ui/dialog";
 import { StatusBadge } from "../components/StatusBadge";
 import { Badge } from "../components/ui/badge";
+import { HelpButton } from "../help/HelpButton";
 import { formatDate, formatBytes } from "../lib/utils";
 
 type ActionType = "release" | "delete";
@@ -103,13 +104,16 @@ export function QuarantineDetailPage() {
 
   return (
     <div className="p-6 space-y-5">
-      <button
-        onClick={() => navigate("/quarantine")}
-        className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        隔離メール一覧
-      </button>
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => navigate("/quarantine")}
+          className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          隔離メール一覧
+        </button>
+        <HelpButton helpKey="quarantineDetail" />
+      </div>
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3 flex-wrap">

@@ -1,4 +1,7 @@
 import type { ReactNode } from "react";
+import { useLocation } from "react-router-dom";
+import { HelpButton } from "../help/HelpButton";
+import { helpKeyForPath } from "../help/content";
 
 interface PageHeaderProps {
   title: string;
@@ -10,8 +13,12 @@ interface PageHeaderProps {
 }
 
 // 全ページ共通のヘッダー。タイトル・説明・件数・アクションを一列に揃え、
-// 下ヘアラインでコンテンツと区切る。
+// 下ヘアラインでコンテンツと区切る。右端には現在の画面に対応するヘルプ（?）ボタンを
+// 自動表示する（src/help/content.ts に登録がある画面のみ）。
 export function PageHeader({ title, description, count, actions }: PageHeaderProps) {
+  const { pathname } = useLocation();
+  const helpKey = helpKeyForPath(pathname);
+
   return (
     <div className="flex items-end justify-between gap-4 border-b border-gray-200 pb-4">
       <div>
@@ -25,7 +32,10 @@ export function PageHeader({ title, description, count, actions }: PageHeaderPro
         </div>
         {description && <p className="mt-0.5 text-[13px] text-gray-500">{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      <div className="flex shrink-0 items-center gap-2">
+        {actions}
+        {helpKey && <HelpButton helpKey={helpKey} />}
+      </div>
     </div>
   );
 }

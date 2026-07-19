@@ -319,7 +319,7 @@ export function QuarantinePage() {
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden">
+      <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden" data-help="quarantine-bulk">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
