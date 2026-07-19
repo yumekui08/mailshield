@@ -225,12 +225,12 @@ export function PolicyPage() {
     );
   }
 
-  if (isLoading) return <Skeleton className="h-64 w-full" />;
+  if (isLoading) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
   if (isError)
-    return <div className="text-sm text-red-600">ポリシーの読み込みに失敗しました。</div>;
+    return <div className="p-6 text-sm text-red-600">ポリシーの読み込みに失敗しました。</div>;
 
   return (
-    <div className="space-y-4">
+    <div className="p-6 space-y-4">
       <PageHeader
         title="ポリシー"
         description="ルートごとの検査結果 → アクションのルールを編集します。保存すると即座に反映されます。"
