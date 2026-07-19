@@ -181,6 +181,58 @@ rules:
 	}
 }
 
+// TestEvaluateAndAct_SingleActionRedirectValue は単一 action: redirect 形式でも
+// トップレベル value:（差し替え先）が実行時に失われないことを確認する（回帰テスト）。
+// 以前は Rule.specs() が Value をコピーせず、redirect が「value が必要です」で失敗していた。
+func TestEvaluateAndAct_SingleActionRedirectValue(t *testing.T) {
+	fd := &fakeDeliverer{}
+	e := newEngineFromYAML(t, `
+rules:
+  - name: redirect_audit
+    condition: "true"
+    action: redirect
+    value: "audit@internal.dev"
+    destination: mailpit:1025
+`, fd)
+
+	mail := &domain.Mail{MessageID: "m-redirect", ToAddresses: []string{"orig@example.com"}}
+	result, err := e.EvaluateAndAct(context.Background(), mail, nil)
+	if err != nil {
+		t.Fatalf("EvaluateAndAct() error = %v", err)
+	}
+	if result.Action != ActionRedirect {
+		t.Errorf("action = %q, want redirect", result.Action)
+	}
+	if len(mail.ToAddresses) != 1 || mail.ToAddresses[0] != "audit@internal.dev" {
+		t.Errorf("宛先が差し替わっていない: %v", mail.ToAddresses)
+	}
+	if !fd.called || fd.destination != "mailpit:1025" {
+		t.Errorf("配送先が正しくない: called=%v dest=%q", fd.called, fd.destination)
+	}
+}
+
+// TestEvaluateAndAct_SingleActionSubjectPrefixValue は単一 action 形式の
+// 非終端アクション（add_subject_prefix）でも value が失われないことを確認する。
+func TestEvaluateAndAct_SingleActionSubjectPrefixValue(t *testing.T) {
+	e := newEngineFromYAML(t, `
+rules:
+  - name: prefix
+    condition: "true"
+    action: add_subject_prefix
+    value: "[EXT] "
+`, &fakeDeliverer{})
+
+	// add_subject_prefix は非終端。終端が無いと最終アクション未決だが、
+	// 件名が書き換わることだけを確認する（specs() の Value コピーの回帰テスト）。
+	mail := &domain.Mail{MessageID: "m-prefix", Subject: "hello"}
+	if _, err := e.EvaluateAndAct(context.Background(), mail, nil); err != nil {
+		t.Fatalf("EvaluateAndAct() error = %v", err)
+	}
+	if mail.Subject != "[EXT] hello" {
+		t.Errorf("件名が書き換わっていない: %q", mail.Subject)
+	}
+}
+
 func TestEvaluateAndAct_DelayDefaultsTo5(t *testing.T) {
 	e := newEngineFromYAML(t, `
 rules:

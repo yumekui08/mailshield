@@ -33,6 +33,7 @@ type Rule struct {
 	Action       string       `yaml:"action,omitempty" json:"action,omitempty"`
 	Destination  string       `yaml:"destination,omitempty" json:"destination,omitempty"`
 	DelayMinutes int          `yaml:"delay_minutes,omitempty" json:"delay_minutes,omitempty"`
+	Value        string       `yaml:"value,omitempty" json:"value,omitempty"`
 	Actions      []ActionSpec `yaml:"actions,omitempty" json:"actions,omitempty"`
 }
 
@@ -180,7 +181,12 @@ func (r *Rule) specs() []ActionSpec {
 		return r.Actions
 	}
 	if r.Action != "" {
-		return []ActionSpec{{Type: r.Action, Destination: r.Destination, DelayMinutes: r.DelayMinutes}}
+		return []ActionSpec{{
+			Type:         r.Action,
+			Destination:  r.Destination,
+			DelayMinutes: r.DelayMinutes,
+			Value:        r.Value,
+		}}
 	}
 	return nil
 }

@@ -95,6 +95,10 @@ type Rule struct {
 	Destination string `yaml:"destination"` // deliver 時の宛先（host:port）
 	// DelayMinutes は delay アクション時の保留時間（分）。0 以下の場合は既定 5 分。
 	DelayMinutes int `yaml:"delay_minutes"`
+	// Value は単一 action: 形式での redirect（差し替え先）/ add_subject_prefix の値。
+	// ヘッダー名が必要なアクション（add_header 等）は actions: リスト形式を使う
+	//（トップレベル name: はルール名に予約済みのため）。
+	Value string `yaml:"value"`
 
 	// Actions は複数アクション（非終端アクション + 終端アクション）を順に適用する。
 	Actions []ActionSpec `yaml:"actions"`
@@ -107,7 +111,12 @@ func (r *Rule) specs() []ActionSpec {
 		return r.Actions
 	}
 	if r.Action != "" {
-		return []ActionSpec{{Type: r.Action, Destination: r.Destination, DelayMinutes: r.DelayMinutes}}
+		return []ActionSpec{{
+			Type:         r.Action,
+			Destination:  r.Destination,
+			DelayMinutes: r.DelayMinutes,
+			Value:        r.Value,
+		}}
 	}
 	return nil
 }
