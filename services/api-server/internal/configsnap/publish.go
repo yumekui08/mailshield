@@ -36,11 +36,15 @@ func (p *Publisher) Assemble(ctx context.Context) (*domain.ConfigSnapshot, error
 	if err != nil {
 		return nil, err
 	}
+	policies, err := p.repo.ListPolicyInstances(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rts, err := p.repo.ListRoutings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &domain.ConfigSnapshot{Variables: vars, WorkerInstances: insts, Routings: rts}, nil
+	return &domain.ConfigSnapshot{Variables: vars, WorkerInstances: insts, Policies: policies, Routings: rts}, nil
 }
 
 // Publish はスナップショットを組み立て・検証し、現アクティブ版と内容が異なる場合のみ
@@ -94,6 +98,10 @@ func Validate(snap *domain.ConfigSnapshot) error {
 	for _, v := range snap.Variables {
 		varSet[v.Key] = true
 	}
+	policySet := map[string]bool{}
+	for _, p := range snap.Policies {
+		policySet[p.Alias] = true
+	}
 
 	// ルーティングはすべてデータ。空状態も正当（catch-all は必須ではない）。
 	for _, rt := range snap.Routings {
@@ -102,6 +110,9 @@ func Validate(snap *domain.ConfigSnapshot) error {
 		}
 		if err := validateBindings(rt, rt.Transform, domain.WorkerKindTransform, instByAlias); err != nil {
 			return err
+		}
+		if rt.PolicyRef != "" && !policySet[rt.PolicyRef] {
+			return fmt.Errorf("ルーティング %q が未定義のポリシー %q を参照しています", routingLabel(rt), rt.PolicyRef)
 		}
 		for v := range collectVarRefs(rt.MatchExpr) {
 			if !varSet[v] {

@@ -15,6 +15,7 @@ type fakeRepo struct {
 	repository.ConfigRepository
 	insts map[string]*domain.WorkerInstance
 	vars  map[string]*domain.ConfigVariable
+	pols  map[string]*domain.PolicyInstance
 	rts   map[string]*domain.Routing
 	seq   int
 }
@@ -23,6 +24,7 @@ func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
 		insts: map[string]*domain.WorkerInstance{},
 		vars:  map[string]*domain.ConfigVariable{},
+		pols:  map[string]*domain.PolicyInstance{},
 		rts:   map[string]*domain.Routing{},
 	}
 }
@@ -67,6 +69,26 @@ func (f *fakeRepo) UpdateConfigVariable(_ context.Context, v *domain.ConfigVaria
 }
 func (f *fakeRepo) DeleteConfigVariable(_ context.Context, id string) error {
 	delete(f.vars, id)
+	return nil
+}
+func (f *fakeRepo) ListPolicyInstances(context.Context) ([]domain.PolicyInstance, error) {
+	out := []domain.PolicyInstance{}
+	for _, v := range f.pols {
+		out = append(out, *v)
+	}
+	return out, nil
+}
+func (f *fakeRepo) CreatePolicyInstance(_ context.Context, p *domain.PolicyInstance) error {
+	p.ID = f.id()
+	f.pols[p.ID] = p
+	return nil
+}
+func (f *fakeRepo) UpdatePolicyInstance(_ context.Context, p *domain.PolicyInstance) error {
+	f.pols[p.ID] = p
+	return nil
+}
+func (f *fakeRepo) DeletePolicyInstance(_ context.Context, id string) error {
+	delete(f.pols, id)
 	return nil
 }
 func (f *fakeRepo) ListRoutings(context.Context) ([]domain.Routing, error) {

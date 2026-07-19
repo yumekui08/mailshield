@@ -14,7 +14,22 @@ import (
 type Snapshot struct {
 	Variables       []Variable       `json:"variables"`
 	WorkerInstances []WorkerInstance `json:"worker_instances"`
+	Policies        []PolicyInstance `json:"policies"`
 	Routings        []Routing        `json:"routings"`
+}
+
+type PolicyInstance struct {
+	Alias   string `json:"alias"`
+	Content string `json:"content"`
+}
+
+// PolicyByAlias は alias→ポリシー内容の索引を返す。
+func (s *Snapshot) PolicyByAlias() map[string]string {
+	m := make(map[string]string, len(s.Policies))
+	for _, p := range s.Policies {
+		m[p.Alias] = p.Content
+	}
+	return m
 }
 
 type Variable struct {

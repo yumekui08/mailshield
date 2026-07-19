@@ -185,6 +185,11 @@ func NewRouter(
 				r.Put("/variables/{id}", configHandler.HandleUpdateConfigVariable)
 				r.Delete("/variables/{id}", configHandler.HandleDeleteConfigVariable)
 
+				r.Get("/policies", configHandler.HandleListPolicyInstances)
+				r.Post("/policies", configHandler.HandleCreatePolicyInstance)
+				r.Put("/policies/{id}", configHandler.HandleUpdatePolicyInstance)
+				r.Delete("/policies/{id}", configHandler.HandleDeletePolicyInstance)
+
 				r.Get("/routings", configHandler.HandleListRoutings)
 				r.Post("/routings", configHandler.HandleCreateRouting)
 				r.Put("/routings/{id}", configHandler.HandleUpdateRouting)

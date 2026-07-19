@@ -429,3 +429,65 @@ func (r *Repository) ReleaseSeedLock(ctx context.Context, name string) error {
 	}
 	return nil
 }
+
+// ─── ポリシーインスタンス ─────────────────────────────────────────────
+
+func (r *Repository) ListPolicyInstances(ctx context.Context) ([]domain.PolicyInstance, error) {
+	const q = `SELECT id, alias, display_name, content, created_at, updated_at
+	           FROM policy_instances ORDER BY alias ASC`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("ポリシー一覧取得失敗: %w", err)
+	}
+	defer rows.Close()
+	list := []domain.PolicyInstance{}
+	for rows.Next() {
+		var p domain.PolicyInstance
+		if err := rows.Scan(&p.ID, &p.Alias, &p.DisplayName, &p.Content, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("ポリシースキャン失敗: %w", err)
+		}
+		list = append(list, p)
+	}
+	return list, rows.Err()
+}
+
+func (r *Repository) GetPolicyInstance(ctx context.Context, id string) (*domain.PolicyInstance, error) {
+	const q = `SELECT id, alias, display_name, content, created_at, updated_at
+	           FROM policy_instances WHERE id = ?`
+	var p domain.PolicyInstance
+	err := r.db.QueryRowContext(ctx, q, id).Scan(
+		&p.ID, &p.Alias, &p.DisplayName, &p.Content, &p.CreatedAt, &p.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("ポリシー取得失敗: %w", err)
+	}
+	return &p, nil
+}
+
+func (r *Repository) CreatePolicyInstance(ctx context.Context, p *domain.PolicyInstance) error {
+	if p.ID == "" {
+		p.ID = uuid.NewString()
+	}
+	const q = `INSERT INTO policy_instances (id, alias, display_name, content) VALUES (?, ?, ?, ?)`
+	if _, err := r.db.ExecContext(ctx, q, p.ID, p.Alias, p.DisplayName, p.Content); err != nil {
+		return fmt.Errorf("ポリシー作成失敗: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) UpdatePolicyInstance(ctx context.Context, p *domain.PolicyInstance) error {
+	const q = `UPDATE policy_instances SET alias = ?, display_name = ?, content = ? WHERE id = ?`
+	if _, err := r.db.ExecContext(ctx, q, p.Alias, p.DisplayName, p.Content, p.ID); err != nil {
+		return fmt.Errorf("ポリシー更新失敗: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DeletePolicyInstance(ctx context.Context, id string) error {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM policy_instances WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("ポリシー削除失敗: %w", err)
+	}
+	return nil
+}

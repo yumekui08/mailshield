@@ -196,6 +196,28 @@ func New(rulesFile string, deliverer Deliverer) (*Engine, error) {
 	return &Engine{rules: rules, lists: lists, deliverer: deliverer}, nil
 }
 
+// NewFromContent は policy.yaml と同形の内容（バイト列）からエンジンを構築する（ADR 008 ③-2b・
+// DB ポリシーインスタンス用）。内容が空なら既定（全配送）。名前付きリストはインライン定義のみ
+// 対応（file: 参照は未対応）。
+func NewFromContent(content []byte, deliverer Deliverer) (*Engine, error) {
+	if len(strings.TrimSpace(string(content))) == 0 {
+		return New("", deliverer)
+	}
+	var pr PolicyRules
+	if err := yaml.Unmarshal(content, &pr); err != nil {
+		return nil, fmt.Errorf("ポリシー内容のパース失敗: %w", err)
+	}
+	lists, err := loadLists(pr.Lists, "")
+	if err != nil {
+		return nil, err
+	}
+	rules, err := prepareRules(pr.Rules)
+	if err != nil {
+		return nil, fmt.Errorf("ポリシー内容の検証失敗: %w", err)
+	}
+	return &Engine{rules: rules, lists: lists, deliverer: deliverer}, nil
+}
+
 // prepareRules は enabled=false を除外し、priority 昇順（同値はファイル順）に安定ソートし、
 // 各ルールのアクション種別を検証する。
 func prepareRules(raw []Rule) ([]Rule, error) {

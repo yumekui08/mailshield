@@ -230,6 +230,13 @@ type ConfigRepository interface {
 	UpdateConfigVariable(ctx context.Context, v *domain.ConfigVariable) error
 	DeleteConfigVariable(ctx context.Context, id string) error
 
+	// ── ポリシーインスタンス ──
+	ListPolicyInstances(ctx context.Context) ([]domain.PolicyInstance, error)
+	GetPolicyInstance(ctx context.Context, id string) (*domain.PolicyInstance, error)
+	CreatePolicyInstance(ctx context.Context, p *domain.PolicyInstance) error
+	UpdatePolicyInstance(ctx context.Context, p *domain.PolicyInstance) error
+	DeletePolicyInstance(ctx context.Context, id string) error
+
 	// ── ルーティング ──
 	// ListRoutings は priority 昇順で全ルーティングを返す。
 	ListRoutings(ctx context.Context) ([]domain.Routing, error)

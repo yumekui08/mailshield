@@ -14,6 +14,7 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/configsnap"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
+	"github.com/koizumib/mailshield/services/api-server/internal/policyfile"
 	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 )
 
@@ -400,6 +401,94 @@ func decodeRouting(w http.ResponseWriter, r *http.Request) (routingRequest, bool
 				"束ねるワーカーインスタンスの alias が不正です: "+b.Alias)
 			return req, false
 		}
+	}
+	return req, true
+}
+
+// ─── ポリシーインスタンス ─────────────────────────────────────────────
+
+type policyInstanceRequest struct {
+	Alias       string `json:"alias"`
+	DisplayName string `json:"display_name"`
+	Content     string `json:"content"`
+}
+
+func (h *ConfigHandler) HandleListPolicyInstances(w http.ResponseWriter, r *http.Request) {
+	list, err := h.repo.ListPolicyInstances(r.Context())
+	if err != nil {
+		slog.Error("ポリシー一覧取得失敗", "error", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "取得に失敗しました")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": list, "meta": map[string]int{"total": len(list)}})
+}
+
+func (h *ConfigHandler) HandleCreatePolicyInstance(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodePolicyInstance(w, r)
+	if !ok {
+		return
+	}
+	p := &domain.PolicyInstance{Alias: req.Alias, DisplayName: req.DisplayName, Content: req.Content}
+	if err := h.repo.CreatePolicyInstance(r.Context(), p); err != nil {
+		writeConfigWriteError(w, err, "ポリシー作成失敗")
+		return
+	}
+	h.audit(r, "config.policy.create", p.ID)
+	writeJSON(w, http.StatusCreated, p)
+}
+
+func (h *ConfigHandler) HandleUpdatePolicyInstance(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	existing, err := h.repo.GetPolicyInstance(r.Context(), id)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "取得に失敗しました")
+		return
+	}
+	if existing == nil {
+		writeErrorResponse(w, http.StatusNotFound, "NOT_FOUND", "見つかりません")
+		return
+	}
+	req, ok := decodePolicyInstance(w, r)
+	if !ok {
+		return
+	}
+	existing.Alias = req.Alias
+	existing.DisplayName = req.DisplayName
+	existing.Content = req.Content
+	if err := h.repo.UpdatePolicyInstance(r.Context(), existing); err != nil {
+		writeConfigWriteError(w, err, "ポリシー更新失敗")
+		return
+	}
+	h.audit(r, "config.policy.update", id)
+	writeJSON(w, http.StatusOK, existing)
+}
+
+func (h *ConfigHandler) HandleDeletePolicyInstance(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.repo.DeletePolicyInstance(r.Context(), id); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "削除に失敗しました")
+		return
+	}
+	h.audit(r, "config.policy.delete", id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func decodePolicyInstance(w http.ResponseWriter, r *http.Request) (policyInstanceRequest, bool) {
+	var req policyInstanceRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "BAD_REQUEST", "リクエストの解析に失敗しました")
+		return req, false
+	}
+	req.Alias = strings.TrimSpace(req.Alias)
+	if !aliasPattern.MatchString(req.Alias) {
+		writeErrorResponse(w, http.StatusBadRequest, "INVALID_ALIAS",
+			"alias は英小文字で始まり、英小文字・数字・_ のみ使えます")
+		return req, false
+	}
+	// 内容が policy.yaml と同形でパースできるか検証する。
+	if _, err := policyfile.ParseDocument([]byte(req.Content)); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "INVALID_POLICY", "ポリシー内容が不正です: "+err.Error())
+		return req, false
 	}
 	return req, true
 }

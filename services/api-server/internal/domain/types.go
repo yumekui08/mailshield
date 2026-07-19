@@ -367,5 +367,17 @@ type ConfigVersion struct {
 type ConfigSnapshot struct {
 	Variables       []ConfigVariable `json:"variables"`
 	WorkerInstances []WorkerInstance `json:"worker_instances"`
+	Policies        []PolicyInstance `json:"policies"`
 	Routings        []Routing        `json:"routings"`
+}
+
+// PolicyInstance は再利用可能な名前付きポリシー（ADR 008）。ルーティングから alias で参照される。
+// Content は policy.yaml と同形のルール定義（YAML テキスト）。
+type PolicyInstance struct {
+	ID          string    `json:"id"`
+	Alias       string    `json:"alias"`
+	DisplayName string    `json:"display_name"`
+	Content     string    `json:"content"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

@@ -18,6 +18,7 @@ import (
 const (
 	kindWorkerInstance = "WorkerInstance"
 	kindConfigVariable = "ConfigVariable"
+	kindPolicyInstance = "PolicyInstance"
 	kindRouting        = "Routing"
 	bundleVersion      = "mailshield.config/v1"
 )
@@ -71,6 +72,17 @@ func (h *ConfigHandler) HandleExportBundle(w http.ResponseWriter, r *http.Reques
 			docs = append(docs, manifestDoc{Kind: kindConfigVariable, Name: v.Key, Spec: spec})
 		}
 	}
+	if want[kindPolicyInstance] {
+		pols, err := h.repo.ListPolicyInstances(r.Context())
+		if err != nil {
+			writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "取得に失敗しました")
+			return
+		}
+		for _, p := range pols {
+			spec, _ := json.Marshal(map[string]any{"display_name": p.DisplayName, "content": p.Content})
+			docs = append(docs, manifestDoc{Kind: kindPolicyInstance, Name: p.Alias, Spec: spec})
+		}
+	}
 	if want[kindRouting] {
 		rts, err := h.repo.ListRoutings(r.Context())
 		if err != nil {
@@ -115,11 +127,12 @@ func (h *ConfigHandler) HandleImportBundle(w http.ResponseWriter, r *http.Reques
 
 func parseKinds(raw string) map[string]bool {
 	if strings.TrimSpace(raw) == "" {
-		return map[string]bool{kindWorkerInstance: true, kindConfigVariable: true, kindRouting: true}
+		return map[string]bool{kindWorkerInstance: true, kindConfigVariable: true, kindPolicyInstance: true, kindRouting: true}
 	}
 	alias := map[string]string{
 		"worker_instance": kindWorkerInstance, "workerinstance": kindWorkerInstance,
 		"variable": kindConfigVariable, "configvariable": kindConfigVariable,
+		"policy": kindPolicyInstance, "policyinstance": kindPolicyInstance,
 		"routing": kindRouting,
 	}
 	out := map[string]bool{}

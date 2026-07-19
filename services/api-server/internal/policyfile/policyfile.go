@@ -143,6 +143,16 @@ func FindRoute(routesDir, dir string) (*Route, error) {
 	return ReadRoute(routesDir, dir)
 }
 
+// ParseDocument は policy.yaml と同形の YAML テキストを Document にデコードする
+// （ポリシーインスタンスの content 検証用）。
+func ParseDocument(data []byte) (*Document, error) {
+	var doc Document
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("ポリシー内容のパース失敗: %w", err)
+	}
+	return &doc, nil
+}
+
 // ValidateDocument はルールの構造的な妥当性を検証する（アクション種別・条件・デフォルトルール）。
 // 条件式の詳細な文法検証は smtp-gateway の /reload に委ねる。
 func ValidateDocument(doc *Document) error {

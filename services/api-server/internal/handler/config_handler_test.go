@@ -28,6 +28,8 @@ type mockConfigRepo struct {
 	savedVersion    *domain.ConfigVersion
 	activeVersion   *domain.ConfigVersion
 	activeVersionID string
+	createdPol      *domain.PolicyInstance
+	getPol          *domain.PolicyInstance
 }
 
 func (m *mockConfigRepo) ListWorkerInstances(context.Context) ([]domain.WorkerInstance, error) {
@@ -62,6 +64,22 @@ func (m *mockConfigRepo) UpdateConfigVariable(_ context.Context, v *domain.Confi
 	return nil
 }
 func (m *mockConfigRepo) DeleteConfigVariable(context.Context, string) error { return nil }
+func (m *mockConfigRepo) ListPolicyInstances(context.Context) ([]domain.PolicyInstance, error) {
+	return nil, nil
+}
+func (m *mockConfigRepo) GetPolicyInstance(context.Context, string) (*domain.PolicyInstance, error) {
+	return m.getPol, nil
+}
+func (m *mockConfigRepo) CreatePolicyInstance(_ context.Context, p *domain.PolicyInstance) error {
+	p.ID = "pol-1"
+	m.createdPol = p
+	return nil
+}
+func (m *mockConfigRepo) UpdatePolicyInstance(_ context.Context, p *domain.PolicyInstance) error {
+	m.createdPol = p
+	return nil
+}
+func (m *mockConfigRepo) DeletePolicyInstance(context.Context, string) error { return nil }
 func (m *mockConfigRepo) ListRoutings(context.Context) ([]domain.Routing, error) {
 	return m.rtList, nil
 }

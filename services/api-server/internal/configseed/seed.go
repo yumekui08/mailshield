@@ -21,6 +21,7 @@ import (
 const (
 	KindWorkerInstance = "WorkerInstance"
 	KindConfigVariable = "ConfigVariable"
+	KindPolicyInstance = "PolicyInstance"
 	KindRouting        = "Routing"
 	BundleVersion      = "mailshield.config/v1"
 )
@@ -70,6 +71,12 @@ func Sync(ctx context.Context, repo repository.ConfigRepository, docs []Doc, pru
 			varByKey[v.Key] = v
 		}
 	}
+	polByAlias := map[string]domain.PolicyInstance{}
+	if list, err := repo.ListPolicyInstances(ctx); err == nil {
+		for _, pol := range list {
+			polByAlias[pol.Alias] = pol
+		}
+	}
 	rtByName := map[string]domain.Routing{}
 	if list, err := repo.ListRoutings(ctx); err == nil {
 		for _, rt := range list {
@@ -80,7 +87,7 @@ func Sync(ctx context.Context, repo repository.ConfigRepository, docs []Doc, pru
 	}
 
 	// docs に含まれる自然キー（prune 判定用）
-	seenInst, seenVar, seenRt := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	seenInst, seenVar, seenPol, seenRt := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 
 	for _, doc := range docs {
 		switch doc.Kind {
@@ -90,6 +97,9 @@ func Sync(ctx context.Context, repo repository.ConfigRepository, docs []Doc, pru
 		case KindConfigVariable:
 			seenVar[doc.Name] = true
 			upsertVariable(ctx, repo, doc, varByKey, &res)
+		case KindPolicyInstance:
+			seenPol[doc.Name] = true
+			upsertPolicy(ctx, repo, doc, polByAlias, &res)
 		case KindRouting:
 			seenRt[doc.Name] = true
 			upsertRouting(ctx, repo, doc, rtByName, &res)
@@ -109,6 +119,13 @@ func Sync(ctx context.Context, repo repository.ConfigRepository, docs []Doc, pru
 		for key, v := range varByKey {
 			if !seenVar[key] {
 				if err := repo.DeleteConfigVariable(ctx, v.ID); err == nil {
+					res.Deleted++
+				}
+			}
+		}
+		for alias, pol := range polByAlias {
+			if !seenPol[alias] {
+				if err := repo.DeletePolicyInstance(ctx, pol.ID); err == nil {
 					res.Deleted++
 				}
 			}
@@ -226,6 +243,33 @@ func upsertRouting(ctx context.Context, repo repository.ConfigRepository, doc Do
 	} else {
 		if err := repo.CreateRouting(ctx, &rt); err != nil {
 			res.Errors = append(res.Errors, "Routing "+doc.Name+": "+err.Error())
+			return
+		}
+		res.Created++
+	}
+}
+
+func upsertPolicy(ctx context.Context, repo repository.ConfigRepository, doc Doc, existing map[string]domain.PolicyInstance, res *Result) {
+	var sp struct {
+		DisplayName string `json:"display_name"`
+		Content     string `json:"content"`
+	}
+	_ = json.Unmarshal(doc.Spec, &sp)
+	if !aliasPattern.MatchString(doc.Name) {
+		res.Errors = append(res.Errors, "PolicyInstance "+doc.Name+": alias 不正")
+		return
+	}
+	pol := domain.PolicyInstance{Alias: doc.Name, DisplayName: sp.DisplayName, Content: sp.Content}
+	if cur, ok := existing[doc.Name]; ok {
+		pol.ID = cur.ID
+		if err := repo.UpdatePolicyInstance(ctx, &pol); err != nil {
+			res.Errors = append(res.Errors, "PolicyInstance "+doc.Name+": "+err.Error())
+			return
+		}
+		res.Updated++
+	} else {
+		if err := repo.CreatePolicyInstance(ctx, &pol); err != nil {
+			res.Errors = append(res.Errors, "PolicyInstance "+doc.Name+": "+err.Error())
 			return
 		}
 		res.Created++
