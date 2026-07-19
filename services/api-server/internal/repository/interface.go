@@ -229,6 +229,16 @@ type ConfigRepository interface {
 	CreateConfigVariable(ctx context.Context, v *domain.ConfigVariable) error
 	UpdateConfigVariable(ctx context.Context, v *domain.ConfigVariable) error
 	DeleteConfigVariable(ctx context.Context, id string) error
+
+	// ── ルーティング ──
+	// ListRoutings は priority 昇順で全ルーティングを返す。
+	ListRoutings(ctx context.Context) ([]domain.Routing, error)
+	GetRouting(ctx context.Context, id string) (*domain.Routing, error)
+	CreateRouting(ctx context.Context, rt *domain.Routing) error
+	UpdateRouting(ctx context.Context, rt *domain.Routing) error
+	DeleteRouting(ctx context.Context, id string) error
+	// CountCatchAllRoutings は is_catchall=1 のルーティング数を返す（保証・重複防止に使う）。
+	CountCatchAllRoutings(ctx context.Context) (int, error)
 }
 
 // Mailbox はメールボックス情報を保持する。

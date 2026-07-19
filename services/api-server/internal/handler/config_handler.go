@@ -256,3 +256,142 @@ func (h *ConfigHandler) audit(r *http.Request, event, targetID string) {
 		TargetID:   audit.StrPtr(targetID),
 	})
 }
+
+// ─── ルーティング ─────────────────────────────────────────────────────
+
+// catchAllPriority は catch-all ルーティングの固定 priority（最後に評価されるよう十分大きく取る）。
+const catchAllPriority = 1_000_000
+
+type routingRequest struct {
+	Name      string                 `json:"name"`
+	Priority  int                    `json:"priority"`
+	MatchExpr string                 `json:"match_expr"`
+	IsEnabled *bool                  `json:"is_enabled"`
+	PolicyRef string                 `json:"policy_ref"`
+	Inspect   []domain.WorkerBinding `json:"inspect"`
+	Transform []domain.WorkerBinding `json:"transform"`
+}
+
+func (h *ConfigHandler) HandleListRoutings(w http.ResponseWriter, r *http.Request) {
+	// catch-all を保証する（無ければ既定を 1 つ作る）。マッチ漏れによるメール消失を防ぐ。
+	if n, err := h.repo.CountCatchAllRoutings(r.Context()); err == nil && n == 0 {
+		def := &domain.Routing{
+			Name: "デフォルト（すべてに一致）", Priority: catchAllPriority, MatchExpr: "true",
+			IsCatchAll: true, IsEnabled: true,
+			Inspect: []domain.WorkerBinding{}, Transform: []domain.WorkerBinding{},
+		}
+		if err := h.repo.CreateRouting(r.Context(), def); err != nil {
+			slog.Warn("catch-all ルーティングの自動作成に失敗", "error", err)
+		}
+	}
+	list, err := h.repo.ListRoutings(r.Context())
+	if err != nil {
+		slog.Error("ルーティング一覧取得失敗", "error", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "取得に失敗しました")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": list, "meta": map[string]int{"total": len(list)}})
+}
+
+func (h *ConfigHandler) HandleCreateRouting(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeRouting(w, r)
+	if !ok {
+		return
+	}
+	rt := &domain.Routing{
+		Name: req.Name, Priority: req.Priority, MatchExpr: req.MatchExpr,
+		IsCatchAll: false, IsEnabled: req.IsEnabled == nil || *req.IsEnabled,
+		PolicyRef: req.PolicyRef, Inspect: req.Inspect, Transform: req.Transform,
+	}
+	if err := h.repo.CreateRouting(r.Context(), rt); err != nil {
+		writeConfigWriteError(w, err, "ルーティング作成失敗")
+		return
+	}
+	h.audit(r, "config.routing.create", rt.ID)
+	writeJSON(w, http.StatusCreated, rt)
+}
+
+func (h *ConfigHandler) HandleUpdateRouting(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	existing, err := h.repo.GetRouting(r.Context(), id)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "取得に失敗しました")
+		return
+	}
+	if existing == nil {
+		writeErrorResponse(w, http.StatusNotFound, "NOT_FOUND", "見つかりません")
+		return
+	}
+	req, ok := decodeRouting(w, r)
+	if !ok {
+		return
+	}
+	existing.Name = req.Name
+	existing.PolicyRef = req.PolicyRef
+	existing.Inspect = req.Inspect
+	existing.Transform = req.Transform
+	if existing.IsCatchAll {
+		// catch-all は match/priority/有効を固定（削除・無効化・条件変更させない）。
+		existing.MatchExpr = "true"
+		existing.Priority = catchAllPriority
+		existing.IsEnabled = true
+	} else {
+		existing.MatchExpr = req.MatchExpr
+		existing.Priority = req.Priority
+		if req.IsEnabled != nil {
+			existing.IsEnabled = *req.IsEnabled
+		}
+	}
+	if err := h.repo.UpdateRouting(r.Context(), existing); err != nil {
+		writeConfigWriteError(w, err, "ルーティング更新失敗")
+		return
+	}
+	h.audit(r, "config.routing.update", id)
+	writeJSON(w, http.StatusOK, existing)
+}
+
+func (h *ConfigHandler) HandleDeleteRouting(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	existing, err := h.repo.GetRouting(r.Context(), id)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "取得に失敗しました")
+		return
+	}
+	if existing == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if existing.IsCatchAll {
+		writeErrorResponse(w, http.StatusBadRequest, "CATCHALL_PROTECTED",
+			"catch-all（デフォルト）ルーティングは削除できません。メール消失を防ぐため必ず 1 つ必要です")
+		return
+	}
+	if err := h.repo.DeleteRouting(r.Context(), id); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "削除に失敗しました")
+		return
+	}
+	h.audit(r, "config.routing.delete", id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func decodeRouting(w http.ResponseWriter, r *http.Request) (routingRequest, bool) {
+	var req routingRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "BAD_REQUEST", "リクエストの解析に失敗しました")
+		return req, false
+	}
+	req.MatchExpr = strings.TrimSpace(req.MatchExpr)
+	if req.MatchExpr == "" {
+		writeErrorResponse(w, http.StatusBadRequest, "BAD_REQUEST",
+			"match_expr は必須です（すべてに一致させるなら \"true\"）")
+		return req, false
+	}
+	for _, b := range append(append([]domain.WorkerBinding{}, req.Inspect...), req.Transform...) {
+		if !aliasPattern.MatchString(b.Alias) {
+			writeErrorResponse(w, http.StatusBadRequest, "BAD_REQUEST",
+				"束ねるワーカーインスタンスの alias が不正です: "+b.Alias)
+			return req, false
+		}
+	}
+	return req, true
+}

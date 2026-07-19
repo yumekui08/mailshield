@@ -14,12 +14,17 @@ import (
 
 // mockConfigRepo は ConfigRepository だけを実装するテスト用モック。
 type mockConfigRepo struct {
-	created  *domain.WorkerInstance
-	createdV *domain.ConfigVariable
-	getInst  *domain.WorkerInstance
-	getVar   *domain.ConfigVariable
-	instList []domain.WorkerInstance
-	varList  []domain.ConfigVariable
+	created     *domain.WorkerInstance
+	createdV    *domain.ConfigVariable
+	getInst     *domain.WorkerInstance
+	getVar      *domain.ConfigVariable
+	instList    []domain.WorkerInstance
+	varList     []domain.ConfigVariable
+	createdRt   *domain.Routing
+	getRt       *domain.Routing
+	rtList      []domain.Routing
+	catchAllCnt int
+	createdRts  []domain.Routing
 }
 
 func (m *mockConfigRepo) ListWorkerInstances(context.Context) ([]domain.WorkerInstance, error) {
@@ -54,6 +59,29 @@ func (m *mockConfigRepo) UpdateConfigVariable(_ context.Context, v *domain.Confi
 	return nil
 }
 func (m *mockConfigRepo) DeleteConfigVariable(context.Context, string) error { return nil }
+func (m *mockConfigRepo) ListRoutings(context.Context) ([]domain.Routing, error) {
+	return m.rtList, nil
+}
+func (m *mockConfigRepo) GetRouting(context.Context, string) (*domain.Routing, error) {
+	return m.getRt, nil
+}
+func (m *mockConfigRepo) CreateRouting(_ context.Context, rt *domain.Routing) error {
+	rt.ID = "rt-1"
+	m.createdRt = rt
+	m.createdRts = append(m.createdRts, *rt)
+	if rt.IsCatchAll {
+		m.catchAllCnt++
+	}
+	return nil
+}
+func (m *mockConfigRepo) UpdateRouting(_ context.Context, rt *domain.Routing) error {
+	m.createdRt = rt
+	return nil
+}
+func (m *mockConfigRepo) DeleteRouting(context.Context, string) error { return nil }
+func (m *mockConfigRepo) CountCatchAllRoutings(context.Context) (int, error) {
+	return m.catchAllCnt, nil
+}
 
 func postJSON(t *testing.T, target string, body any) *http.Request {
 	t.Helper()
@@ -134,5 +162,76 @@ func TestCreateConfigVariable_InvalidKey(t *testing.T) {
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("key=%q は 400、実際: %d", bad, rr.Code)
 		}
+	}
+}
+
+func TestListRoutings_AutoCreatesCatchAll(t *testing.T) {
+	repo := &mockConfigRepo{catchAllCnt: 0}
+	h := NewConfigHandler(repo, testAuditLogger)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/config/routings", nil)
+	req = req.WithContext(middleware.WithSession(req.Context(), adminSession()))
+	rr := httptest.NewRecorder()
+	h.HandleListRoutings(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	if len(repo.createdRts) != 1 || !repo.createdRts[0].IsCatchAll || repo.createdRts[0].MatchExpr != "true" {
+		t.Errorf("catch-all が自動作成されていない: %+v", repo.createdRts)
+	}
+}
+
+func TestDeleteRouting_CatchAllProtected(t *testing.T) {
+	repo := &mockConfigRepo{getRt: &domain.Routing{ID: "rt-c", IsCatchAll: true}}
+	h := NewConfigHandler(repo, testAuditLogger)
+	req := requestWithSessionAndURLParam(http.MethodDelete, "/api/v1/config/routings/rt-c", "id", "rt-c", adminSession())
+	rr := httptest.NewRecorder()
+	h.HandleDeleteRouting(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("catch-all 削除は 400、実際: %d", rr.Code)
+	}
+}
+
+func TestCreateRouting_RequiresMatchExpr(t *testing.T) {
+	h := NewConfigHandler(&mockConfigRepo{}, testAuditLogger)
+	req := postJSON(t, "/api/v1/config/routings", map[string]any{"name": "x", "match_expr": ""})
+	rr := httptest.NewRecorder()
+	h.HandleCreateRouting(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("match_expr 空は 400、実際: %d", rr.Code)
+	}
+}
+
+func TestCreateRouting_ValidatesBindingAlias(t *testing.T) {
+	h := NewConfigHandler(&mockConfigRepo{}, testAuditLogger)
+	req := postJSON(t, "/api/v1/config/routings", map[string]any{
+		"name": "inbound", "match_expr": "true",
+		"inspect": []map[string]any{{"alias": "BAD-Alias", "enabled": true}},
+	})
+	rr := httptest.NewRecorder()
+	h.HandleCreateRouting(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("不正な binding alias は 400、実際: %d", rr.Code)
+	}
+}
+
+func TestCreateRouting_Valid(t *testing.T) {
+	repo := &mockConfigRepo{}
+	h := NewConfigHandler(repo, testAuditLogger)
+	req := postJSON(t, "/api/v1/config/routings", map[string]any{
+		"name": "inbound", "priority": 20, "match_expr": "mail.to endswith ${INTERNAL_DOMAIN}",
+		"policy_ref": "標準受信",
+		"inspect":    []map[string]any{{"alias": "av_internal", "enabled": true}},
+		"transform":  []map[string]any{{"alias": "fs_internal", "enabled": true}},
+	})
+	rr := httptest.NewRecorder()
+	h.HandleCreateRouting(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if repo.createdRt == nil || repo.createdRt.IsCatchAll {
+		t.Errorf("通常ルーティングとして作成されるべき: %+v", repo.createdRt)
+	}
+	if len(repo.createdRt.Inspect) != 1 || repo.createdRt.Inspect[0].Alias != "av_internal" {
+		t.Errorf("inspect 束ねが不正: %+v", repo.createdRt.Inspect)
 	}
 }

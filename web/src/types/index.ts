@@ -100,6 +100,26 @@ export interface ConfigVariable {
   updated_at: string;
 }
 
+export interface WorkerBinding {
+  alias: string;
+  enabled: boolean;
+  timeout_seconds?: number | null;
+}
+
+export interface Routing {
+  id: string;
+  name: string;
+  priority: number;
+  match_expr: string;
+  is_catchall: boolean;
+  is_enabled: boolean;
+  policy_ref: string;
+  inspect: WorkerBinding[];
+  transform: WorkerBinding[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Message {
   id: string;
   eml_path: string;

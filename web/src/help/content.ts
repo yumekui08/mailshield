@@ -17,6 +17,7 @@ export type HelpKey =
   | "mailboxes"
   | "users"
   | "policy"
+  | "routings"
   | "workerInstances"
   | "variables"
   | "simulate"
@@ -313,6 +314,56 @@ export const helpContent: Record<HelpKey, HelpContent> = {
     ],
   },
 
+  routings: {
+    title: "ルーティング",
+    summary:
+      "受信したメールがどの検査・変換・ポリシーを通るかを決める合成単位です。ワーカーインスタンスとポリシーを束ねて 1 つの処理経路にします。",
+    sections: [
+      {
+        heading: "考え方（重要）",
+        items: [
+          "メールは priority 昇順で評価され、最初にマッチした 1 つのルーティングだけを通ります（first-match）。",
+          "各ルーティングは「マッチ条件」「検査ワーカー束ね」「変換ワーカー束ね」「ポリシー」を持ちます。",
+          "検査（inspect）は並列実行、変換（transform）は上から順に直列実行されます。",
+        ],
+      },
+      {
+        heading: "設定する項目",
+        items: [
+          "優先度: 小さいほど先に評価。用途の狭いルーティングを上に、広いものを下に。",
+          "マッチ条件: この経路に載せる条件（例: mail.to endswith ${INTERNAL_DOMAIN}）。すべてなら true。",
+          "検査/変換: ワーカーインスタンスを alias で束ね、有効無効・タイムアウトを個別に指定。",
+          "ポリシー: 検査結果を受けてアクション（配送/隔離/拒否など）を決めるルール名。",
+        ],
+      },
+      {
+        heading: "catch-all（削除できないデフォルト）",
+        items: [
+          "最後に必ず「すべてに一致」する catch-all ルーティングがあります（メール消失防止）。",
+          "catch-all は削除・並べ替え・条件変更できませんが、通すワーカーやポリシーは設定できます。",
+        ],
+      },
+      {
+        heading: "落とし穴",
+        items: [
+          "束ねるワーカーは先に「ワーカーインスタンス」画面で作成しておく必要があります。",
+          "マッチ条件ではスコアは使えません（ワーカー実行前のため）。スコア判定はポリシー側で行います。",
+        ],
+      },
+    ],
+    tour: [
+      {
+        title: "ルーティング",
+        body: "メールの処理経路を組み立てる画面です。ワーカーとポリシーをここで束ねます。",
+      },
+      {
+        target: '[data-help="routings-table"]',
+        title: "評価順と catch-all",
+        body: "上から priority 順に評価され、最初に一致した経路だけを通ります。一番下の catch-all が取りこぼしを受けます。",
+      },
+    ],
+  },
+
   workerInstances: {
     title: "ワーカーインスタンス",
     summary:
@@ -436,6 +487,7 @@ export function helpKeyForPath(pathname: string): HelpKey | null {
   if (p === "/mailboxes") return "mailboxes";
   if (p === "/users") return "users";
   if (p === "/policy") return "policy";
+  if (p === "/routings") return "routings";
   if (p === "/worker-instances") return "workerInstances";
   if (p === "/variables") return "variables";
   if (p === "/simulate") return "simulate";

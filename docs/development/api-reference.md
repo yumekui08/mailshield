@@ -584,6 +584,32 @@ email / display_name の部分一致でユーザーを検索する（`operator` 
 {"key": "INTERNAL_DOMAIN", "value": "@example.com", "description": "受信/送信判定に使う自組織ドメイン"}
 ```
 
+### ルーティング
+
+メールがどの検査・変換・ポリシーを通るかを決める合成単位。priority 昇順の first-match。
+`inspect` / `transform` はワーカーインスタンスを alias で束ねたリスト（transform は定義順に直列）。
+
+| エンドポイント | 説明 |
+|---|---|
+| `GET /api/v1/config/routings` | 一覧（priority 昇順）。catch-all が無ければ自動作成する |
+| `POST /api/v1/config/routings` | 作成。`match_expr` 必須（すべてなら `"true"`） |
+| `PUT /api/v1/config/routings/{id}` | 更新。catch-all は match/priority/有効が固定 |
+| `DELETE /api/v1/config/routings/{id}` | 削除。catch-all は `400`（削除不可） |
+
+```json
+{
+  "name": "inbound", "priority": 20,
+  "match_expr": "mail.to endswith ${INTERNAL_DOMAIN}",
+  "policy_ref": "標準受信ポリシー",
+  "inspect":   [{"alias": "av_internal", "enabled": true, "timeout_seconds": 30}],
+  "transform": [{"alias": "fs_internal", "enabled": true}]
+}
+```
+
+> catch-all（`is_catchall: true`）は「match=true・最低優先度」の最終フォールバックとして
+> システムが 1 つ保証する。マッチ漏れによるメール消失を防ぐため削除・並べ替え・条件変更はできないが、
+> 通すワーカーとポリシーは設定できる。
+
 ---
 
 ## 監査ログ（admin のみ）

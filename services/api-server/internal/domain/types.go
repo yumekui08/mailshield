@@ -320,3 +320,32 @@ type ConfigVariable struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// WorkerBinding はルーティングがワーカーインスタンスを束ねる 1 要素。
+// Alias でワーカーインスタンスを参照し、有効無効と（任意の）タイムアウト上書きを持つ。
+type WorkerBinding struct {
+	Alias          string `json:"alias"`
+	Enabled        bool   `json:"enabled"`
+	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"` // nil ならインスタンス既定値
+}
+
+// Routing はメールがどの検査・変換・ポリシーを通るかを決める合成単位（ADR 008）。
+//   - Priority   : 評価順（昇順・小さいほど先）。first-match で最初に match した 1 つだけを通す
+//   - MatchExpr  : この経路に載せる条件式（catch-all は "true"）
+//   - IsCatchAll : システムが保証する最終フォールバック（削除・並べ替え不可・match/priority 固定）
+//   - Inspect    : 並列実行される検査インスタンスの束ね
+//   - Transform  : 定義順に直列実行される変換インスタンスの束ね
+//   - PolicyRef  : 適用するポリシー名
+type Routing struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Priority   int             `json:"priority"`
+	MatchExpr  string          `json:"match_expr"`
+	IsCatchAll bool            `json:"is_catchall"`
+	IsEnabled  bool            `json:"is_enabled"`
+	PolicyRef  string          `json:"policy_ref"`
+	Inspect    []WorkerBinding `json:"inspect"`
+	Transform  []WorkerBinding `json:"transform"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+}

@@ -25,6 +25,7 @@ import type {
   PolicyHits,
   WorkerInstance,
   ConfigVariable,
+  Routing,
 } from "../types";
 
 const BASE = "/api/v1";
@@ -658,4 +659,24 @@ export async function updateConfigVariable(
 
 export async function deleteConfigVariable(id: string): Promise<void> {
   await request(`/config/variables/${id}`, { method: "DELETE" });
+}
+
+// ─── ルーティング（ADR 008・operator/admin） ───────────────────
+
+type RoutingInput = Omit<Routing, "id" | "is_catchall" | "created_at" | "updated_at">;
+
+export async function listRoutings(): Promise<{ data: Routing[]; meta: { total: number } }> {
+  return request("/config/routings");
+}
+
+export async function createRouting(params: RoutingInput): Promise<Routing> {
+  return request("/config/routings", { method: "POST", body: JSON.stringify(params) });
+}
+
+export async function updateRouting(id: string, params: RoutingInput): Promise<Routing> {
+  return request(`/config/routings/${id}`, { method: "PUT", body: JSON.stringify(params) });
+}
+
+export async function deleteRouting(id: string): Promise<void> {
+  await request(`/config/routings/${id}`, { method: "DELETE" });
 }

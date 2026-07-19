@@ -16,6 +16,7 @@ import {
   SunMoon,
   Boxes,
   Variable,
+  Route as RouteIcon,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useMe, useLogout } from "../hooks/useAuth";
@@ -65,6 +66,7 @@ const navGroups: NavGroup[] = [
   {
     heading: "設定",
     items: [
+      { to: "/routings", label: "ルーティング", icon: RouteIcon, roles: ["admin", "operator"] },
       { to: "/worker-instances", label: "ワーカーインスタンス", icon: Boxes, roles: ["admin", "operator"] },
       { to: "/variables", label: "設定変数", icon: Variable, roles: ["admin", "operator"] },
     ],

@@ -8,8 +8,14 @@ import {
   createConfigVariable,
   updateConfigVariable,
   deleteConfigVariable,
+  listRoutings,
+  createRouting,
+  updateRouting,
+  deleteRouting,
 } from "../lib/api";
-import type { WorkerInstance, ConfigVariable } from "../types";
+import type { WorkerInstance, ConfigVariable, Routing } from "../types";
+
+type RoutingInput = Omit<Routing, "id" | "is_catchall" | "created_at" | "updated_at">;
 
 type WorkerInstanceInput = Omit<WorkerInstance, "id" | "created_at" | "updated_at">;
 type VariableInput = { key: string; value: string; description: string };
@@ -74,4 +80,33 @@ export function useDeleteConfigVariable() {
   });
 }
 
-export type { WorkerInstance, ConfigVariable };
+// ─── ルーティング ──
+export function useRoutings() {
+  return useQuery({ queryKey: ["routings"], queryFn: listRoutings });
+}
+
+export function useCreateRouting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: RoutingInput) => createRouting(params),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["routings"] }),
+  });
+}
+
+export function useUpdateRouting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, params }: { id: string; params: RoutingInput }) => updateRouting(id, params),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["routings"] }),
+  });
+}
+
+export function useDeleteRouting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteRouting(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["routings"] }),
+  });
+}
+
+export type { WorkerInstance, ConfigVariable, Routing };

@@ -184,6 +184,11 @@ func NewRouter(
 				r.Post("/variables", configHandler.HandleCreateConfigVariable)
 				r.Put("/variables/{id}", configHandler.HandleUpdateConfigVariable)
 				r.Delete("/variables/{id}", configHandler.HandleDeleteConfigVariable)
+
+				r.Get("/routings", configHandler.HandleListRoutings)
+				r.Post("/routings", configHandler.HandleCreateRouting)
+				r.Put("/routings/{id}", configHandler.HandleUpdateRouting)
+				r.Delete("/routings/{id}", configHandler.HandleDeleteRouting)
 			})
 		}
 
