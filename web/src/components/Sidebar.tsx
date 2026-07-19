@@ -14,6 +14,8 @@ import {
   ShieldAlert,
   Clock,
   SunMoon,
+  Boxes,
+  Variable,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useMe, useLogout } from "../hooks/useAuth";
@@ -58,6 +60,13 @@ const navGroups: NavGroup[] = [
       { to: "/mailboxes", label: "メールボックス", icon: Inbox, roles: ["admin", "operator"] },
       { to: "/policy", label: "ポリシー", icon: SlidersHorizontal, roles: ["admin", "operator"] },
       { to: "/simulate", label: "ポリシーシミュレーター", icon: FlaskConical, roles: ["admin", "operator"] },
+    ],
+  },
+  {
+    heading: "設定",
+    items: [
+      { to: "/worker-instances", label: "ワーカーインスタンス", icon: Boxes, roles: ["admin", "operator"] },
+      { to: "/variables", label: "設定変数", icon: Variable, roles: ["admin", "operator"] },
     ],
   },
   {

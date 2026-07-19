@@ -17,6 +17,8 @@ export type HelpKey =
   | "mailboxes"
   | "users"
   | "policy"
+  | "workerInstances"
+  | "variables"
   | "simulate"
   | "apiKeys"
   | "auditLogs";
@@ -311,6 +313,69 @@ export const helpContent: Record<HelpKey, HelpContent> = {
     ],
   },
 
+  workerInstances: {
+    title: "ワーカーインスタンス",
+    summary:
+      "「ワーカー型（検査・変換の実装）＋設定＋名前」をまとめた再利用可能な部品です。同じ型から用途別のインスタンスを複数作り、ルーティングから呼び出します。",
+    sections: [
+      {
+        heading: "考え方（重要）",
+        items: [
+          "ワーカー型 = コードが提供する実装（av-worker・filesep-worker 等）。ここでは作れません。",
+          "ワーカーインスタンス = 型に設定と名前を付けたもの。例: 同じ添付分離でも「内部向け」「外部向け」で設定違いを2つ作れます。",
+          "ルーティングは、このインスタンスを alias で参照して検査・変換パイプラインに組み込みます。",
+        ],
+      },
+      {
+        heading: "3つの名前の使い分け",
+        items: [
+          "alias: 条件式・検査結果のキーに使う不変ハンドル（例 av_internal）。英小文字始まり。変更しないこと。",
+          "表示名: 画面表示用。日本語可・いつでも変更可（例: 内部向けウイルス検査）。",
+          "ワーカー型: 使う実装名（av-worker 等）。",
+        ],
+      },
+      {
+        heading: "設定（config）",
+        items: [
+          "ワーカー型ごとの固有設定を JSON で記述します。",
+          "値には ${VAR} で設定変数を参照できます（設定ロード時に展開）。",
+          "検査ワーカーの結果は alias でキーされ、ポリシー条件から alias.detected / alias.score で参照します。",
+        ],
+      },
+      {
+        heading: "落とし穴",
+        items: [
+          "alias を後から変えると、それを参照するポリシー条件が壊れます。最初に決めて固定してください。",
+          "type=inspect は並列実行・type=transform は順序どおり直列実行されます（順序はルーティングで指定）。",
+        ],
+      },
+    ],
+  },
+
+  variables: {
+    title: "設定変数",
+    summary:
+      "ルーティング・ポリシー・ワーカー設定などから ${VAR} で参照する共有値です。同じ値を一箇所で管理し、環境ごとに差し替えられます。",
+    sections: [
+      {
+        heading: "この画面でできること",
+        items: [
+          "共有値（自組織ドメイン・スコア閾値など）を key=value で登録する",
+          "設定内から ${KEY} で参照する（展開は設定ロード時に一度だけ・実行時コストなし）",
+          "例: 受信判定の TO ドメインと送信判定の FROM ドメインを 1 つの INTERNAL_DOMAIN で管理",
+        ],
+      },
+      {
+        heading: "重要な注意",
+        items: [
+          "パスワード等のシークレットはここに入れないこと。値は平文表示・エクスポート対象です。",
+          "シークレットは OS 環境変数のままにし、設定からは名前参照だけにします。",
+          "変数を変更すると新しい設定バージョンとして扱われ、他の設定変更と同様に反映されます。",
+        ],
+      },
+    ],
+  },
+
   simulate: {
     title: "ポリシーシミュレーション",
     summary:
@@ -371,6 +436,8 @@ export function helpKeyForPath(pathname: string): HelpKey | null {
   if (p === "/mailboxes") return "mailboxes";
   if (p === "/users") return "users";
   if (p === "/policy") return "policy";
+  if (p === "/worker-instances") return "workerInstances";
+  if (p === "/variables") return "variables";
   if (p === "/simulate") return "simulate";
   if (p === "/api-keys") return "apiKeys";
   if (p === "/audit-logs") return "auditLogs";

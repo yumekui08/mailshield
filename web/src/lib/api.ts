@@ -23,6 +23,8 @@ import type {
   PolicyRoutesResponse,
   PolicyDocument,
   PolicyHits,
+  WorkerInstance,
+  ConfigVariable,
 } from "../types";
 
 const BASE = "/api/v1";
@@ -612,4 +614,48 @@ export async function searchUsers(
   return request<{ data: UserRecord[]; meta: { total: number } }>(
     `/users/search?${params.toString()}`
   );
+}
+
+// ─── 設定エンティティ（ADR 008・operator/admin） ───────────────
+
+export async function listWorkerInstances(): Promise<{ data: WorkerInstance[]; meta: { total: number } }> {
+  return request("/config/worker-instances");
+}
+
+export async function createWorkerInstance(
+  params: Omit<WorkerInstance, "id" | "created_at" | "updated_at">
+): Promise<WorkerInstance> {
+  return request("/config/worker-instances", { method: "POST", body: JSON.stringify(params) });
+}
+
+export async function updateWorkerInstance(
+  id: string,
+  params: Omit<WorkerInstance, "id" | "created_at" | "updated_at">
+): Promise<WorkerInstance> {
+  return request(`/config/worker-instances/${id}`, { method: "PUT", body: JSON.stringify(params) });
+}
+
+export async function deleteWorkerInstance(id: string): Promise<void> {
+  await request(`/config/worker-instances/${id}`, { method: "DELETE" });
+}
+
+export async function listConfigVariables(): Promise<{ data: ConfigVariable[]; meta: { total: number } }> {
+  return request("/config/variables");
+}
+
+export async function createConfigVariable(
+  params: { key: string; value: string; description: string }
+): Promise<ConfigVariable> {
+  return request("/config/variables", { method: "POST", body: JSON.stringify(params) });
+}
+
+export async function updateConfigVariable(
+  id: string,
+  params: { key: string; value: string; description: string }
+): Promise<ConfigVariable> {
+  return request(`/config/variables/${id}`, { method: "PUT", body: JSON.stringify(params) });
+}
+
+export async function deleteConfigVariable(id: string): Promise<void> {
+  await request(`/config/variables/${id}`, { method: "DELETE" });
 }

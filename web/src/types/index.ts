@@ -75,6 +75,31 @@ export interface ApprovalRequestDetail extends ApprovalRequest {
 
 export type Role = "admin" | "operator" | "viewer";
 
+// ─── 設定エンティティ（ADR 008） ───────────────────────────────
+export type WorkerKind = "inspect" | "transform";
+
+export interface WorkerInstance {
+  id: string;
+  alias: string;
+  display_name: string;
+  worker_type: string;
+  kind: WorkerKind;
+  config: Record<string, unknown>;
+  default_timeout_seconds: number;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConfigVariable {
+  id: string;
+  key: string;
+  value: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Message {
   id: string;
   eml_path: string;
