@@ -214,7 +214,7 @@ var _ repository.ConfigRepository = (*Repository)(nil)
 
 func (r *Repository) ListRoutings(ctx context.Context) ([]domain.Routing, error) {
 	const q = `
-		SELECT id, name, priority, match_expr, is_catchall, is_enabled, policy_ref,
+		SELECT id, name, priority, match_expr, direction, is_catchall, is_enabled, policy_ref,
 		       inspect_json, transform_json, created_at, updated_at
 		FROM routings
 		ORDER BY priority ASC, created_at ASC`
@@ -237,7 +237,7 @@ func (r *Repository) ListRoutings(ctx context.Context) ([]domain.Routing, error)
 
 func (r *Repository) GetRouting(ctx context.Context, id string) (*domain.Routing, error) {
 	const q = `
-		SELECT id, name, priority, match_expr, is_catchall, is_enabled, policy_ref,
+		SELECT id, name, priority, match_expr, direction, is_catchall, is_enabled, policy_ref,
 		       inspect_json, transform_json, created_at, updated_at
 		FROM routings WHERE id = ?`
 	rt, err := scanRouting(r.db.QueryRowContext(ctx, q, id))
@@ -260,9 +260,9 @@ func (r *Repository) CreateRouting(ctx context.Context, rt *domain.Routing) erro
 	}
 	const q = `
 		INSERT INTO routings
-		    (id, name, priority, match_expr, is_catchall, is_enabled, policy_ref, inspect_json, transform_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err = r.db.ExecContext(ctx, q, rt.ID, rt.Name, rt.Priority, rt.MatchExpr,
+		    (id, name, priority, match_expr, direction, is_catchall, is_enabled, policy_ref, inspect_json, transform_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err = r.db.ExecContext(ctx, q, rt.ID, rt.Name, rt.Priority, rt.MatchExpr, rt.Direction,
 		boolToInt(rt.IsCatchAll), boolToInt(rt.IsEnabled), rt.PolicyRef, insJSON, transJSON)
 	if err != nil {
 		return fmt.Errorf("ルーティング作成失敗: %w", err)
@@ -277,11 +277,11 @@ func (r *Repository) UpdateRouting(ctx context.Context, rt *domain.Routing) erro
 	}
 	const q = `
 		UPDATE routings
-		   SET name = ?, priority = ?, match_expr = ?, is_enabled = ?, policy_ref = ?,
+		   SET name = ?, priority = ?, match_expr = ?, direction = ?, is_enabled = ?, policy_ref = ?,
 		       inspect_json = ?, transform_json = ?
 		 WHERE id = ?`
 	// is_catchall は更新しない（システム保証・変更不可）。
-	_, err = r.db.ExecContext(ctx, q, rt.Name, rt.Priority, rt.MatchExpr,
+	_, err = r.db.ExecContext(ctx, q, rt.Name, rt.Priority, rt.MatchExpr, rt.Direction,
 		boolToInt(rt.IsEnabled), rt.PolicyRef, insJSON, transJSON, rt.ID)
 	if err != nil {
 		return fmt.Errorf("ルーティング更新失敗: %w", err)
@@ -309,7 +309,7 @@ func scanRouting(s rowScanner) (*domain.Routing, error) {
 	var rt domain.Routing
 	var catchInt, enabledInt int
 	var insJSON, transJSON []byte
-	if err := s.Scan(&rt.ID, &rt.Name, &rt.Priority, &rt.MatchExpr, &catchInt, &enabledInt,
+	if err := s.Scan(&rt.ID, &rt.Name, &rt.Priority, &rt.MatchExpr, &rt.Direction, &catchInt, &enabledInt,
 		&rt.PolicyRef, &insJSON, &transJSON, &rt.CreatedAt, &rt.UpdatedAt); err != nil {
 		return nil, err
 	}

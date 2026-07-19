@@ -73,12 +73,12 @@ func TestCreateRouting_MarshalsBindings(t *testing.T) {
 	repo, mock := newMockRepo(t)
 	to := 15
 	rt := &domain.Routing{
-		Name: "inbound", Priority: 20, MatchExpr: "true", IsEnabled: true, PolicyRef: "std",
+		Name: "inbound", Priority: 20, MatchExpr: "true", Direction: "inbound", IsEnabled: true, PolicyRef: "std",
 		Inspect:   []domain.WorkerBinding{{Alias: "av_internal", Enabled: true, TimeoutSeconds: &to}},
 		Transform: []domain.WorkerBinding{{Alias: "fs_internal", Enabled: true}},
 	}
 	mock.ExpectExec("INSERT INTO routings").
-		WithArgs(sqlmock.AnyArg(), "inbound", 20, "true", 0, 1, "std",
+		WithArgs(sqlmock.AnyArg(), "inbound", 20, "true", "inbound", 0, 1, "std",
 			`[{"alias":"av_internal","enabled":true,"timeout_seconds":15}]`,
 			`[{"alias":"fs_internal","enabled":true}]`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -93,11 +93,11 @@ func TestCreateRouting_MarshalsBindings(t *testing.T) {
 func TestListRoutings_ParsesBindings(t *testing.T) {
 	repo, mock := newMockRepo(t)
 	now := time.Now()
-	cols := []string{"id", "name", "priority", "match_expr", "is_catchall", "is_enabled",
+	cols := []string{"id", "name", "priority", "match_expr", "direction", "is_catchall", "is_enabled",
 		"policy_ref", "inspect_json", "transform_json", "created_at", "updated_at"}
 	mock.ExpectQuery("SELECT id, name, priority, match_expr").
 		WillReturnRows(sqlmock.NewRows(cols).AddRow(
-			"r1", "inbound", 20, "true", 0, 1, "std",
+			"r1", "inbound", 20, "true", "inbound", 0, 1, "std",
 			`[{"alias":"av_internal","enabled":true}]`, `[]`, now, now))
 	list, err := repo.ListRoutings(context.Background())
 	if err != nil {

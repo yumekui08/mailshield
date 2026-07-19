@@ -287,6 +287,7 @@ type routingRequest struct {
 	Name      string                 `json:"name"`
 	Priority  int                    `json:"priority"`
 	MatchExpr string                 `json:"match_expr"`
+	Direction string                 `json:"direction"`
 	IsEnabled *bool                  `json:"is_enabled"`
 	PolicyRef string                 `json:"policy_ref"`
 	Inspect   []domain.WorkerBinding `json:"inspect"`
@@ -298,7 +299,7 @@ func (h *ConfigHandler) HandleListRoutings(w http.ResponseWriter, r *http.Reques
 	if n, err := h.repo.CountCatchAllRoutings(r.Context()); err == nil && n == 0 {
 		def := &domain.Routing{
 			Name: "デフォルト（すべてに一致）", Priority: catchAllPriority, MatchExpr: "true",
-			IsCatchAll: true, IsEnabled: true,
+			Direction: "inbound", IsCatchAll: true, IsEnabled: true,
 			Inspect: []domain.WorkerBinding{}, Transform: []domain.WorkerBinding{},
 		}
 		if err := h.repo.CreateRouting(r.Context(), def); err != nil {
@@ -320,7 +321,7 @@ func (h *ConfigHandler) HandleCreateRouting(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	rt := &domain.Routing{
-		Name: req.Name, Priority: req.Priority, MatchExpr: req.MatchExpr,
+		Name: req.Name, Priority: req.Priority, MatchExpr: req.MatchExpr, Direction: req.Direction,
 		IsCatchAll: false, IsEnabled: req.IsEnabled == nil || *req.IsEnabled,
 		PolicyRef: req.PolicyRef, Inspect: req.Inspect, Transform: req.Transform,
 	}
@@ -348,6 +349,7 @@ func (h *ConfigHandler) HandleUpdateRouting(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	existing.Name = req.Name
+	existing.Direction = req.Direction
 	existing.PolicyRef = req.PolicyRef
 	existing.Inspect = req.Inspect
 	existing.Transform = req.Transform
@@ -405,6 +407,15 @@ func decodeRouting(w http.ResponseWriter, r *http.Request) (routingRequest, bool
 	if req.MatchExpr == "" {
 		writeErrorResponse(w, http.StatusBadRequest, "BAD_REQUEST",
 			"match_expr は必須です（すべてに一致させるなら \"true\"）")
+		return req, false
+	}
+	switch req.Direction {
+	case "":
+		req.Direction = "inbound" // 省略時
+	case "inbound", "outbound", "internal":
+	default:
+		writeErrorResponse(w, http.StatusBadRequest, "BAD_REQUEST",
+			"direction は inbound / outbound / internal のいずれかです")
 		return req, false
 	}
 	for _, b := range append(append([]domain.WorkerBinding{}, req.Inspect...), req.Transform...) {

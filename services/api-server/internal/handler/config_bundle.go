@@ -82,8 +82,9 @@ func (h *ConfigHandler) HandleExportBundle(w http.ResponseWriter, r *http.Reques
 				continue // catch-all は各環境で自動生成されるため出力しない
 			}
 			spec, _ := json.Marshal(map[string]any{
-				"priority": rt.Priority, "match_expr": rt.MatchExpr, "is_enabled": rt.IsEnabled,
-				"policy_ref": rt.PolicyRef, "inspect": rt.Inspect, "transform": rt.Transform,
+				"priority": rt.Priority, "match_expr": rt.MatchExpr, "direction": rt.Direction,
+				"is_enabled": rt.IsEnabled, "policy_ref": rt.PolicyRef,
+				"inspect": rt.Inspect, "transform": rt.Transform,
 			})
 			collectVarRefs(spec, varRefs)
 			docs = append(docs, manifestDoc{Kind: kindRouting, Name: rt.Name, Spec: spec})

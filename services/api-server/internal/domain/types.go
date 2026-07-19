@@ -341,6 +341,7 @@ type Routing struct {
 	Name       string          `json:"name"`
 	Priority   int             `json:"priority"`
 	MatchExpr  string          `json:"match_expr"`
+	Direction  string          `json:"direction"` // inbound | outbound | internal（mail.Direction 決定用）
 	IsCatchAll bool            `json:"is_catchall"`
 	IsEnabled  bool            `json:"is_enabled"`
 	PolicyRef  string          `json:"policy_ref"`

@@ -195,6 +195,7 @@ func upsertRouting(ctx context.Context, repo repository.ConfigRepository, doc Do
 	var s struct {
 		Priority  int                    `json:"priority"`
 		MatchExpr string                 `json:"match_expr"`
+		Direction string                 `json:"direction"`
 		IsEnabled bool                   `json:"is_enabled"`
 		PolicyRef string                 `json:"policy_ref"`
 		Inspect   []domain.WorkerBinding `json:"inspect"`
@@ -208,8 +209,11 @@ func upsertRouting(ctx context.Context, repo repository.ConfigRepository, doc Do
 		res.Errors = append(res.Errors, "Routing "+doc.Name+": match_expr 必須")
 		return
 	}
+	if s.Direction == "" {
+		s.Direction = "inbound"
+	}
 	rt := domain.Routing{
-		Name: doc.Name, Priority: s.Priority, MatchExpr: s.MatchExpr, IsEnabled: s.IsEnabled,
+		Name: doc.Name, Priority: s.Priority, MatchExpr: s.MatchExpr, Direction: s.Direction, IsEnabled: s.IsEnabled,
 		PolicyRef: s.PolicyRef, Inspect: s.Inspect, Transform: s.Transform,
 	}
 	if cur, ok := existing[doc.Name]; ok {

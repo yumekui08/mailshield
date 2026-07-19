@@ -42,6 +42,7 @@ interface FormState {
   name: string;
   priority: number;
   match_expr: string;
+  direction: "inbound" | "outbound" | "internal";
   policy_ref: string;
   is_enabled: boolean;
   inspect: WorkerBinding[];
@@ -52,6 +53,7 @@ const emptyForm: FormState = {
   name: "",
   priority: 100,
   match_expr: "true",
+  direction: "inbound",
   policy_ref: "",
   is_enabled: true,
   inspect: [],
@@ -193,6 +195,7 @@ export function RoutingsPage() {
       name: rt.name,
       priority: rt.priority,
       match_expr: rt.match_expr,
+      direction: rt.direction,
       policy_ref: rt.policy_ref,
       is_enabled: rt.is_enabled,
       inspect: rt.inspect ?? [],
@@ -210,6 +213,7 @@ export function RoutingsPage() {
       name: form.name.trim(),
       priority: form.priority,
       match_expr: form.match_expr.trim(),
+      direction: form.direction,
       is_enabled: form.is_enabled,
       policy_ref: form.policy_ref.trim(),
       inspect: form.inspect,
@@ -368,6 +372,18 @@ export function RoutingsPage() {
                 disabled={editingCatchAll}
               />
             </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">方向（direction）</label>
+            <Select
+              value={form.direction}
+              onChange={(e) => setForm({ ...form, direction: e.target.value as FormState["direction"] })}
+            >
+              <option value="inbound">inbound（受信）</option>
+              <option value="outbound">outbound（送信）</option>
+              <option value="internal">internal（内部）</option>
+            </Select>
+            <p className="text-xs text-gray-400">この経路を通ったメールの mail.direction になります。</p>
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">マッチ条件</label>

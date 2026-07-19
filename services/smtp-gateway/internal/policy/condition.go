@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
 )
 
 // 条件式の評価。
@@ -503,4 +505,11 @@ func evalNum(key, val string, ctx evalContext, cmp string) (bool, error) {
 		return n < threshold, nil
 	}
 	return false, nil
+}
+
+// EvalMatch はルーティングの match 条件式を評価する（ADR 008 ③-2）。
+// ワーカー実行前に評価されるため封筒/ヘッダの事実のみを使う（スコアなし）。
+// in_list はルーティングでは未対応（lists=nil）。
+func EvalMatch(condition string, mail *domain.Mail) (bool, error) {
+	return evalCondition(condition, evalContext{facts: buildFacts(mail, nil), lists: nil})
 }

@@ -106,11 +106,14 @@ export interface WorkerBinding {
   timeout_seconds?: number | null;
 }
 
+export type RoutingDirection = "inbound" | "outbound" | "internal";
+
 export interface Routing {
   id: string;
   name: string;
   priority: number;
   match_expr: string;
+  direction: RoutingDirection;
   is_catchall: boolean;
   is_enabled: boolean;
   policy_ref: string;
