@@ -103,6 +103,10 @@ func (m *mockConfigRepo) SetActiveConfigVersion(_ context.Context, versionID str
 	m.activeVersionID = versionID
 	return nil
 }
+func (m *mockConfigRepo) TryAcquireSeedLock(context.Context, string, int) (bool, error) {
+	return true, nil
+}
+func (m *mockConfigRepo) ReleaseSeedLock(context.Context, string) error { return nil }
 
 func postJSON(t *testing.T, target string, body any) *http.Request {
 	t.Helper()

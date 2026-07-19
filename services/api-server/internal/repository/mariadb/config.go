@@ -412,3 +412,20 @@ func (r *Repository) SetActiveConfigVersion(ctx context.Context, versionID strin
 	}
 	return nil
 }
+
+// ─── seed 用アドバイザリロック（GET_LOCK / RELEASE_LOCK） ─────────────
+
+func (r *Repository) TryAcquireSeedLock(ctx context.Context, name string, timeoutSeconds int) (bool, error) {
+	var got sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, `SELECT GET_LOCK(?, ?)`, name, timeoutSeconds).Scan(&got); err != nil {
+		return false, fmt.Errorf("seed ロック取得失敗: %w", err)
+	}
+	return got.Valid && got.Int64 == 1, nil
+}
+
+func (r *Repository) ReleaseSeedLock(ctx context.Context, name string) error {
+	if _, err := r.db.ExecContext(ctx, `SELECT RELEASE_LOCK(?)`, name); err != nil {
+		return fmt.Errorf("seed ロック解放失敗: %w", err)
+	}
+	return nil
+}

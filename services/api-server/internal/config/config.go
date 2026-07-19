@@ -23,7 +23,25 @@ type Config struct {
 	Directory          DirectoryConfig          `mapstructure:"directory"`
 	Gateway            GatewayConfig            `mapstructure:"gateway"`
 	Settings           SettingsConfig           `mapstructure:"settings"`
+	Config             ConfigSourceConfig       `mapstructure:"config"`
 	Log                LogConfig                `mapstructure:"log"`
+}
+
+// ConfigSourceConfig は設定（ワーカー/ルーティング/変数）の源泉を選ぶ（ADR 008 ③-2）。
+//   - db   : DB が真実。起動時に seed しない（WebUI 編集が永続）
+//   - file : ファイルが真実。起動時に BundleDir のマニフェストを DB へ seed（同期）する。
+//     WebUI 編集は再起動で消える（永続化はエクスポート→配置→再起動）。
+type ConfigSourceConfig struct {
+	Source    string `mapstructure:"source"`     // db | file（省略時 db）
+	BundleDir string `mapstructure:"bundle_dir"` // file モード時のマニフェスト置き場
+}
+
+// EffectiveSource は Source の省略時デフォルト（db）を補完して返す。
+func (c ConfigSourceConfig) EffectiveSource() string {
+	if c.Source == "" {
+		return "db"
+	}
+	return c.Source
 }
 
 // DirectoryConfig は「ユーザー情報（role・display_name 等）の真実の源」を選択する設定を保持する。

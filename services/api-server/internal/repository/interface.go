@@ -250,6 +250,12 @@ type ConfigRepository interface {
 	GetActiveConfigChecksum(ctx context.Context) (string, error)
 	// SetActiveConfigVersion はアクティブ版ポインタを原子的に切り替える。
 	SetActiveConfigVersion(ctx context.Context, versionID string) error
+
+	// TryAcquireSeedLock は MariaDB の GET_LOCK でアドバイザリロックを取得する（file seed の
+	// 単一実行者化）。取得できたら true。複数レプリカ起動でも 1 つだけが seed する。
+	TryAcquireSeedLock(ctx context.Context, name string, timeoutSeconds int) (bool, error)
+	// ReleaseSeedLock は取得したアドバイザリロックを解放する。
+	ReleaseSeedLock(ctx context.Context, name string) error
 }
 
 // Mailbox はメールボックス情報を保持する。

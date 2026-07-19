@@ -17,6 +17,8 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/approval"
 	"github.com/koizumib/mailshield/services/api-server/internal/auth"
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
+	"github.com/koizumib/mailshield/services/api-server/internal/configseed"
+	"github.com/koizumib/mailshield/services/api-server/internal/configsnap"
 	"github.com/koizumib/mailshield/services/api-server/internal/delay"
 	"github.com/koizumib/mailshield/services/api-server/internal/directory"
 	ldapsync "github.com/koizumib/mailshield/services/api-server/internal/directory/ldap"
@@ -74,6 +76,27 @@ func main() {
 		}
 	}()
 	slog.Info("MariaDB 接続完了", "host", cfg.Database.Host)
+
+	// ─── 設定ソース（ADR 008 ③-2）: file モードなら起動時に seed ────
+	// file モードは「ファイルが真実」。GET_LOCK で単一レプリカだけが seed（upsert+prune）し、
+	// 検証済みスナップショットを publish する。DB モードは seed しない（DB が永続）。
+	if cfg.Config.EffectiveSource() == "file" {
+		pub := configsnap.NewPublisher(repo)
+		res, err := configseed.SeedFromFiles(context.Background(), repo, cfg.Config.BundleDir, pub)
+		if err != nil {
+			slog.Error("設定 seed 失敗（file モード）", "bundle_dir", cfg.Config.BundleDir, "error", err)
+			os.Exit(1)
+		}
+		slog.Info("設定 seed 完了（file モード）",
+			"bundle_dir", cfg.Config.BundleDir,
+			"created", res.Created, "updated", res.Updated, "deleted", res.Deleted, "errors", len(res.Errors))
+	} else {
+		// DB モード: 起動時にアクティブ版が無ければ現エンティティから 1 版 publish しておく。
+		pub := configsnap.NewPublisher(repo)
+		if _, err := pub.Publish(context.Background(), "ui", "startup"); err != nil {
+			slog.Warn("起動時の設定 publish に失敗（後続の変更で回復）", "error", err)
+		}
+	}
 
 	// ─── セッション/OTP ストア（Redis または MariaDB）────────────
 	var (

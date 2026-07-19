@@ -230,6 +230,15 @@ settings:
   policy_file: /app/config/policy.yaml
   smtp_gateway_config_file: /app/config/mailshield.yaml
 
+# 設定（ワーカーインスタンス / ルーティング / 変数）の源泉（ADR 008 ③-2）。
+#   db   : DB が真実。起動時に seed しない（WebUI 編集が永続・ロールバック可）
+#   file : ファイルが真実。起動時に bundle_dir のマニフェスト（*.json・エクスポート形式）を
+#          DB へ seed（upsert+prune）する。単一レプリカだけが GET_LOCK で seed する。
+#          WebUI 編集は再起動で消える（永続化は「エクスポート → bundle_dir へ配置 → 再起動」）。
+config:
+  source: db                          # db | file（省略時 db）
+  bundle_dir: /app/config/config.d    # file モード時のマニフェスト置き場
+
 log:
   level: info
   format: json
