@@ -544,6 +544,48 @@ email / display_name の部分一致でユーザーを検索する（`operator` 
 
 ---
 
+## 設定エンティティ管理（operator / admin・ADR 008）
+
+設定の WebUI 化（[ADR 008](../decisions/008_config_webui_architecture.md)）の名前付き部品を管理する。
+
+### ワーカーインスタンス
+
+ワーカー型＋型固有設定＋名前を持つ再利用可能な部品。`alias` は条件 DSL・検査結果のキーに使う
+安定ハンドル（英小文字始まり・`[a-z0-9_]`）、`display_name` は画面表示用（日本語可）。
+
+| エンドポイント | 説明 |
+|---|---|
+| `GET /api/v1/config/worker-instances` | 一覧 |
+| `POST /api/v1/config/worker-instances` | 作成。`alias` 重複は `409` |
+| `PUT /api/v1/config/worker-instances/{id}` | 更新 |
+| `DELETE /api/v1/config/worker-instances/{id}` | 削除 |
+
+```json
+{
+  "alias": "av_internal", "display_name": "内部向けウイルス検査",
+  "worker_type": "av-worker", "kind": "inspect",
+  "config": {"threshold": 50}, "default_timeout_seconds": 30, "is_enabled": true
+}
+```
+
+### 設定変数
+
+設定内から `${VAR}` で参照する共有値（非機密・環境依存）。`key` は `[A-Za-z_][A-Za-z0-9_]*`。
+シークレット（パスワード等）はここに入れず OS 環境変数のままにすること。
+
+| エンドポイント | 説明 |
+|---|---|
+| `GET /api/v1/config/variables` | 一覧 |
+| `POST /api/v1/config/variables` | 作成。`key` 重複は `409` |
+| `PUT /api/v1/config/variables/{id}` | 更新 |
+| `DELETE /api/v1/config/variables/{id}` | 削除 |
+
+```json
+{"key": "INTERNAL_DOMAIN", "value": "@example.com", "description": "受信/送信判定に使う自組織ドメイン"}
+```
+
+---
+
 ## 監査ログ（admin のみ）
 
 ### `GET /api/v1/audit-logs`

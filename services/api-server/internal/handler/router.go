@@ -82,6 +82,11 @@ func NewRouter(
 	)
 	usersHandler := NewUsersHandler(repo, auditLogger)
 	mailboxesHandler := NewMailboxesHandler(repo, auditLogger)
+	// 設定エンティティ管理（ADR 008）。具体実装（mariadb）は ConfigRepository も満たす。
+	var configHandler *ConfigHandler
+	if cfgRepo, ok := repo.(repository.ConfigRepository); ok {
+		configHandler = NewConfigHandler(cfgRepo, auditLogger)
+	}
 	auditHandler := NewAuditHandler(repo)
 	attachmentsHandler := NewAttachmentsHandler(repo, attachmentStor, cfg.AttachmentDownload, otpStore, cfg.Notification)
 
@@ -163,6 +168,24 @@ func NewRouter(
 			r.Post("/{id}/assignments", mailboxesHandler.HandleAddAssignment)
 			r.Delete("/{id}/assignments", mailboxesHandler.HandleRemoveAssignment)
 		})
+
+		// 設定エンティティ管理（ADR 008・ワーカーインスタンス / 設定変数）（operator/admin）
+		if configHandler != nil {
+			r.Route("/config", func(r chi.Router) {
+				r.Use(authMW)
+				r.Use(middleware.RequireRole(domain.RoleOperator, domain.RoleAdmin))
+
+				r.Get("/worker-instances", configHandler.HandleListWorkerInstances)
+				r.Post("/worker-instances", configHandler.HandleCreateWorkerInstance)
+				r.Put("/worker-instances/{id}", configHandler.HandleUpdateWorkerInstance)
+				r.Delete("/worker-instances/{id}", configHandler.HandleDeleteWorkerInstance)
+
+				r.Get("/variables", configHandler.HandleListConfigVariables)
+				r.Post("/variables", configHandler.HandleCreateConfigVariable)
+				r.Put("/variables/{id}", configHandler.HandleUpdateConfigVariable)
+				r.Delete("/variables/{id}", configHandler.HandleDeleteConfigVariable)
+			})
+		}
 
 		// 添付ファイル公開エンドポイント（認証不要・ダウンロードトークンが認証代替）
 		r.Route("/public/attachments", func(r chi.Router) {

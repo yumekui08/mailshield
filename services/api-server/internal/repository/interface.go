@@ -212,6 +212,25 @@ type Repository interface {
 	UpdateDelayedReleaseStatus(ctx context.Context, id string, status domain.DelayedReleaseStatus) error
 }
 
+// ConfigRepository は設定エンティティ（ワーカーインスタンス・設定変数）の永続化を抽象化する
+// （ADR 008・設定 WebUI 化）。既存の巨大な Repository とは分離し、設定管理ハンドラーが依存する。
+// mariadb の *Repository が両方を実装する。
+type ConfigRepository interface {
+	// ── ワーカーインスタンス ──
+	ListWorkerInstances(ctx context.Context) ([]domain.WorkerInstance, error)
+	GetWorkerInstance(ctx context.Context, id string) (*domain.WorkerInstance, error)
+	CreateWorkerInstance(ctx context.Context, w *domain.WorkerInstance) error
+	UpdateWorkerInstance(ctx context.Context, w *domain.WorkerInstance) error
+	DeleteWorkerInstance(ctx context.Context, id string) error
+
+	// ── 設定変数 ──
+	ListConfigVariables(ctx context.Context) ([]domain.ConfigVariable, error)
+	GetConfigVariable(ctx context.Context, id string) (*domain.ConfigVariable, error)
+	CreateConfigVariable(ctx context.Context, v *domain.ConfigVariable) error
+	UpdateConfigVariable(ctx context.Context, v *domain.ConfigVariable) error
+	DeleteConfigVariable(ctx context.Context, id string) error
+}
+
 // Mailbox はメールボックス情報を保持する。
 type Mailbox struct {
 	ID            string

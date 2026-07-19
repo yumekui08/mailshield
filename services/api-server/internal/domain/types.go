@@ -279,3 +279,44 @@ type Attachment struct {
 	DownloadMode   DownloadMode   `json:"download_mode"`
 	CreatedAt      time.Time      `json:"created_at"`
 }
+
+// ─── 設定エンティティ（ADR 008・設定 WebUI 化） ────────────────────────────
+
+// WorkerKind はワーカーインスタンスの種別（検査 or 変換）を表す。
+type WorkerKind string
+
+const (
+	WorkerKindInspect   WorkerKind = "inspect"
+	WorkerKindTransform WorkerKind = "transform"
+)
+
+// WorkerInstance はワーカー型＋型固有設定＋名前を持つ再利用可能な部品。
+// ルーティングから alias で参照される。
+//
+//   - Alias       : 条件 DSL・検査結果のキーに使う短い安定ハンドル（rename-safe）
+//   - DisplayName : 画面表示用（日本語可・変更可）
+//   - WorkerType  : コード側で登録されたワーカー型名（filesep-worker 等）
+//   - Config      : 型固有設定（不透明な JSON。アプリ層で検証）
+type WorkerInstance struct {
+	ID                    string         `json:"id"`
+	Alias                 string         `json:"alias"`
+	DisplayName           string         `json:"display_name"`
+	WorkerType            string         `json:"worker_type"`
+	Kind                  WorkerKind     `json:"kind"`
+	Config                map[string]any `json:"config"`
+	DefaultTimeoutSeconds int            `json:"default_timeout_seconds"`
+	IsEnabled             bool           `json:"is_enabled"`
+	CreatedAt             time.Time      `json:"created_at"`
+	UpdatedAt             time.Time      `json:"updated_at"`
+}
+
+// ConfigVariable は設定内から ${VAR} で参照する共有値（非機密・環境依存）。
+// シークレットはここに入れず OS 環境変数のままにすること。
+type ConfigVariable struct {
+	ID          string    `json:"id"`
+	Key         string    `json:"key"`
+	Value       string    `json:"value"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
