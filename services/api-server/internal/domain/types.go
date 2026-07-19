@@ -251,6 +251,18 @@ type ApprovalRequest struct {
 type ApprovalRequestDetail struct {
 	ApprovalRequest
 	Message Message `json:"message"`
+	// TextBody / HTMLBody は EML から抽出した本文（Web UI 表示用）。
+	// HTMLBody はサンドボックス iframe で描画すること（XSS 対策）。
+	TextBody    string       `json:"text_body"`
+	HTMLBody    string       `json:"html_body"`
+	Attachments []Attachment `json:"attachments"`
+}
+
+// ApprovalRequestListItem は承認一覧の 1 行（依頼 + メール件名・送信元）を表す。
+type ApprovalRequestListItem struct {
+	ApprovalRequest
+	Subject     string `json:"subject"`
+	FromAddress string `json:"from_address"`
 }
 
 // Attachment は分離された添付ファイルのメタデータを表す。

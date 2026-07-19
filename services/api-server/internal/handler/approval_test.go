@@ -17,6 +17,7 @@ import (
 	"github.com/koizumib/mailshield/services/api-server/internal/config"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
+	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 )
 
 // viewerSession は閲覧者ロールのセッションを返す。
@@ -73,14 +74,15 @@ func sampleApprovalMessage(messageID string) domain.Message {
 
 // ─── HandleList ───────────────────────────────────────────────────────────────
 
-func TestApprovalHandleList_Admin_ReturnsAll(t *testing.T) {
-	items := []domain.ApprovalRequest{
-		sampleApprovalRequest("apr-1", "msg-1", "approver-a"),
-		sampleApprovalRequest("apr-2", "msg-2", "approver-b"),
-	}
+func TestApprovalHandleList_Admin_NoViewerScope(t *testing.T) {
+	var gotFilter repository.ApprovalSearchFilter
 	repo := &mockRepository{
-		listAllApprovalRequestsFunc: func(_ context.Context) ([]domain.ApprovalRequest, error) {
-			return items, nil
+		searchApprovalRequestsFunc: func(_ context.Context, f repository.ApprovalSearchFilter) ([]domain.ApprovalRequestListItem, int, error) {
+			gotFilter = f
+			return []domain.ApprovalRequestListItem{
+				{ApprovalRequest: sampleApprovalRequest("apr-1", "msg-1", "approver-a"), Subject: "s1"},
+				{ApprovalRequest: sampleApprovalRequest("apr-2", "msg-2", "approver-b"), Subject: "s2"},
+			}, 2, nil
 		},
 	}
 
@@ -92,47 +94,58 @@ func TestApprovalHandleList_Admin_ReturnsAll(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ステータスコード 期待: 200, 実際: %d", rr.Code)
 	}
+	if gotFilter.ViewerID != "" {
+		t.Errorf("admin は viewer スコープを付けない: %q", gotFilter.ViewerID)
+	}
+	// 既定ステータスは却下を除外（pending/approved/expired）
+	for _, s := range gotFilter.Statuses {
+		if s == domain.ApprovalStatusRejected {
+			t.Errorf("既定で却下が含まれている: %v", gotFilter.Statuses)
+		}
+	}
 	var result struct {
-		Items []domain.ApprovalRequest `json:"items"`
+		Items []domain.ApprovalRequestListItem `json:"items"`
+		Meta  struct {
+			Total int `json:"total"`
+		} `json:"meta"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
 		t.Fatalf("JSONデコード失敗: %v", err)
 	}
-	if len(result.Items) != 2 {
-		t.Errorf("件数 期待: 2, 実際: %d", len(result.Items))
+	if len(result.Items) != 2 || result.Meta.Total != 2 {
+		t.Errorf("件数 期待: 2/2, 実際: %d/%d", len(result.Items), result.Meta.Total)
 	}
 }
 
-func TestApprovalHandleList_Viewer_ReturnsOwn(t *testing.T) {
+func TestApprovalHandleList_Viewer_ScopedAndStatusFilter(t *testing.T) {
 	const approverID = "viewer-user-1"
-	items := []domain.ApprovalRequest{
-		sampleApprovalRequest("apr-3", "msg-3", approverID),
-	}
+	var gotFilter repository.ApprovalSearchFilter
 	repo := &mockRepository{
-		listApprovalRequestsFunc: func(_ context.Context, id string) ([]domain.ApprovalRequest, error) {
-			if id != approverID {
-				t.Errorf("期待する approverID: %s, 実際: %s", approverID, id)
-			}
-			return items, nil
+		searchApprovalRequestsFunc: func(_ context.Context, f repository.ApprovalSearchFilter) ([]domain.ApprovalRequestListItem, int, error) {
+			gotFilter = f
+			return []domain.ApprovalRequestListItem{
+				{ApprovalRequest: sampleApprovalRequest("apr-3", "msg-3", approverID)},
+			}, 1, nil
 		},
 	}
 
 	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
-	req := requestWithSession(http.MethodGet, "/api/v1/approvals", viewerSession(approverID))
+	// status=rejected を明示指定 → 却下のみに絞られる
+	req := requestWithSession(http.MethodGet, "/api/v1/approvals?status=rejected&q=urgent", viewerSession(approverID))
 	rr := httptest.NewRecorder()
 	h.HandleList(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ステータスコード 期待: 200, 実際: %d", rr.Code)
 	}
-	var result struct {
-		Items []domain.ApprovalRequest `json:"items"`
+	if gotFilter.ViewerID != approverID {
+		t.Errorf("viewer スコープが付いていない: %q", gotFilter.ViewerID)
 	}
-	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
-		t.Fatalf("JSONデコード失敗: %v", err)
+	if len(gotFilter.Statuses) != 1 || gotFilter.Statuses[0] != domain.ApprovalStatusRejected {
+		t.Errorf("status=rejected が反映されていない: %v", gotFilter.Statuses)
 	}
-	if len(result.Items) != 1 {
-		t.Errorf("件数 期待: 1, 実際: %d", len(result.Items))
+	if gotFilter.Query != "urgent" {
+		t.Errorf("q が反映されていない: %q", gotFilter.Query)
 	}
 }
 
@@ -436,6 +449,61 @@ func TestApprovalHandleGet_Viewer_MailboxAdmin_Allowed(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ステータスコード 期待: 200, 実際: %d", rr.Code)
+	}
+}
+
+// ─── HandleBulkReject / extractEMLBody ───────────────────────────────────────
+
+func TestApprovalHandleBulkReject_MixedResult(t *testing.T) {
+	// apr-ok は pending（成功）、apr-done はすでに承認済み（失敗）。
+	reqs := map[string]domain.ApprovalRequest{
+		"apr-ok":   sampleApprovalRequest("apr-ok", "msg-ok", "approver-a"),
+		"apr-done": sampleApprovalRequest("apr-done", "msg-done", "approver-a"),
+	}
+	done := reqs["apr-done"]
+	done.Status = domain.ApprovalStatusApproved
+	reqs["apr-done"] = done
+
+	repo := &mockRepository{
+		getApprovalRequestFunc: func(_ context.Context, id string) (*domain.ApprovalRequest, error) {
+			r := reqs[id]
+			return &r, nil
+		},
+		updateApprovalStatusFunc: func(_ context.Context, _ string, _ domain.ApprovalStatus, _ *string) error {
+			return nil
+		},
+	}
+	h := NewApprovalHandler(repo, &mockEMLStorage{}, config.NotificationConfig{}, testAuditLogger)
+
+	bodyJSON, _ := json.Marshal(map[string]any{"ids": []string{"apr-ok", "apr-done"}, "comment": "却下"})
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/approvals/bulk-reject", bytes.NewReader(bodyJSON))
+	req := httpReq.WithContext(middleware.WithSession(httpReq.Context(), adminSession()))
+	rr := httptest.NewRecorder()
+	h.HandleBulkReject(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ステータスコード 期待: 200, 実際: %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	var result struct {
+		Succeeded []string          `json:"succeeded"`
+		Failed    map[string]string `json:"failed"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
+		t.Fatalf("JSONデコード失敗: %v", err)
+	}
+	if len(result.Succeeded) != 1 || result.Succeeded[0] != "apr-ok" {
+		t.Errorf("succeeded 期待: [apr-ok], 実際: %v", result.Succeeded)
+	}
+	if _, ok := result.Failed["apr-done"]; !ok {
+		t.Errorf("apr-done は failed に入るべき: %v", result.Failed)
+	}
+}
+
+func TestExtractEMLBody(t *testing.T) {
+	raw := []byte("From: a@x\r\nTo: b@x\r\nSubject: hi\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello body\r\n")
+	got := extractEMLBody(raw)
+	if !strings.Contains(got.Text, "hello body") {
+		t.Errorf("テキスト本文が抽出できない: %q", got.Text)
 	}
 }
 

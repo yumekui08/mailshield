@@ -44,14 +44,33 @@ export interface ApprovalRequest {
   updated_at: string;
 }
 
-export interface ApprovalRequestDetail extends ApprovalRequest {
-  from_address: string;
-  to_addresses: string[];
+/** 承認一覧の 1 行（依頼 + メール件名・送信元） */
+export interface ApprovalListItem extends ApprovalRequest {
   subject: string;
+  from_address: string;
+}
+
+/** 承認詳細に添付する分離済み添付ファイル（download_token で DL） */
+export interface ApprovalAttachment {
+  id: string;
+  message_id: string;
+  download_token: string;
+  filename: string;
+  content_type: string;
   size_bytes: number;
-  has_attachment: boolean;
-  received_at: string;
-  eml_path: string;
+  is_disabled: boolean;
+  created_at: string;
+}
+
+export interface ApprovalRequestDetail extends ApprovalRequest {
+  /** メール本体のメタデータ（件名・送信元・宛先・サイズ等） */
+  message: Message;
+  /** EML から抽出したテキスト本文 */
+  text_body: string;
+  /** EML から抽出した HTML 本文（サンドボックス iframe で描画すること） */
+  html_body: string;
+  /** 分離済み添付ファイル一覧 */
+  attachments: ApprovalAttachment[];
 }
 
 export type Role = "admin" | "operator" | "viewer";

@@ -166,6 +166,9 @@ type Repository interface {
 	CountRemainingNotifications(ctx context.Context, approvalID string, maxAttempts int) (int, error)
 	// ListAllApprovalRequests は全ての承認依頼を返す（admin 向け）。
 	ListAllApprovalRequests(ctx context.Context) ([]domain.ApprovalRequest, error)
+	// SearchApprovalRequests は検索条件（件名/送信元/メールID・ステータス・承認者スコープ）と
+	// ページングで承認依頼を検索し、該当ページ（件名・送信元付き）と総件数を返す。
+	SearchApprovalRequests(ctx context.Context, filter ApprovalSearchFilter) (items []domain.ApprovalRequestListItem, total int, err error)
 	// GetApprovalRequest は指定 ID の承認依頼を返す。
 	GetApprovalRequest(ctx context.Context, id string) (*domain.ApprovalRequest, error)
 	// UpdateApprovalStatus は承認依頼の状態と決定日時・コメントを無条件に更新する
@@ -234,6 +237,20 @@ type MailboxSearchFilter struct {
 	// 限定する（例: approver 未設定のメールボックスの洗い出し）。
 	MissingRole domain.AssignmentRole
 	// Limit / Offset はページング（Limit<=0 は既定 50、上限 200）。
+	Limit  int
+	Offset int
+}
+
+// ApprovalSearchFilter は SearchApprovalRequests の絞り込み条件。
+type ApprovalSearchFilter struct {
+	// Query はメール件名 / 送信元 / メール ID への部分一致。
+	Query string
+	// Statuses は対象ステータス。空なら全ステータス（既定の絞り込みは呼び出し側で決める）。
+	Statuses []domain.ApprovalStatus
+	// ViewerID が非空の場合、そのユーザーが承認者（approver_id 本人 または
+	// メールボックス approver）である依頼だけに限定する（viewer スコープ）。
+	ViewerID string
+	// Limit / Offset はページング（Limit<=0 は既定 20、上限 100）。
 	Limit  int
 	Offset int
 }

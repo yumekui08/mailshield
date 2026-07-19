@@ -4,12 +4,34 @@ import {
   getApproval,
   approveRequest,
   rejectRequest,
+  bulkApprove,
+  bulkReject,
 } from "../lib/api";
+import type { ApprovalFilter } from "../lib/api";
 
-export function useApprovalList() {
+export function useApprovalList(filter: ApprovalFilter = {}) {
   return useQuery({
-    queryKey: ["approvals", "list"],
-    queryFn: listApprovals,
+    queryKey: ["approvals", "list", filter],
+    queryFn: () => listApprovals(filter),
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useBulkApprove() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, comment }: { ids: string[]; comment?: string }) =>
+      bulkApprove(ids, comment),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approvals", "list"] }),
+  });
+}
+
+export function useBulkReject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, comment }: { ids: string[]; comment?: string }) =>
+      bulkReject(ids, comment),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approvals", "list"] }),
   });
 }
 

@@ -42,6 +42,7 @@ type mockRepository struct {
 	listMailboxApproverEmailsFunc func(ctx context.Context, mailboxEmail string) ([]string, error)
 	claimApprovalRequestFunc      func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) (bool, error)
 	listAllApprovalRequestsFunc   func(ctx context.Context) ([]domain.ApprovalRequest, error)
+	searchApprovalRequestsFunc    func(ctx context.Context, filter repository.ApprovalSearchFilter) ([]domain.ApprovalRequestListItem, int, error)
 	getApprovalRequestFunc        func(ctx context.Context, id string) (*domain.ApprovalRequest, error)
 	updateApprovalStatusFunc      func(ctx context.Context, id string, status domain.ApprovalStatus, comment *string) error
 	getUserFunc                   func(ctx context.Context, id string) (*repository.User, error)
@@ -344,6 +345,12 @@ func (m *mockRepository) ListAllApprovalRequests(ctx context.Context) ([]domain.
 		return m.listAllApprovalRequestsFunc(ctx)
 	}
 	return nil, nil
+}
+func (m *mockRepository) SearchApprovalRequests(ctx context.Context, filter repository.ApprovalSearchFilter) ([]domain.ApprovalRequestListItem, int, error) {
+	if m.searchApprovalRequestsFunc != nil {
+		return m.searchApprovalRequestsFunc(ctx, filter)
+	}
+	return nil, 0, nil
 }
 func (m *mockRepository) GetApprovalRequest(ctx context.Context, id string) (*domain.ApprovalRequest, error) {
 	if m.getApprovalRequestFunc != nil {

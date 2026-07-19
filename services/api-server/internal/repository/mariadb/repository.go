@@ -1665,6 +1665,99 @@ func (r *Repository) UpdateAPIKeyLastUsed(ctx context.Context, id string) error 
 // ListApprovalRequests は指定ユーザーが承認できる pending 承認依頼一覧を返す。
 // 「自分が承認者（approver_id）の依頼」と「自分が role=approver で割り当てられた
 // メールボックス宛の依頼（mailbox_email）」の両方を含む。
+// SearchApprovalRequests は検索・ステータス・承認者スコープ・ページングで承認依頼を検索する。
+func (r *Repository) SearchApprovalRequests(ctx context.Context, filter repository.ApprovalSearchFilter) ([]domain.ApprovalRequestListItem, int, error) {
+	limit := filter.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	var where []string
+	var args []any
+	if q := strings.TrimSpace(filter.Query); q != "" {
+		like := "%" + q + "%"
+		where = append(where, "(msg.subject LIKE ? OR msg.from_address LIKE ? OR ar.message_id LIKE ?)")
+		args = append(args, like, like, like)
+	}
+	if len(filter.Statuses) > 0 {
+		ph := make([]string, len(filter.Statuses))
+		for i, s := range filter.Statuses {
+			ph[i] = "?"
+			args = append(args, string(s))
+		}
+		where = append(where, "ar.status IN ("+strings.Join(ph, ",")+")")
+	}
+	if filter.ViewerID != "" {
+		// viewer スコープ: 本人が approver_id、または対象メールボックスの approver。
+		where = append(where, "(ar.approver_id = ? OR EXISTS ("+
+			"SELECT 1 FROM approval_request_mailboxes arm "+
+			"JOIN mailboxes m ON m.email_address = arm.mailbox_email "+
+			"JOIN mailbox_assignments a ON a.mailbox_id = m.id "+
+			"WHERE arm.approval_request_id = ar.id AND a.user_id = ? AND a.role = 'approver'))")
+		args = append(args, filter.ViewerID, filter.ViewerID)
+	}
+
+	whereSQL := ""
+	if len(where) > 0 {
+		whereSQL = " WHERE " + strings.Join(where, " AND ")
+	}
+
+	var total int
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM approval_requests ar JOIN mail_messages msg ON msg.id = ar.message_id"+whereSQL,
+		args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("承認依頼検索件数取得失敗: %w", err)
+	}
+
+	pageArgs := append(append([]any{}, args...), limit, offset)
+	q := `
+		SELECT ar.id, ar.message_id, ar.approver_id,
+		       (SELECT GROUP_CONCAT(arm.mailbox_email ORDER BY arm.mailbox_email SEPARATOR '\n')
+		          FROM approval_request_mailboxes arm
+		         WHERE arm.approval_request_id = ar.id) AS mailbox_emails,
+		       ar.status, ar.comment,
+		       ar.notification_sent, ar.result_notified, ar.decided_at, ar.expires_at, ar.created_at, ar.updated_at,
+		       msg.subject, msg.from_address
+		FROM approval_requests ar
+		JOIN mail_messages msg ON msg.id = ar.message_id` + whereSQL + `
+		ORDER BY ar.created_at DESC
+		LIMIT ? OFFSET ?`
+	rows, err := r.db.QueryContext(ctx, q, pageArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("承認依頼検索失敗: %w", err)
+	}
+	defer rows.Close()
+
+	items := []domain.ApprovalRequestListItem{}
+	for rows.Next() {
+		var it domain.ApprovalRequestListItem
+		var notifSentInt, resultNotifiedInt int
+		var mailboxEmails sql.NullString
+		if err := rows.Scan(
+			&it.ID, &it.MessageID, &it.ApproverID, &mailboxEmails, &it.Status, &it.Comment,
+			&notifSentInt, &resultNotifiedInt,
+			&it.DecidedAt, &it.ExpiresAt, &it.CreatedAt, &it.UpdatedAt,
+			&it.Subject, &it.FromAddress,
+		); err != nil {
+			return nil, 0, fmt.Errorf("承認依頼スキャン失敗: %w", err)
+		}
+		if mailboxEmails.Valid && mailboxEmails.String != "" {
+			it.MailboxEmails = strings.Split(mailboxEmails.String, "\n")
+		}
+		it.NotificationSent = notifSentInt == 1
+		it.ResultNotified = resultNotifiedInt == 1
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("承認依頼イテレーション失敗: %w", err)
+	}
+	return items, total, nil
+}
+
 func (r *Repository) ListApprovalRequests(ctx context.Context, userID string) ([]domain.ApprovalRequest, error) {
 	const q = `
 		SELECT id, message_id, approver_id,

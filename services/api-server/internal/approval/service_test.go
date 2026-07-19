@@ -271,6 +271,9 @@ func (s *serviceRepository) ListMailboxApproverEmails(_ context.Context, mailbox
 	}
 	return nil, nil
 }
+func (s *serviceRepository) SearchApprovalRequests(_ context.Context, _ repository.ApprovalSearchFilter) ([]domain.ApprovalRequestListItem, int, error) {
+	return nil, 0, nil
+}
 func (s *serviceRepository) ListAllApprovalRequests(_ context.Context) ([]domain.ApprovalRequest, error) {
 	return nil, nil
 }

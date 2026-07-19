@@ -3,6 +3,7 @@ package mariadb
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"testing"
 	"time"
@@ -636,6 +637,51 @@ func TestSearchMailboxes_MissingRole(t *testing.T) {
 	}
 	if total != 1 || len(mbs) != 1 || mbs[0].EmailAddress != "orphan@x.dev" {
 		t.Errorf("total=%d mbs=%+v", total, mbs)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// TestSearchApprovalRequests_StatusAndQuery はステータス絞り込み・検索・ページングと
+// 件名/送信元付きの結果を検証する。
+func TestSearchApprovalRequests_StatusAndQuery(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	filter := repository.ApprovalSearchFilter{
+		Query:    "invoice",
+		Statuses: []domain.ApprovalStatus{domain.ApprovalStatusPending, domain.ApprovalStatusApproved},
+		Limit:    10,
+		Offset:   0,
+	}
+	// WHERE: (subject/from/message_id LIKE) AND status IN (?,?)
+	countArgs := []driver.Value{"%invoice%", "%invoice%", "%invoice%", "pending", "approved"}
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM approval_requests ar JOIN mail_messages msg").
+		WithArgs(countArgs...).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	now := time.Now()
+	pageArgs := append(append([]driver.Value{}, countArgs...), 10, 0)
+	cols := []string{"id", "message_id", "approver_id", "mailbox_emails", "status", "comment",
+		"notification_sent", "result_notified", "decided_at", "expires_at", "created_at", "updated_at",
+		"subject", "from_address"}
+	mock.ExpectQuery("SELECT ar.id, ar.message_id").
+		WithArgs(pageArgs...).
+		WillReturnRows(sqlmock.NewRows(cols).AddRow(
+			"apr-1", "msg-1", nil, "sales@x.dev", "pending", nil,
+			0, 0, nil, now, now, now, "invoice 2026", "boss@x.dev"))
+
+	items, total, err := repo.SearchApprovalRequests(context.Background(), filter)
+	if err != nil {
+		t.Fatalf("SearchApprovalRequests() error = %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("total=%d len=%d", total, len(items))
+	}
+	if items[0].Subject != "invoice 2026" || items[0].FromAddress != "boss@x.dev" {
+		t.Errorf("件名/送信元が載っていない: %+v", items[0])
+	}
+	if len(items[0].MailboxEmails) != 1 || items[0].MailboxEmails[0] != "sales@x.dev" {
+		t.Errorf("mailbox_emails = %v", items[0].MailboxEmails)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Error(err)

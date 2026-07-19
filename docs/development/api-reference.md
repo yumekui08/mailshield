@@ -227,28 +227,35 @@ policy アクション `approval` で保留されたメールの承認 API。承
 
 ### `GET /api/v1/approvals`
 
-承認依頼一覧。`viewer` は「自分が承認できる pending の依頼」（個人承認で自分が承認者のもの + 自分が admin のメールボックス宛のもの）のみ。`operator` / `admin` は全件。
+承認依頼一覧（サーバサイド検索・ステータス絞り込み・ページング）。`viewer` は「自分が承認できる依頼」（個人承認で自分が承認者のもの + role=approver で割り当てられたメールボックス宛のもの）のみ。`operator` / `admin` は全件。
 
-**レスポンス:**
+**クエリパラメータ:**（いずれも任意）
+
+| パラメータ | 説明 |
+|-----------|------|
+| `q` | メール件名 / 送信元 / メール ID の部分一致 |
+| `status` | 対象ステータス（`pending` / `approved` / `rejected` / `expired`・カンマ区切り可）。**未指定時は却下を除外**して表示する |
+| `page` | ページ番号（1 始まり・既定 1） |
+| `per_page` | 1 ページ件数（既定 20・上限 100） |
+
+**レスポンス:**（各要素にメール件名 `subject`・送信元 `from_address` を含む）
 ```json
 {
   "items": [
     {
-      "id": "uuid",
-      "message_id": "uuid",
-      "approver_id": null,
-      "mailbox_emails": ["sales@example.com"],
-      "status": "pending",
-      "expires_at": "2026-07-10T00:00:00Z",
-      "created_at": "2026-07-07T00:00:00Z"
+      "id": "uuid", "message_id": "uuid", "approver_id": null,
+      "mailbox_emails": ["sales@example.com"], "status": "pending",
+      "subject": "請求書送付の件", "from_address": "sender@example.com",
+      "expires_at": "2026-07-10T00:00:00Z", "created_at": "2026-07-07T00:00:00Z"
     }
-  ]
+  ],
+  "meta": {"total": 42, "page": 1, "per_page": 20, "total_pages": 3}
 }
 ```
 
 ### `GET /api/v1/approvals/{id}`
 
-承認依頼詳細（対象メールの情報を含む）。`viewer` は自分が承認できる依頼のみ。
+承認依頼詳細。`viewer` は自分が承認できる依頼のみ。対象メールのメタデータ（`message`）に加え、EML から抽出した本文（`text_body` / `html_body`）と分離済み添付ファイル一覧（`attachments`・`download_token` 付き）を含む。`html_body` はサンドボックス iframe で描画すること（XSS 対策）。添付は `GET /api/v1/attachments/{download_token}/{filename}` でダウンロードする。
 
 ### `POST /api/v1/approvals/{id}/approve`
 
@@ -261,7 +268,21 @@ policy アクション `approval` で保留されたメールの承認 API。承
 
 ### `POST /api/v1/approvals/{id}/reject`
 
-却下する（配送しない）。権限・リクエスト形式は approve と同じ。
+却下する（配送しない）。権限・リクエスト形式は approve と同じ。内部送信者には却下通知メールが送られる（`approval.notification.result_enabled` が有効な場合）。
+
+### `POST /api/v1/approvals/bulk-approve` / `POST /api/v1/approvals/bulk-reject`
+
+複数の承認依頼をまとめて承認 / 却下する（1 リクエスト最大 100 件）。各依頼を個別に処理し、成功と失敗を仕分けて返す（決定済み・権限なしの依頼は失敗として扱い、他はスキップせず続行する）。
+
+**リクエスト:**
+```json
+{"ids": ["uuid1", "uuid2"], "comment": "一括確認"}
+```
+
+**レスポンス:**
+```json
+{"succeeded": ["uuid1"], "failed": {"uuid2": "すでに決定済みです"}}
+```
 
 > [!NOTE]
 > 承認者はメールボックスの `role=approver` 割り当てで決まる。メールボックス管理 API

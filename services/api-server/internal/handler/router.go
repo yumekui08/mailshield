@@ -253,6 +253,8 @@ func NewRouter(
 			r.Use(middleware.RequireRole(domain.RoleViewer, domain.RoleOperator, domain.RoleAdmin))
 
 			r.Get("/", approvalHandler.HandleList)
+			r.Post("/bulk-approve", approvalHandler.HandleBulkApprove)
+			r.Post("/bulk-reject", approvalHandler.HandleBulkReject)
 			r.Get("/{id}", approvalHandler.HandleGet)
 			r.Post("/{id}/approve", approvalHandler.HandleApprove)
 			r.Post("/{id}/reject", approvalHandler.HandleReject)

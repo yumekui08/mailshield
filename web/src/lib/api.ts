@@ -14,8 +14,10 @@ import type {
   APIKey,
   CreateAPIKeyRequest,
   CreateAPIKeyResponse,
-  ApprovalRequest,
+  ApprovalListItem,
+  ApprovalStatus,
   ApprovalRequestDetail,
+  PageMeta,
   DelayedRelease,
   PolicyRoute,
   PolicyRoutesResponse,
@@ -492,12 +494,41 @@ export async function simulatePolicy(eml: string): Promise<SimulateResult> {
 
 // ─── 承認フロー ─────────────────────────────────────────────
 
-export async function listApprovals(): Promise<{ items: ApprovalRequest[] }> {
-  return request<{ items: ApprovalRequest[] }>("/approvals");
+export interface ApprovalFilter {
+  q?: string;
+  status?: ApprovalStatus[];
+  page?: number;
+  per_page?: number;
+}
+
+export async function listApprovals(
+  filter: ApprovalFilter = {}
+): Promise<{ items: ApprovalListItem[]; meta: PageMeta }> {
+  const params = new URLSearchParams();
+  if (filter.q) params.set("q", filter.q);
+  if (filter.status && filter.status.length > 0) params.set("status", filter.status.join(","));
+  if (filter.page !== undefined) params.set("page", String(filter.page));
+  if (filter.per_page !== undefined) params.set("per_page", String(filter.per_page));
+  const qs = params.toString();
+  return request(`/approvals${qs ? `?${qs}` : ""}`);
 }
 
 export async function getApproval(id: string): Promise<ApprovalRequestDetail> {
   return request<ApprovalRequestDetail>(`/approvals/${id}`);
+}
+
+export async function bulkApprove(ids: string[], comment?: string): Promise<BulkResult> {
+  return request<BulkResult>("/approvals/bulk-approve", {
+    method: "POST",
+    body: JSON.stringify({ ids, comment: comment ?? "" }),
+  });
+}
+
+export async function bulkReject(ids: string[], comment?: string): Promise<BulkResult> {
+  return request<BulkResult>("/approvals/bulk-reject", {
+    method: "POST",
+    body: JSON.stringify({ ids, comment: comment ?? "" }),
+  });
 }
 
 export async function approveRequest(id: string, comment?: string): Promise<{ status: string }> {
