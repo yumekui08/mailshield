@@ -680,3 +680,22 @@ export async function updateRouting(id: string, params: RoutingInput): Promise<R
 export async function deleteRouting(id: string): Promise<void> {
   await request(`/config/routings/${id}`, { method: "DELETE" });
 }
+
+// ─── 設定バンドルのインポート/エクスポート ─────────────────────
+export interface ImportResult {
+  created: number;
+  updated: number;
+  errors: string[];
+}
+
+// 設定バンドル（JSON テキスト）を取得する。
+export async function exportConfigBundle(): Promise<string> {
+  const res = await fetch(`${BASE}/config/export`, { credentials: "include" });
+  if (!res.ok) throw new ApiError(res.status, await res.text().catch(() => res.statusText));
+  return res.text();
+}
+
+// 設定バンドル（JSON テキスト）をインポートする。
+export async function importConfigBundle(bundleJson: string): Promise<ImportResult> {
+  return request<ImportResult>("/config/import", { method: "POST", body: bundleJson });
+}

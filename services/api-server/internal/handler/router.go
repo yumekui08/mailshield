@@ -189,6 +189,10 @@ func NewRouter(
 				r.Post("/routings", configHandler.HandleCreateRouting)
 				r.Put("/routings/{id}", configHandler.HandleUpdateRouting)
 				r.Delete("/routings/{id}", configHandler.HandleDeleteRouting)
+
+				// マニフェスト・バンドルのインポート/エクスポート（ADR 008）
+				r.Get("/export", configHandler.HandleExportBundle)
+				r.Post("/import", configHandler.HandleImportBundle)
 			})
 		}
 

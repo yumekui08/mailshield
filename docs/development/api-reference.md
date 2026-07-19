@@ -610,6 +610,26 @@ email / display_name の部分一致でユーザーを検索する（`operator` 
 > システムが 1 つ保証する。マッチ漏れによるメール消失を防ぐため削除・並べ替え・条件変更はできないが、
 > 通すワーカーとポリシーは設定できる。
 
+### インポート／エクスポート（マニフェスト・バンドル）
+
+設定を k8s マニフェスト風のバンドル（`{kind, name, spec}` の配列）で入出力する。粒度は `kinds` で選べる。
+
+| エンドポイント | 説明 |
+|---|---|
+| `GET /api/v1/config/export?kinds=...` | バンドルをダウンロード。`kinds` 省略で全種別（`worker_instance` / `variable` / `routing`）。catch-all は含めない。`${VAR}` 参照は `requires_variables` に列挙 |
+| `POST /api/v1/config/import` | バンドルを `(kind, name)` で冪等 upsert。作成/更新件数と種別ごとのエラーを返す |
+
+```json
+{
+  "version": "mailshield.config/v1",
+  "docs": [
+    {"kind": "WorkerInstance", "name": "av_internal", "spec": {"worker_type": "av-worker", "kind": "inspect", "config": {"threshold": 50}, "is_enabled": true}},
+    {"kind": "Routing", "name": "inbound", "spec": {"priority": 20, "match_expr": "mail.to endswith ${INTERNAL_DOMAIN}", "policy_ref": "std", "inspect": [{"alias": "av_internal", "enabled": true}], "transform": []}}
+  ],
+  "requires_variables": ["INTERNAL_DOMAIN"]
+}
+```
+
 ---
 
 ## 監査ログ（admin のみ）

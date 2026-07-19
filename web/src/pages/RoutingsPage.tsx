@@ -9,6 +9,7 @@ import {
   useWorkerInstances,
 } from "../hooks/useConfig";
 import { PageHeader } from "../components/PageHeader";
+import { ConfigImportExport } from "../components/ConfigImportExport";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
@@ -248,10 +249,13 @@ export function RoutingsPage() {
         description="メールがどの検査・変換・ポリシーを通るかを priority 昇順の first-match で決めます。"
         count={data ? routings.length : undefined}
         actions={
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-2" />
-            ルーティングを追加
-          </Button>
+          <>
+            <ConfigImportExport />
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-2" />
+              ルーティングを追加
+            </Button>
+          </>
         }
       />
 
