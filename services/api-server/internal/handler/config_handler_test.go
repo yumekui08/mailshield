@@ -14,17 +14,20 @@ import (
 
 // mockConfigRepo は ConfigRepository だけを実装するテスト用モック。
 type mockConfigRepo struct {
-	created     *domain.WorkerInstance
-	createdV    *domain.ConfigVariable
-	getInst     *domain.WorkerInstance
-	getVar      *domain.ConfigVariable
-	instList    []domain.WorkerInstance
-	varList     []domain.ConfigVariable
-	createdRt   *domain.Routing
-	getRt       *domain.Routing
-	rtList      []domain.Routing
-	catchAllCnt int
-	createdRts  []domain.Routing
+	created         *domain.WorkerInstance
+	createdV        *domain.ConfigVariable
+	getInst         *domain.WorkerInstance
+	getVar          *domain.ConfigVariable
+	instList        []domain.WorkerInstance
+	varList         []domain.ConfigVariable
+	createdRt       *domain.Routing
+	getRt           *domain.Routing
+	rtList          []domain.Routing
+	catchAllCnt     int
+	createdRts      []domain.Routing
+	savedVersion    *domain.ConfigVersion
+	activeVersion   *domain.ConfigVersion
+	activeVersionID string
 }
 
 func (m *mockConfigRepo) ListWorkerInstances(context.Context) ([]domain.WorkerInstance, error) {
@@ -81,6 +84,24 @@ func (m *mockConfigRepo) UpdateRouting(_ context.Context, rt *domain.Routing) er
 func (m *mockConfigRepo) DeleteRouting(context.Context, string) error { return nil }
 func (m *mockConfigRepo) CountCatchAllRoutings(context.Context) (int, error) {
 	return m.catchAllCnt, nil
+}
+func (m *mockConfigRepo) SaveConfigVersion(_ context.Context, v *domain.ConfigVersion) error {
+	v.ID = "ver-1"
+	m.savedVersion = v
+	return nil
+}
+func (m *mockConfigRepo) GetActiveConfigVersion(context.Context) (*domain.ConfigVersion, error) {
+	return m.activeVersion, nil
+}
+func (m *mockConfigRepo) GetActiveConfigChecksum(context.Context) (string, error) {
+	if m.activeVersion != nil {
+		return m.activeVersion.Checksum, nil
+	}
+	return "", nil
+}
+func (m *mockConfigRepo) SetActiveConfigVersion(_ context.Context, versionID string) error {
+	m.activeVersionID = versionID
+	return nil
 }
 
 func postJSON(t *testing.T, target string, body any) *http.Request {

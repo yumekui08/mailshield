@@ -349,3 +349,66 @@ func marshalBindings(rt *domain.Routing) (ins string, trans string, err error) {
 	}
 	return string(ib), string(tb), nil
 }
+
+// ─── 設定バージョン / アクティブ版ポインタ ─────────────────────────────
+
+func (r *Repository) SaveConfigVersion(ctx context.Context, v *domain.ConfigVersion) error {
+	if v.ID == "" {
+		v.ID = uuid.NewString()
+	}
+	if v.Source == "" {
+		v.Source = "ui"
+	}
+	const q = `INSERT INTO config_versions (id, checksum, source, author, content)
+	           VALUES (?, ?, ?, ?, ?)`
+	if _, err := r.db.ExecContext(ctx, q, v.ID, v.Checksum, v.Source, v.Author, v.Content); err != nil {
+		return fmt.Errorf("設定バージョン保存失敗: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) GetActiveConfigVersion(ctx context.Context) (*domain.ConfigVersion, error) {
+	const q = `
+		SELECT v.id, v.checksum, v.source, v.author, v.content, v.created_at
+		FROM config_active a
+		JOIN config_versions v ON v.id = a.version_id
+		WHERE a.id = 1`
+	var v domain.ConfigVersion
+	err := r.db.QueryRowContext(ctx, q).Scan(
+		&v.ID, &v.Checksum, &v.Source, &v.Author, &v.Content, &v.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("アクティブ設定版取得失敗: %w", err)
+	}
+	return &v, nil
+}
+
+func (r *Repository) GetActiveConfigChecksum(ctx context.Context) (string, error) {
+	const q = `
+		SELECT v.checksum
+		FROM config_active a
+		JOIN config_versions v ON v.id = a.version_id
+		WHERE a.id = 1`
+	var checksum string
+	err := r.db.QueryRowContext(ctx, q).Scan(&checksum)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("アクティブ設定 checksum 取得失敗: %w", err)
+	}
+	return checksum, nil
+}
+
+func (r *Repository) SetActiveConfigVersion(ctx context.Context, versionID string) error {
+	// 単一行 upsert（id=1 固定）。この 1 行更新が原子的な切替点になる。
+	const q = `
+		INSERT INTO config_active (id, version_id) VALUES (1, ?)
+		ON DUPLICATE KEY UPDATE version_id = VALUES(version_id)`
+	if _, err := r.db.ExecContext(ctx, q, versionID); err != nil {
+		return fmt.Errorf("アクティブ設定版の切替失敗: %w", err)
+	}
+	return nil
+}

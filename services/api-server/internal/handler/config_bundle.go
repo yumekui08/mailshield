@@ -149,6 +149,8 @@ func (h *ConfigHandler) HandleImportBundle(w http.ResponseWriter, r *http.Reques
 			res.Errors = append(res.Errors, "未知の kind: "+doc.Kind)
 		}
 	}
+	// インポート後にスナップショットを再 publish（アクティブ版を更新）。
+	h.publish(r)
 	writeJSON(w, http.StatusOK, res)
 }
 

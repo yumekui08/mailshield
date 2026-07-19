@@ -349,3 +349,22 @@ type Routing struct {
 	CreatedAt  time.Time       `json:"created_at"`
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
+
+// ConfigVersion は検証済み設定スナップショット（canonical JSON）の 1 版（ADR 008 ③-2）。
+type ConfigVersion struct {
+	ID        string    `json:"id"`
+	Checksum  string    `json:"checksum"`
+	Source    string    `json:"source"` // "ui" | "file"
+	Author    string    `json:"author"`
+	Content   string    `json:"content"` // canonical スナップショット JSON
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ConfigSnapshot は gateway がインメモリにパイプラインを構築するための canonical モデル。
+// 変数・ワーカーインスタンス・ルーティングを 1 つに束ねる。api-server と smtp-gateway で
+// この JSON 形が唯一の契約になる（両モジュールで同形を定義する）。
+type ConfigSnapshot struct {
+	Variables       []ConfigVariable `json:"variables"`
+	WorkerInstances []WorkerInstance `json:"worker_instances"`
+	Routings        []Routing        `json:"routings"`
+}

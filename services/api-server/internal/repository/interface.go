@@ -239,6 +239,17 @@ type ConfigRepository interface {
 	DeleteRouting(ctx context.Context, id string) error
 	// CountCatchAllRoutings は is_catchall=1 のルーティング数を返す（保証・重複防止に使う）。
 	CountCatchAllRoutings(ctx context.Context) (int, error)
+
+	// ── 設定バージョン / アクティブ版ポインタ（ADR 008 ③-2） ──
+	// SaveConfigVersion は検証済みスナップショットを 1 版として保存する。
+	SaveConfigVersion(ctx context.Context, v *domain.ConfigVersion) error
+	// GetActiveConfigVersion はアクティブ版の全体（content 含む）を返す。未設定なら nil。
+	GetActiveConfigVersion(ctx context.Context) (*domain.ConfigVersion, error)
+	// GetActiveConfigChecksum はアクティブ版の checksum だけを返す（ポーリング差分検知用・軽量）。
+	// 未設定なら空文字を返す。
+	GetActiveConfigChecksum(ctx context.Context) (string, error)
+	// SetActiveConfigVersion はアクティブ版ポインタを原子的に切り替える。
+	SetActiveConfigVersion(ctx context.Context, versionID string) error
 }
 
 // Mailbox はメールボックス情報を保持する。

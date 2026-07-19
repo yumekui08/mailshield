@@ -11,19 +11,37 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/koizumib/mailshield/services/api-server/internal/audit"
+	"github.com/koizumib/mailshield/services/api-server/internal/configsnap"
 	"github.com/koizumib/mailshield/services/api-server/internal/domain"
 	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
 	"github.com/koizumib/mailshield/services/api-server/internal/repository"
 )
 
-// ConfigHandler は設定エンティティ（ワーカーインスタンス・設定変数）の管理 API（ADR 008）。
+// ConfigHandler は設定エンティティ（ワーカーインスタンス・設定変数・ルーティング）の管理 API（ADR 008）。
 type ConfigHandler struct {
 	repo        repository.ConfigRepository
 	auditLogger *audit.Logger
+	publisher   *configsnap.Publisher
 }
 
 func NewConfigHandler(repo repository.ConfigRepository, auditLogger *audit.Logger) *ConfigHandler {
-	return &ConfigHandler{repo: repo, auditLogger: auditLogger}
+	return &ConfigHandler{repo: repo, auditLogger: auditLogger, publisher: configsnap.NewPublisher(repo)}
+}
+
+// publish は設定変更後にスナップショットを検証・publish し、アクティブ版を切り替える。
+// 検証に失敗しても書き込み自体は成功済みなので、ここではログのみ（次回の publish で回復する）。
+// gateway はアクティブ版のみを読むため、検証に通らない中間状態は配布されない。
+func (h *ConfigHandler) publish(r *http.Request) {
+	if h.publisher == nil {
+		return
+	}
+	author := ""
+	if s := middleware.GetSession(r.Context()); s != nil {
+		author = s.User.Email
+	}
+	if _, err := h.publisher.Publish(r.Context(), "ui", author); err != nil {
+		slog.Warn("設定スナップショットの publish に失敗（アクティブ版は未更新）", "error", err)
+	}
 }
 
 // alias は条件 DSL・検査結果のキーに使うため、識別子として安全な形に限定する。
@@ -243,18 +261,21 @@ func writeConfigWriteError(w http.ResponseWriter, err error, logMsg string) {
 	writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "保存に失敗しました")
 }
 
+// audit は設定変更を監査ログに記録し、続けてスナップショットを publish する。
+// 設定エンティティの全ミューテーション（作成/更新/削除）成功後にのみ呼ばれるため、
+// ここを唯一の「変更確定フック」として使い、アクティブ版の再生成を一箇所に集約する。
 func (h *ConfigHandler) audit(r *http.Request, event, targetID string) {
 	session := middleware.GetSession(r.Context())
-	if session == nil || h.auditLogger == nil {
-		return
+	if session != nil && h.auditLogger != nil {
+		h.auditLogger.Log(domain.AuditLog{
+			EventType:  event,
+			ActorID:    audit.StrPtr(session.User.Sub),
+			ActorEmail: audit.StrPtr(session.User.Email),
+			TargetType: audit.StrPtr("config"),
+			TargetID:   audit.StrPtr(targetID),
+		})
 	}
-	h.auditLogger.Log(domain.AuditLog{
-		EventType:  event,
-		ActorID:    audit.StrPtr(session.User.Sub),
-		ActorEmail: audit.StrPtr(session.User.Email),
-		TargetType: audit.StrPtr("config"),
-		TargetID:   audit.StrPtr(targetID),
-	})
+	h.publish(r)
 }
 
 // ─── ルーティング ─────────────────────────────────────────────────────
