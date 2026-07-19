@@ -18,6 +18,7 @@ export type HelpKey =
   | "users"
   | "policy"
   | "routings"
+  | "policyInstances"
   | "workerInstances"
   | "variables"
   | "simulate"
@@ -364,6 +365,29 @@ export const helpContent: Record<HelpKey, HelpContent> = {
     ],
   },
 
+  policyInstances: {
+    title: "ポリシー",
+    summary:
+      "検査結果を受けてアクション（配送/隔離/拒否/承認/ディレイ等）を決めるルール群です。名前（alias）を付けた再利用可能な部品で、ルーティングから参照します。",
+    sections: [
+      {
+        heading: "考え方",
+        items: [
+          "ポリシーはワーカーインスタンスと同じく名前付きの部品。ルーティングが policy として選ぶ。",
+          "条件では検査ワーカーインスタンスの alias を参照する（例: av_internal.detected == true）。",
+          "内容は policy.yaml と同じ形式（lists と rules）を YAML で記述する。",
+        ],
+      },
+      {
+        heading: "落とし穴",
+        items: [
+          "最後に condition: \"true\" のフォールバックルールを置くこと（無いとマッチしないメールが配送されず滞留する）。",
+          "参照する alias は先に「ワーカーインスタンス」で作成しておく。",
+        ],
+      },
+    ],
+  },
+
   workerInstances: {
     title: "ワーカーインスタンス",
     summary:
@@ -488,6 +512,7 @@ export function helpKeyForPath(pathname: string): HelpKey | null {
   if (p === "/users") return "users";
   if (p === "/policy") return "policy";
   if (p === "/routings") return "routings";
+  if (p === "/policy-instances") return "policyInstances";
   if (p === "/worker-instances") return "workerInstances";
   if (p === "/variables") return "variables";
   if (p === "/simulate") return "simulate";

@@ -25,6 +25,7 @@ import type {
   PolicyHits,
   WorkerInstance,
   ConfigVariable,
+  PolicyInstance,
   Routing,
 } from "../types";
 
@@ -698,4 +699,18 @@ export async function exportConfigBundle(): Promise<string> {
 // 設定バンドル（JSON テキスト）をインポートする。
 export async function importConfigBundle(bundleJson: string): Promise<ImportResult> {
   return request<ImportResult>("/config/import", { method: "POST", body: bundleJson });
+}
+
+// ─── ポリシーインスタンス（ADR 008・operator/admin） ───────────
+export async function listPolicyInstances(): Promise<{ data: PolicyInstance[]; meta: { total: number } }> {
+  return request("/config/policies");
+}
+export async function createPolicyInstance(params: { alias: string; display_name: string; content: string }): Promise<PolicyInstance> {
+  return request("/config/policies", { method: "POST", body: JSON.stringify(params) });
+}
+export async function updatePolicyInstance(id: string, params: { alias: string; display_name: string; content: string }): Promise<PolicyInstance> {
+  return request(`/config/policies/${id}`, { method: "PUT", body: JSON.stringify(params) });
+}
+export async function deletePolicyInstance(id: string): Promise<void> {
+  await request(`/config/policies/${id}`, { method: "DELETE" });
 }

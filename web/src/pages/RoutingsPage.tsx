@@ -7,6 +7,7 @@ import {
   useUpdateRouting,
   useDeleteRouting,
   useWorkerInstances,
+  usePolicyInstances,
 } from "../hooks/useConfig";
 import { PageHeader } from "../components/PageHeader";
 import { ConfigImportExport } from "../components/ConfigImportExport";
@@ -175,6 +176,7 @@ function BindingEditor({
 export function RoutingsPage() {
   const { data, isLoading, isError } = useRoutings();
   const { data: instData } = useWorkerInstances();
+  const { data: polData } = usePolicyInstances();
   const createRt = useCreateRouting();
   const updateRt = useUpdateRouting();
   const deleteRt = useDeleteRouting();
@@ -184,6 +186,7 @@ export function RoutingsPage() {
 
   const routings = data?.data ?? [];
   const instances = instData?.data ?? [];
+  const policies = polData?.data ?? [];
 
   function openCreate() {
     setForm(emptyForm);
@@ -388,12 +391,21 @@ export function RoutingsPage() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">ポリシー名</label>
-              <Input
+              <label className="text-sm font-medium text-gray-700">ポリシー</label>
+              <Select
                 value={form.policy_ref}
                 onChange={(e) => setForm({ ...form, policy_ref: e.target.value })}
-                placeholder="標準受信ポリシー"
-              />
+              >
+                <option value="">（なし・全配送）</option>
+                {!policies.some((p) => p.alias === form.policy_ref) && form.policy_ref && (
+                  <option value={form.policy_ref}>{form.policy_ref}（未定義）</option>
+                )}
+                {policies.map((p) => (
+                  <option key={p.id} value={p.alias}>
+                    {p.alias}{p.display_name ? `（${p.display_name}）` : ""}
+                  </option>
+                ))}
+              </Select>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">状態</label>

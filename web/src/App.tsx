@@ -18,6 +18,7 @@ import { SimulatePage } from "./pages/SimulatePage";
 import { PolicyPage } from "./pages/PolicyPage";
 import { WorkerInstancesPage } from "./pages/WorkerInstancesPage";
 import { RoutingsPage } from "./pages/RoutingsPage";
+import { PolicyInstancesPage } from "./pages/PolicyInstancesPage";
 import { VariablesPage } from "./pages/VariablesPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { DelayedPage } from "./pages/DelayedPage";
@@ -67,6 +68,7 @@ export function App() {
             <Route path="/policy" element={<PolicyPage />} />
             <Route path="/worker-instances" element={<WorkerInstancesPage />} />
             <Route path="/routings" element={<RoutingsPage />} />
+            <Route path="/policy-instances" element={<PolicyInstancesPage />} />
             <Route path="/variables" element={<VariablesPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/approvals/:id" element={<ApprovalDetailPage />} />

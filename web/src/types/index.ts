@@ -100,6 +100,15 @@ export interface ConfigVariable {
   updated_at: string;
 }
 
+export interface PolicyInstance {
+  id: string;
+  alias: string;
+  display_name: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface WorkerBinding {
   alias: string;
   enabled: boolean;

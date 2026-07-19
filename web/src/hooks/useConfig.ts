@@ -12,10 +12,15 @@ import {
   createRouting,
   updateRouting,
   deleteRouting,
+  listPolicyInstances,
+  createPolicyInstance,
+  updatePolicyInstance,
+  deletePolicyInstance,
 } from "../lib/api";
-import type { WorkerInstance, ConfigVariable, Routing } from "../types";
+import type { WorkerInstance, ConfigVariable, Routing, PolicyInstance } from "../types";
 
 type RoutingInput = Omit<Routing, "id" | "is_catchall" | "created_at" | "updated_at">;
+type PolicyInput = { alias: string; display_name: string; content: string };
 
 type WorkerInstanceInput = Omit<WorkerInstance, "id" | "created_at" | "updated_at">;
 type VariableInput = { key: string; value: string; description: string };
@@ -109,4 +114,30 @@ export function useDeleteRouting() {
   });
 }
 
-export type { WorkerInstance, ConfigVariable, Routing };
+// ─── ポリシーインスタンス ──
+export function usePolicyInstances() {
+  return useQuery({ queryKey: ["policy-instances"], queryFn: listPolicyInstances });
+}
+export function useCreatePolicyInstance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: PolicyInput) => createPolicyInstance(params),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["policy-instances"] }),
+  });
+}
+export function useUpdatePolicyInstance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, params }: { id: string; params: PolicyInput }) => updatePolicyInstance(id, params),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["policy-instances"] }),
+  });
+}
+export function useDeletePolicyInstance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deletePolicyInstance(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["policy-instances"] }),
+  });
+}
+
+export type { WorkerInstance, ConfigVariable, Routing, PolicyInstance };
