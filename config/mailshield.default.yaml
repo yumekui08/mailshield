@@ -189,6 +189,15 @@ reinject:
 #       password: ""                    # ENV: MAILSHIELD_DELIVERER_SES_PASSWORD
 deliverers: {}
 
+# ─── 設定ソース（ADR 008 ③-2） ───────────────────────────────────────────────
+# source=db にすると、routes.d ではなく api-server が publish した DB のアクティブ版
+# スナップショット（ワーカーインスタンス/ポリシー/ルーティング/変数）からパイプラインを
+# 構築し、poll_interval_seconds ごとに差分を検知してアトミックに再構築する。
+# source=file（既定）は従来どおり routes.d を使う。
+config:
+  source: file                    # file | db
+  poll_interval_seconds: 10       # db モードのポーリング間隔
+
 # ─── 隔離通知 ────────────────────────────────────────────────────────────────
 
 # quarantine アクション決定時に受信者へ即時通知メールを送信する

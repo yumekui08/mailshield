@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
+	"github.com/koizumib/mailshield/services/smtp-gateway/internal/dbconfig"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/deliver"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
 	"github.com/koizumib/mailshield/services/smtp-gateway/internal/events"
@@ -183,7 +184,7 @@ func main() {
 		publisher = events.NewNoop()
 	}
 
-	if len(cfg.Routes) == 0 {
+	if cfg.Config.EffectiveSource() != "db" && len(cfg.Routes) == 0 {
 		slog.Error("routes が設定されていません")
 		os.Exit(1)
 	}
@@ -372,6 +373,51 @@ func main() {
 		}
 	}
 
+	// db モード（ADR 008 ③-2b）: DB のアクティブ版スナップショットからパイプラインを構築し、
+	// ポーリングでアトミックに差し替える。既存ワーカー実装を worker_type で選択・順序付けする
+	//（per-instance の設定注入は今後の増分。alias で検査結果をキーする）。
+	if cfg.Config.EffectiveSource() == "db" {
+		reg := buildWorkerRegistry(builtinInspect, builtinTransform)
+		loadDBRoutes := func() error {
+			checksum, content, err := repo.ReadActiveConfig(context.Background())
+			if err != nil {
+				return err
+			}
+			if content == "" {
+				handler.dbRoutes.Store(&dbconfig.Routes{}) // 空設定（全メール未ルーティング＝拒否）
+				return nil
+			}
+			snap, err := dbconfig.Parse([]byte(content))
+			if err != nil {
+				return err
+			}
+			snap.Expand()
+			policyByAlias := snap.PolicyByAlias()
+			pf := func(ref string) (*policy.Engine, error) {
+				return policy.NewFromContent([]byte(policyByAlias[ref]), deliverReg)
+			}
+			routes, err := dbconfig.Build(snap, reg, pf)
+			if err != nil {
+				return err
+			}
+			handler.dbRoutes.Store(routes)
+			slog.Info("設定スナップショットを適用", "checksum", checksum)
+			return nil
+		}
+		if err := loadDBRoutes(); err != nil {
+			slog.Error("db モード: 初期設定の読み込み失敗", "error", err)
+			os.Exit(1)
+		}
+		pollInterval := cfg.Config.PollIntervalSeconds
+		if pollInterval <= 0 {
+			pollInterval = 10
+		}
+		go pollConfig(repo, pollInterval, loadDBRoutes)
+		slog.Info("設定ソース: db（ポーリング）", "poll_interval_seconds", pollInterval)
+	} else {
+		slog.Info("設定ソース: file（routes.d）")
+	}
+
 	smtpServer := smtp.New(smtp.Options{
 		Port:                     cfg.Server.SMTPPort,
 		Hostname:                 cfg.Server.SMTPHostname,
@@ -496,6 +542,33 @@ type routeHandler struct {
 // engine は現在のポリシーエンジンを返す。
 func (rh *routeHandler) engine() *policy.Engine { return rh.policy.Load() }
 
+// resolvedRoute はルート解決の結果（ファイル/DB 両モード共通の実行に必要な部品）。
+type resolvedRoute struct {
+	Name      string
+	Direction string
+	Inspect   *pipeline.InspectPipeline
+	Transform *pipeline.TransformPipeline
+	Engine    *policy.Engine
+}
+
+// resolveRoute はメールを 1 つのルートに解決する。db モード（dbRoutes 設定時）は
+// スナップショット由来の first-match、file モードは従来の正規表現ルーターを使う。
+func (h *mailHandler) resolveRoute(mail *domain.Mail) (resolvedRoute, bool) {
+	if dbr := h.dbRoutes.Load(); dbr != nil {
+		cr, ok := dbr.Resolve(mail)
+		if !ok {
+			return resolvedRoute{}, false
+		}
+		return resolvedRoute{Name: cr.Name, Direction: cr.Direction, Inspect: cr.Inspect, Transform: cr.Transform, Engine: cr.Policy}, true
+	}
+	route, ok := h.router.Resolve(mail.FromAddress, mail.ToAddresses)
+	if !ok {
+		return resolvedRoute{}, false
+	}
+	rh := h.routeHandlers[route.Name]
+	return resolvedRoute{Name: route.Name, Direction: route.Direction, Inspect: rh.inspect, Transform: rh.transform, Engine: rh.engine()}, true
+}
+
 type mailHandler struct {
 	storage        domain.EMLStorage
 	archiveStorage domain.ArchiveStorage
@@ -512,6 +585,9 @@ type mailHandler struct {
 	deliverReg *deliver.Registry
 	// hits はルール別ヒット件数（管理 UI 用）。
 	hits *rulestats.Counter
+	// dbRoutes は db モードのアクティブなルート集合（ポーリングでアトミックに差し替える）。
+	// nil の場合は file モード（router + routeHandlers を使う）。
+	dbRoutes atomic.Pointer[dbconfig.Routes]
 }
 
 // reloadPolicies は各ルートの policy.yaml を再パースし、全ルートが成功したときだけ
@@ -551,7 +627,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	)
 
 	// 1. ルート解決（MAIL FROM / RCPT TO の正規表現マッチ）
-	route, ok := h.router.Resolve(mail.FromAddress, mail.ToAddresses)
+	rr, ok := h.resolveRoute(mail)
 	if !ok {
 		h.metrics.IncUnrouted()
 		log.Warn("マッチするルートなし（メール拒否）",
@@ -560,13 +636,13 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 		)
 		return fmt.Errorf("マッチするルートなし: from=%s to=%v: %w", mail.FromAddress, mail.ToAddresses, domain.ErrNoRouteMatched)
 	}
-	rh := h.routeHandlers[route.Name]
-	mail.Direction = domain.Direction(route.Direction)
-	h.metrics.IncReceived(route.Name)
+
+	mail.Direction = domain.Direction(rr.Direction)
+	h.metrics.IncReceived(rr.Name)
 
 	log.Info("[1/7] メール受信",
-		"route", route.Name,
-		"direction", route.Direction,
+		"route", rr.Name,
+		"direction", rr.Direction,
 		"subject", mail.Subject,
 	)
 
@@ -612,8 +688,8 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	}
 
 	// 5. 検査パイプライン（並列）
-	log.Info("[5/7] 検査パイプライン開始", "route", route.Name)
-	inspectResults, err := rh.inspect.Run(ctx, mail)
+	log.Info("[5/7] 検査パイプライン開始", "route", rr.Name)
+	inspectResults, err := rr.Inspect.Run(ctx, mail)
 	if err != nil {
 		log.Warn("[5/7] 検査パイプラインエラー（続行）", "error", err)
 	}
@@ -624,7 +700,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 			"score", r.Score,
 		)
 		if r.Detected {
-			h.metrics.IncDetected(route.Name, r.WorkerName)
+			h.metrics.IncDetected(rr.Name, r.WorkerName)
 		}
 		if err := h.repo.SaveInspectResult(ctx, r, mail.MessageID); err != nil {
 			log.Warn("[5/7] 検査結果 DB 保存失敗（続行）",
@@ -633,15 +709,15 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	}
 
 	// 6. 変換パイプライン（直列）
-	log.Info("[6/7] 変換パイプライン開始", "route", route.Name)
-	transformed, err := rh.transform.Run(ctx, mail)
+	log.Info("[6/7] 変換パイプライン開始", "route", rr.Name)
+	transformed, err := rr.Transform.Run(ctx, mail)
 	if err != nil {
 		// 変換失敗時は未処理メールを配送せず隔離する。
 		// sanitize / urlrewrite 等の効果が得られないまま配送するとセキュリティリスクになる。
 		log.Error("[6/7] 変換パイプライン失敗: 未処理メールの配送を防ぐため隔離します",
-			"route", route.Name, "error", err)
+			"route", rr.Name, "error", err)
 		h.metrics.IncError("transform")
-		h.metrics.IncAction(route.Name, string(policy.ActionQuarantine))
+		h.metrics.IncAction(rr.Name, string(policy.ActionQuarantine))
 		if uerr := h.repo.UpdateMessageStatus(ctx, mail.MessageID, domain.StatusQuarantined); uerr != nil {
 			log.Warn("ステータス更新失敗（続行）", "error", uerr)
 		}
@@ -662,24 +738,24 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	}
 
 	// 7. ポリシーエンジンでアクション決定・実行
-	log.Info("[7/7] ポリシー評価開始", "route", route.Name)
-	result, err := rh.engine().EvaluateAndAct(ctx, transformed, inspectResults)
+	log.Info("[7/7] ポリシー評価開始", "route", rr.Name)
+	result, err := rr.Engine.EvaluateAndAct(ctx, transformed, inspectResults)
 	if err != nil {
 		h.metrics.IncError("policy")
 		log.Error("[7/7] ポリシーエンジンエラー", "error", err)
 		return fmt.Errorf("ポリシー実行失敗: %w", err)
 	}
 	action := result.Action
-	h.hits.Inc(route.Name, result.MatchedRule)
+	h.hits.Inc(rr.Name, result.MatchedRule)
 
 	// B-3: マッチするルールがない場合はメールを消失させず 550 を返す
 	if action == "" {
 		h.metrics.IncError("no_rule")
 		log.Error("[7/7] マッチするポリシールールがありません。policy.yaml にデフォルトルールを追加してください",
-			"route", route.Name, "message_id", mail.MessageID)
+			"route", rr.Name, "message_id", mail.MessageID)
 		return domain.ErrNoRuleMatched
 	}
-	h.metrics.IncAction(route.Name, string(action))
+	h.metrics.IncAction(rr.Name, string(action))
 
 	actionStatusMap := map[policy.ActionType]domain.MessageStatus{
 		policy.ActionDeliver:    domain.StatusDelivered,
@@ -733,7 +809,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	// mail.processed 統合イベントを発行（失敗してもログだけで続行）
 	{
 		procCtx, procCancel := context.WithTimeout(context.Background(), time.Duration(h.cfg.EventPublishTimeoutSeconds)*time.Second)
-		procEvent := toProcessedEvent(route.Name, route.Direction, string(action), transformed, inspectResults)
+		procEvent := toProcessedEvent(rr.Name, rr.Direction, string(action), transformed, inspectResults)
 		if err := h.publisher.PublishMailProcessed(procCtx, procEvent); err != nil {
 			log.Warn("mail.processed 発行失敗（続行）", "error", err)
 		}
@@ -741,7 +817,7 @@ func (h *mailHandler) HandleMail(ctx context.Context, mail *domain.Mail) error {
 	}
 
 	log.Info("メール処理完了",
-		"route", route.Name,
+		"route", rr.Name,
 		"action", string(action),
 		"elapsed_ms", time.Since(start).Milliseconds(),
 	)
@@ -929,13 +1005,13 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		AuthResults: domain.DefaultAuthResults(),
 	}
 
-	route, ok := h.router.Resolve(m.FromAddress, m.ToAddresses)
+	rr, ok := h.resolveRoute(m)
 	if !ok {
 		http.Error(w, "no matching route", http.StatusUnprocessableEntity)
 		return
 	}
-	rh := h.routeHandlers[route.Name]
-	m.Direction = domain.Direction(route.Direction)
+
+	m.Direction = domain.Direction(rr.Direction)
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(h.cfg.SimulateTimeoutSeconds)*time.Second)
 	defer cancel()
@@ -943,10 +1019,10 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, domain.CtxDryRun, true)
 
 	// 検査パイプライン（ドライラン: DB 保存なし）
-	inspectResults, _ := rh.inspect.Run(ctx, m)
+	inspectResults, _ := rr.Inspect.Run(ctx, m)
 
 	// 変換パイプライン（ドライラン: storage 保存なし）
-	transformed, transformErr := rh.transform.Run(ctx, m)
+	transformed, transformErr := rr.Transform.Run(ctx, m)
 
 	// 変換失敗時は実配送経路（[6/7]）と同じセマンティクスで隔離として報告する。
 	// ポリシー評価をスキップして quarantine を返し、「変換なしで配送される」という
@@ -963,11 +1039,11 @@ func (h *mailHandler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		transformErrMsg = transformErr.Error()
 		action = policy.ActionQuarantine
 	} else {
-		action, matchedRule = rh.engine().Evaluate(transformed, inspectResults)
+		action, matchedRule = rr.Engine.Evaluate(transformed, inspectResults)
 	}
 	out := SimulateResult{
-		RouteName:          route.Name,
-		Direction:          route.Direction,
+		RouteName:          rr.Name,
+		Direction:          rr.Direction,
 		OriginalSubject:    m.Subject,
 		TransformedSubject: transformed.Subject,
 		SubjectChanged:     transformed.Subject != m.Subject,
@@ -1059,5 +1135,50 @@ func toProcessedEvent(route, direction, action string, mail *domain.Mail, result
 		TotalScore:    total,
 		InspectScores: scores,
 		ProcessedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+// buildWorkerRegistry は既存の組み込みワーカーを worker_type（＝Name()）でファクトリ登録する。
+// db モード v1 は per-instance 設定を注入せず、型に対応する既存インスタンスを共有する。
+func buildWorkerRegistry(inspect []domain.InspectWorker, transform []domain.TransformWorker) dbconfig.Registry {
+	ir := map[string]dbconfig.InspectFactory{}
+	for _, w := range inspect {
+		if w == nil {
+			continue
+		}
+		ww := w
+		ir[ww.Name()] = func(map[string]any) (domain.InspectWorker, error) { return ww, nil }
+	}
+	tr := map[string]dbconfig.TransformFactory{}
+	for _, w := range transform {
+		if w == nil {
+			continue
+		}
+		ww := w
+		tr[ww.Name()] = func(map[string]any) (domain.TransformWorker, error) { return ww, nil }
+	}
+	return dbconfig.Registry{Inspect: ir, Transform: tr}
+}
+
+// pollConfig はアクティブ版 checksum を定期的に確認し、変化時に reload を呼ぶ（ADR 008 ③-2b）。
+func pollConfig(repo *mariadb.Repository, intervalSec int, reload func() error) {
+	// 起動時に適用済みの checksum を初期値にして冗長な再読込を避ける。
+	last, _, _ := repo.ReadActiveConfig(context.Background())
+	ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		checksum, _, err := repo.ReadActiveConfig(context.Background())
+		if err != nil {
+			slog.Warn("設定ポーリング失敗", "error", err)
+			continue
+		}
+		if checksum == last {
+			continue
+		}
+		if err := reload(); err != nil {
+			slog.Error("設定リロード失敗（現行の設定を維持）", "error", err)
+			continue
+		}
+		last = checksum
 	}
 }

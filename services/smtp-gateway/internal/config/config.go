@@ -36,6 +36,23 @@ type Config struct {
 	// policy の destination に名前を書くと該当 deliverer 経由で配送される。
 	// "default" は予約名で、destination 未指定の deliver ルールに使われる。
 	Deliverers map[string]DelivererConfig `mapstructure:"deliverers"`
+	// Config は設定の源泉（ADR 008 ③-2）。source=db なら DB のアクティブ版スナップショットを
+	// 読み、ポーリングでパイプラインを再構築する。source=file（既定）は従来どおり routes[] を使う。
+	Config ConfigSourceConfig `mapstructure:"config"`
+}
+
+// ConfigSourceConfig は gateway の設定源泉。
+type ConfigSourceConfig struct {
+	Source              string `mapstructure:"source"`                // file（既定）| db
+	PollIntervalSeconds int    `mapstructure:"poll_interval_seconds"` // db モードのポーリング間隔（既定 10）
+}
+
+// EffectiveSource は Source の省略時デフォルト（file）を補完して返す。
+func (c ConfigSourceConfig) EffectiveSource() string {
+	if c.Source == "" {
+		return "file"
+	}
+	return c.Source
 }
 
 // DelivererConfig は 1 つの名前付き配送先（SMTP エンドポイント）の設定。

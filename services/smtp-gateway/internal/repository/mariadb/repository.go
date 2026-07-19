@@ -278,3 +278,21 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
+
+// ReadActiveConfig はアクティブな設定スナップショット（checksum と content）を返す（ADR 008 ③-2b）。
+// 未設定なら ("", "", nil)。gateway はこれをポーリングし、差分時にパイプラインを再構築する。
+func (r *Repository) ReadActiveConfig(ctx context.Context) (checksum, content string, err error) {
+	const q = `
+		SELECT v.checksum, v.content
+		FROM config_active a
+		JOIN config_versions v ON v.id = a.version_id
+		WHERE a.id = 1`
+	err = r.db.QueryRowContext(ctx, q).Scan(&checksum, &content)
+	if err == sql.ErrNoRows {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("アクティブ設定読み取り失敗: %w", err)
+	}
+	return checksum, content, nil
+}
