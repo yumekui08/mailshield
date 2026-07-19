@@ -55,6 +55,9 @@ type Repository interface {
 	CreateMailbox(ctx context.Context, mailbox *Mailbox) error
 	// ListMailboxes はメールボックス一覧を返す。
 	ListMailboxes(ctx context.Context) ([]Mailbox, error)
+	// SearchMailboxes は絞り込み条件（テキスト・割り当てユーザー・プロビジョニング元・
+	// 有効状態・ロール充足）とページングでメールボックスを検索し、該当ページと総件数を返す。
+	SearchMailboxes(ctx context.Context, filter MailboxSearchFilter) (mailboxes []Mailbox, total int, err error)
 	// GetMailbox は指定メールボックスを返す。見つからない場合は nil, nil を返す。
 	GetMailbox(ctx context.Context, id string) (*Mailbox, error)
 	// UpdateMailbox はメールボックスの表示名と有効フラグを更新する。
@@ -215,6 +218,24 @@ type Mailbox struct {
 	ProvisionedBy domain.ProvisionedBy
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+// MailboxSearchFilter は SearchMailboxes の絞り込み条件。ゼロ値のフィールドは無視される。
+type MailboxSearchFilter struct {
+	// Query は email_address / display_name への部分一致（大文字小文字はコレーション依存）。
+	Query string
+	// AssignedUserID を指定すると、そのユーザーが（ロール問わず）割り当てられたメールボックスに限定する。
+	AssignedUserID string
+	// ProvisionedBy を指定すると、その同期主体（manual / ldap / scim）のメールボックスに限定する。
+	ProvisionedBy domain.ProvisionedBy
+	// Active が非 nil の場合、is_active がその値のメールボックスに限定する。
+	Active *bool
+	// MissingRole を指定すると、そのロールの「有効ユーザー」割り当てが 1 件も無いメールボックスに
+	// 限定する（例: approver 未設定のメールボックスの洗い出し）。
+	MissingRole domain.AssignmentRole
+	// Limit / Offset はページング（Limit<=0 は既定 50、上限 200）。
+	Limit  int
+	Offset int
 }
 
 // MailboxAssignmentRequest は SyncMailboxAssignmentsForUser への入力 1 件を表す。

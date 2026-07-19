@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { MailPlus, Pencil, Trash2, Users, X, Inbox, Search } from "lucide-react";
+import { MailPlus, Pencil, Trash2, Users, X, Inbox, Search, FilterX } from "lucide-react";
 import {
   useMailboxes,
   useCreateMailbox,
@@ -10,7 +10,6 @@ import {
   useAddAssignment,
   useRemoveAssignment,
 } from "../hooks/useMailboxes";
-import { usePagedList } from "../hooks/usePagedList";
 import { PageHeader } from "../components/PageHeader";
 import { UserPicker } from "../components/UserPicker";
 import { Pagination } from "../components/Pagination";
@@ -34,7 +33,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "../components/ui/dialog";
-import type { MailboxRecord, AssignmentRole, AssignmentRoleSummary } from "../types";
+import type { MailboxRecord, AssignmentRole, AssignmentRoleSummary, PageMeta } from "../types";
+
+const PER_PAGE = 20;
 
 const roleBadgeVariant: Record<AssignmentRole, "blue" | "green" | "default"> = {
   member: "default",
@@ -194,7 +195,37 @@ function AssignmentsPanel({ mailbox, onClose }: { mailbox: MailboxRecord; onClos
 }
 
 export function MailboxesPage() {
-  const { data, isLoading, isError } = useMailboxes();
+  // 検索・絞り込み state（サーバサイド検索）
+  const [search, setSearch] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [provisionedBy, setProvisionedBy] = useState<"" | "manual" | "ldap" | "scim">("");
+  const [active, setActive] = useState<"" | "true" | "false">("");
+  const [missingRole, setMissingRole] = useState<"" | AssignmentRole>("");
+  const [page, setPage] = useState(1);
+
+  // テキスト検索は 250ms デバウンスしてからサーバへ投げる
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // 絞り込み条件が変わったら 1 ページ目に戻す
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ, provisionedBy, active, missingRole]);
+
+  const hasFilter =
+    debouncedQ !== "" || provisionedBy !== "" || active !== "" || missingRole !== "";
+
+  const { data, isLoading, isError, isFetching } = useMailboxes({
+    q: debouncedQ || undefined,
+    provisioned_by: provisionedBy || undefined,
+    active: active === "" ? undefined : active === "true",
+    missing_role: missingRole || undefined,
+    limit: PER_PAGE,
+    offset: (page - 1) * PER_PAGE,
+  });
+
   const createMailbox = useCreateMailbox();
   const updateMailbox = useUpdateMailbox();
   const deleteMailbox = useDeleteMailbox();
@@ -202,7 +233,21 @@ export function MailboxesPage() {
   const [dialog, setDialog] = useState<MainDialog>(null);
   const [assignMailbox, setAssignMailbox] = useState<MailboxRecord | null>(null);
 
-  const { pageItems: pagedMailboxes, meta, setPage } = usePagedList(data?.data, 20);
+  const pagedMailboxes = data?.data ?? [];
+  const total = data?.meta.total ?? 0;
+  const meta: PageMeta = {
+    total,
+    page,
+    per_page: PER_PAGE,
+    total_pages: Math.max(1, Math.ceil(total / PER_PAGE)),
+  };
+
+  function resetFilters() {
+    setSearch("");
+    setProvisionedBy("");
+    setActive("");
+    setMissingRole("");
+  }
 
   const [createEmail, setCreateEmail] = useState("");
   const [createDisplayName, setCreateDisplayName] = useState("");
@@ -264,7 +309,7 @@ export function MailboxesPage() {
       <PageHeader
         title="メールボックス管理"
         description="隔離メールの閲覧・解放権限を割り当てるメールボックス"
-        count={data?.meta.total}
+        count={total}
         actions={
           <Button onClick={() => { setCreateEmail(""); setCreateDisplayName(""); setDialog({ type: "create" }); }}>
             <MailPlus className="h-4 w-4 mr-2" />
@@ -272,6 +317,60 @@ export function MailboxesPage() {
           </Button>
         }
       />
+
+      {/* 検索・絞り込みバー */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-56">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="メールアドレス・表示名で検索"
+            className="pl-8"
+          />
+        </div>
+        <Select
+          value={provisionedBy}
+          onChange={(e) => setProvisionedBy(e.target.value as typeof provisionedBy)}
+          className="w-40"
+          aria-label="プロビジョニング元で絞り込み"
+        >
+          <option value="">すべての由来</option>
+          <option value="manual">manual（手動）</option>
+          <option value="ldap">ldap（同期）</option>
+          <option value="scim">scim（同期）</option>
+        </Select>
+        <Select
+          value={active}
+          onChange={(e) => setActive(e.target.value as typeof active)}
+          className="w-32"
+          aria-label="有効状態で絞り込み"
+        >
+          <option value="">すべての状態</option>
+          <option value="true">有効のみ</option>
+          <option value="false">無効のみ</option>
+        </Select>
+        <Select
+          value={missingRole}
+          onChange={(e) => setMissingRole(e.target.value as typeof missingRole)}
+          className="w-52"
+          aria-label="ロール未割り当てで絞り込み"
+        >
+          <option value="">ロール充足で絞り込まない</option>
+          <option value="member">member 未割り当て</option>
+          <option value="owner">owner 未割り当て</option>
+          <option value="approver">approver 未割り当て</option>
+        </Select>
+        {hasFilter && (
+          <Button variant="outline" size="sm" onClick={resetFilters}>
+            <FilterX className="h-3.5 w-3.5 mr-1" />
+            条件クリア
+          </Button>
+        )}
+        {isFetching && !isLoading && (
+          <span className="text-xs text-gray-400">更新中…</span>
+        )}
+      </div>
 
       {isError && (
         <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -301,7 +400,7 @@ export function MailboxesPage() {
                   <TableCell colSpan={5} className="text-center text-gray-500 py-10">
                     <div className="flex flex-col items-center gap-2">
                       <Inbox className="h-8 w-8 text-gray-300" />
-                      メールボックスがありません
+                      {hasFilter ? "条件に一致するメールボックスがありません" : "メールボックスがありません"}
                     </div>
                   </TableCell>
                 </TableRow>

@@ -8,10 +8,15 @@ import {
   addAssignment,
   removeAssignment,
 } from "../lib/api";
+import type { MailboxFilter } from "../lib/api";
 import type { AssignmentRole } from "../types";
 
-export function useMailboxes() {
-  return useQuery({ queryKey: ["mailboxes"], queryFn: listMailboxes });
+export function useMailboxes(filter: MailboxFilter = {}) {
+  return useQuery({
+    queryKey: ["mailboxes", filter],
+    queryFn: () => listMailboxes(filter),
+    placeholderData: (prev) => prev, // 検索・ページ切替中も前ページを保持（チラつき防止）
+  });
 }
 
 export function useCreateMailbox() {

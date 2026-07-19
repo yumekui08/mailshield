@@ -26,6 +26,7 @@ type mockRepository struct {
 	deleteUserFunc                    func(ctx context.Context, userID string) error
 	createMailboxFunc                 func(ctx context.Context, mailbox *repository.Mailbox) error
 	listMailboxesFunc                 func(ctx context.Context) ([]repository.Mailbox, error)
+	searchMailboxesFunc               func(ctx context.Context, filter repository.MailboxSearchFilter) ([]repository.Mailbox, int, error)
 	getMailboxFunc                    func(ctx context.Context, id string) (*repository.Mailbox, error)
 	updateMailboxFunc                 func(ctx context.Context, id, displayName string, isActive bool) error
 	deleteMailboxFunc                 func(ctx context.Context, id string) error
@@ -149,6 +150,13 @@ func (m *mockRepository) ListMailboxes(ctx context.Context) ([]repository.Mailbo
 		return m.listMailboxesFunc(ctx)
 	}
 	return []repository.Mailbox{}, nil
+}
+
+func (m *mockRepository) SearchMailboxes(ctx context.Context, filter repository.MailboxSearchFilter) ([]repository.Mailbox, int, error) {
+	if m.searchMailboxesFunc != nil {
+		return m.searchMailboxesFunc(ctx, filter)
+	}
+	return []repository.Mailbox{}, 0, nil
 }
 
 func (m *mockRepository) GetMailbox(ctx context.Context, id string) (*repository.Mailbox, error) {

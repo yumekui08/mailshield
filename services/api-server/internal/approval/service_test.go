@@ -137,6 +137,9 @@ func (s *serviceRepository) CreateMailbox(_ context.Context, _ *repository.Mailb
 func (s *serviceRepository) ListMailboxes(_ context.Context) ([]repository.Mailbox, error) {
 	return nil, nil
 }
+func (s *serviceRepository) SearchMailboxes(_ context.Context, _ repository.MailboxSearchFilter) ([]repository.Mailbox, int, error) {
+	return nil, 0, nil
+}
 func (s *serviceRepository) GetMailbox(_ context.Context, _ string) (*repository.Mailbox, error) {
 	return nil, nil
 }

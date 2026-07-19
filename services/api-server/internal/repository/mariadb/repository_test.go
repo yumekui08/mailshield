@@ -576,3 +576,68 @@ func TestListAssignmentSummaries(t *testing.T) {
 		t.Errorf("mb2 = %+v", got["mb2"])
 	}
 }
+
+var mailboxColumns = []string{"id", "email_address", "display_name", "is_active", "provisioned_by", "created_at", "updated_at"}
+
+// TestSearchMailboxes_TextAndFilters はテキスト・provisioned_by・active の条件と
+// ページングが COUNT / SELECT 双方に正しい引数順で渡ることを確認する。
+func TestSearchMailboxes_TextAndFilters(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	active := true
+	filter := repository.MailboxSearchFilter{
+		Query:         "sales",
+		ProvisionedBy: domain.ProvisionedByLDAP,
+		Active:        &active,
+		Limit:         20,
+		Offset:        40,
+	}
+	// COUNT: [like, like, "ldap", 1]
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM mailboxes m").
+		WithArgs("%sales%", "%sales%", "ldap", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	// SELECT: COUNT の引数 + limit + offset
+	mock.ExpectQuery("SELECT m.id, m.email_address").
+		WithArgs("%sales%", "%sales%", "ldap", 1, 20, 40).
+		WillReturnRows(sqlmock.NewRows(mailboxColumns).
+			AddRow("mb1", "sales@x.dev", "Sales", 1, "ldap", time.Now(), time.Now()))
+
+	mbs, total, err := repo.SearchMailboxes(context.Background(), filter)
+	if err != nil {
+		t.Fatalf("SearchMailboxes() error = %v", err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3", total)
+	}
+	if len(mbs) != 1 || mbs[0].EmailAddress != "sales@x.dev" || !mbs[0].IsActive {
+		t.Errorf("mailboxes = %+v", mbs)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// TestSearchMailboxes_MissingRole は missing_role 指定時に NOT EXISTS 条件で
+// 「有効ユーザーの当該ロール割り当てが無い」メールボックスを絞り込むことを確認する。
+func TestSearchMailboxes_MissingRole(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	filter := repository.MailboxSearchFilter{MissingRole: domain.AssignmentRoleApprover}
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM mailboxes m WHERE NOT EXISTS").
+		WithArgs("approver").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("NOT EXISTS .*ORDER BY m.email_address ASC LIMIT \\? OFFSET \\?").
+		WithArgs("approver", 50, 0).
+		WillReturnRows(sqlmock.NewRows(mailboxColumns).
+			AddRow("mb9", "orphan@x.dev", "", 1, "manual", time.Now(), time.Now()))
+
+	mbs, total, err := repo.SearchMailboxes(context.Background(), filter)
+	if err != nil {
+		t.Fatalf("SearchMailboxes() error = %v", err)
+	}
+	if total != 1 || len(mbs) != 1 || mbs[0].EmailAddress != "orphan@x.dev" {
+		t.Errorf("total=%d mbs=%+v", total, mbs)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}

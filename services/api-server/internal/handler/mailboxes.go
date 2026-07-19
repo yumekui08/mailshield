@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -75,10 +76,20 @@ func toAssignmentResponse(a repository.MailboxAssignment) assignmentResponse {
 }
 
 // HandleList は GET /api/v1/mailboxes を処理する。
+// クエリパラメータで絞り込み・ページングできる:
+//
+//	q               email_address / display_name の部分一致
+//	assigned_user_id 指定ユーザーが割り当てられたメールボックスに限定
+//	provisioned_by   manual | ldap | scim
+//	active           true | false（有効状態）
+//	missing_role     member | owner | approver（そのロールの有効ユーザーが未割り当て）
+//	limit / offset   ページング（limit 既定 50・上限 200）
 func (h *MailboxesHandler) HandleList(w http.ResponseWriter, r *http.Request) {
-	mailboxes, err := h.repo.ListMailboxes(r.Context())
+	filter := parseMailboxFilter(r)
+
+	mailboxes, total, err := h.repo.SearchMailboxes(r.Context(), filter)
 	if err != nil {
-		slog.Error("メールボックス一覧取得失敗", "error", err)
+		slog.Error("メールボックス検索失敗", "error", err)
 		writeErrorResponse(w, http.StatusInternalServerError, "INTERNAL_ERROR", "メールボックス一覧の取得に失敗しました")
 		return
 	}
@@ -97,8 +108,53 @@ func (h *MailboxesHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": resp,
-		"meta": map[string]int{"total": len(resp)},
+		"meta": map[string]any{
+			"total":  total,
+			"limit":  filter.Limit,
+			"offset": filter.Offset,
+		},
 	})
+}
+
+// parseMailboxFilter はクエリパラメータを MailboxSearchFilter に変換する。
+// 不正な列挙値・数値は無視して既定挙動にフォールバックする（検索は寛容に扱う）。
+func parseMailboxFilter(r *http.Request) repository.MailboxSearchFilter {
+	q := r.URL.Query()
+	f := repository.MailboxSearchFilter{
+		Query:          q.Get("q"),
+		AssignedUserID: q.Get("assigned_user_id"),
+		Limit:          atoiDefault(q.Get("limit"), 50),
+		Offset:         atoiDefault(q.Get("offset"), 0),
+	}
+	switch domain.ProvisionedBy(q.Get("provisioned_by")) {
+	case domain.ProvisionedByManual, domain.ProvisionedByLDAP, domain.ProvisionedBySCIM:
+		f.ProvisionedBy = domain.ProvisionedBy(q.Get("provisioned_by"))
+	}
+	switch domain.AssignmentRole(q.Get("missing_role")) {
+	case domain.AssignmentRoleMember, domain.AssignmentRoleOwner, domain.AssignmentRoleApprover:
+		f.MissingRole = domain.AssignmentRole(q.Get("missing_role"))
+	}
+	switch q.Get("active") {
+	case "true":
+		v := true
+		f.Active = &v
+	case "false":
+		v := false
+		f.Active = &v
+	}
+	return f
+}
+
+// atoiDefault は s を整数に変換し、失敗したら def を返す。
+func atoiDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 func toRoleSummaryResponses(summaries []repository.MailboxRoleSummary) []roleSummaryResponse {

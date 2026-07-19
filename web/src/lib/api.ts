@@ -154,8 +154,29 @@ export async function deleteUser(id: string): Promise<void> {
 
 // ─── メールボックス管理（operator/admin のみ） ─────────────
 
-export async function listMailboxes(): Promise<{ data: MailboxRecord[]; meta: { total: number } }> {
-  return request("/mailboxes");
+export interface MailboxFilter {
+  q?: string;
+  assigned_user_id?: string;
+  provisioned_by?: "manual" | "ldap" | "scim";
+  active?: boolean;
+  missing_role?: AssignmentRole;
+  limit?: number;
+  offset?: number;
+}
+
+export async function listMailboxes(
+  filter: MailboxFilter = {}
+): Promise<{ data: MailboxRecord[]; meta: { total: number; limit: number; offset: number } }> {
+  const params = new URLSearchParams();
+  if (filter.q) params.set("q", filter.q);
+  if (filter.assigned_user_id) params.set("assigned_user_id", filter.assigned_user_id);
+  if (filter.provisioned_by) params.set("provisioned_by", filter.provisioned_by);
+  if (filter.active !== undefined) params.set("active", String(filter.active));
+  if (filter.missing_role) params.set("missing_role", filter.missing_role);
+  if (filter.limit !== undefined) params.set("limit", String(filter.limit));
+  if (filter.offset !== undefined) params.set("offset", String(filter.offset));
+  const qs = params.toString();
+  return request(`/mailboxes${qs ? `?${qs}` : ""}`);
 }
 
 export async function createMailbox(params: {

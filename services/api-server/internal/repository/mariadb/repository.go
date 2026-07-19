@@ -707,6 +707,91 @@ func (r *Repository) ListMailboxes(ctx context.Context) ([]repository.Mailbox, e
 	return mailboxes, nil
 }
 
+// SearchMailboxes は絞り込み条件とページングでメールボックスを検索し、該当ページと総件数を返す。
+func (r *Repository) SearchMailboxes(ctx context.Context, filter repository.MailboxSearchFilter) ([]repository.Mailbox, int, error) {
+	limit := filter.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	// WHERE 句を条件ごとに組み立てる。プレースホルダ引数は where と同じ順序で積む。
+	var where []string
+	var args []any
+	if q := strings.TrimSpace(filter.Query); q != "" {
+		like := "%" + q + "%"
+		where = append(where, "(m.email_address LIKE ? OR m.display_name LIKE ?)")
+		args = append(args, like, like)
+	}
+	if filter.ProvisionedBy != "" {
+		where = append(where, "m.provisioned_by = ?")
+		args = append(args, string(filter.ProvisionedBy))
+	}
+	if filter.Active != nil {
+		v := 0
+		if *filter.Active {
+			v = 1
+		}
+		where = append(where, "m.is_active = ?")
+		args = append(args, v)
+	}
+	if filter.AssignedUserID != "" {
+		where = append(where,
+			"EXISTS (SELECT 1 FROM mailbox_assignments a WHERE a.mailbox_id = m.id AND a.user_id = ?)")
+		args = append(args, filter.AssignedUserID)
+	}
+	if filter.MissingRole != "" {
+		// そのロールで「有効ユーザー」の割り当てが 1 件も無いメールボックス（設定漏れの洗い出し）。
+		where = append(where,
+			"NOT EXISTS (SELECT 1 FROM mailbox_assignments a2 JOIN users u ON u.id = a2.user_id "+
+				"WHERE a2.mailbox_id = m.id AND a2.role = ? AND u.is_active = 1)")
+		args = append(args, string(filter.MissingRole))
+	}
+
+	whereSQL := ""
+	if len(where) > 0 {
+		whereSQL = " WHERE " + strings.Join(where, " AND ")
+	}
+
+	// 総件数（ページング用）。
+	var total int
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM mailboxes m"+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("メールボックス検索件数取得失敗: %w", err)
+	}
+
+	// 該当ページ。
+	pageArgs := append(append([]any{}, args...), limit, offset)
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT m.id, m.email_address, m.display_name, m.is_active, m.provisioned_by, m.created_at, m.updated_at "+
+			"FROM mailboxes m"+whereSQL+" ORDER BY m.email_address ASC LIMIT ? OFFSET ?", pageArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("メールボックス検索失敗: %w", err)
+	}
+	defer rows.Close()
+
+	mailboxes := []repository.Mailbox{}
+	for rows.Next() {
+		var m repository.Mailbox
+		var isActiveInt int
+		if err := rows.Scan(
+			&m.ID, &m.EmailAddress, &m.DisplayName,
+			&isActiveInt, &m.ProvisionedBy, &m.CreatedAt, &m.UpdatedAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("メールボックススキャン失敗: %w", err)
+		}
+		m.IsActive = isActiveInt == 1
+		mailboxes = append(mailboxes, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("メールボックスイテレーション失敗: %w", err)
+	}
+	return mailboxes, total, nil
+}
+
 // GetMailbox は指定メールボックスを返す。見つからない場合は nil, nil を返す。
 func (r *Repository) GetMailbox(ctx context.Context, id string) (*repository.Mailbox, error) {
 	const q = `

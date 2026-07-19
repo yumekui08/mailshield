@@ -465,7 +465,19 @@ email / display_name の部分一致でユーザーを検索する（`operator` 
 
 ### `GET /api/v1/mailboxes`
 
-メールボックス一覧。各要素に `assignment_summary`（role 別の割り当て人数 + 先頭 3 人）を含む。
+メールボックス一覧（サーバサイド検索・絞り込み・ページング対応）。各要素に `assignment_summary`（role 別の割り当て人数 + 先頭 3 人）を含む。`meta.total` は絞り込み後の総件数。
+
+**クエリパラメータ:**（いずれも任意。不正な列挙値・数値は無視して既定にフォールバック）
+
+| パラメータ | 説明 |
+|-----------|------|
+| `q` | `email_address` / `display_name` の部分一致 |
+| `assigned_user_id` | 指定ユーザーが（ロール問わず）割り当てられたメールボックスに限定 |
+| `provisioned_by` | `manual` / `ldap` / `scim`（同期主体で絞り込み） |
+| `active` | `true` / `false`（有効状態で絞り込み） |
+| `missing_role` | `member` / `owner` / `approver`（そのロールの**有効ユーザー**割り当てが 1 件も無いメールボックス＝設定漏れの洗い出し） |
+| `limit` | 件数（デフォルト 50・上限 200） |
+| `offset` | オフセット（デフォルト 0） |
 
 ```json
 {
@@ -478,7 +490,8 @@ email / display_name の部分一致でユーザーを検索する（`operator` 
         {"role": "approver", "count": 1, "sample": [{"email": "c@x", "display_name": "C"}]}
       ]
     }
-  ]
+  ],
+  "meta": {"total": 137, "limit": 50, "offset": 0}
 }
 ```
 
