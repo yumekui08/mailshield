@@ -285,14 +285,6 @@ func SeedFromFiles(ctx context.Context, repo repository.ConfigRepository, dir st
 	}
 	res := Sync(ctx, repo, bundle.Docs, true)
 
-	// catch-all を保証（ファイルには含めない運用のため、無ければ作る）。
-	if n, err := repo.CountCatchAllRoutings(ctx); err == nil && n == 0 {
-		_ = repo.CreateRouting(ctx, &domain.Routing{
-			Name: "デフォルト（すべてに一致）", Priority: 1_000_000, MatchExpr: "true",
-			IsCatchAll: true, IsEnabled: true,
-			Inspect: []domain.WorkerBinding{}, Transform: []domain.WorkerBinding{},
-		})
-	}
 	if _, err := pub.Publish(ctx, "file", "seed"); err != nil {
 		return res, fmt.Errorf("seed 後の publish 失敗: %w", err)
 	}

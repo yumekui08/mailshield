@@ -280,9 +280,6 @@ func (h *ConfigHandler) audit(r *http.Request, event, targetID string) {
 
 // ─── ルーティング ─────────────────────────────────────────────────────
 
-// catchAllPriority は catch-all ルーティングの固定 priority（最後に評価されるよう十分大きく取る）。
-const catchAllPriority = 1_000_000
-
 type routingRequest struct {
 	Name      string                 `json:"name"`
 	Priority  int                    `json:"priority"`
@@ -295,17 +292,8 @@ type routingRequest struct {
 }
 
 func (h *ConfigHandler) HandleListRoutings(w http.ResponseWriter, r *http.Request) {
-	// catch-all を保証する（無ければ既定を 1 つ作る）。マッチ漏れによるメール消失を防ぐ。
-	if n, err := h.repo.CountCatchAllRoutings(r.Context()); err == nil && n == 0 {
-		def := &domain.Routing{
-			Name: "デフォルト（すべてに一致）", Priority: catchAllPriority, MatchExpr: "true",
-			Direction: "inbound", IsCatchAll: true, IsEnabled: true,
-			Inspect: []domain.WorkerBinding{}, Transform: []domain.WorkerBinding{},
-		}
-		if err := h.repo.CreateRouting(r.Context(), def); err != nil {
-			slog.Warn("catch-all ルーティングの自動作成に失敗", "error", err)
-		}
-	}
+	// ルーティングはすべてデータ。空状態も正当（マッチしないメールは拒否＝Postfix へ 550）。
+	// 「すべてに一致」させたい場合はユーザーが match_expr: "true" のルーティングを 1 つ作る。
 	list, err := h.repo.ListRoutings(r.Context())
 	if err != nil {
 		slog.Error("ルーティング一覧取得失敗", "error", err)
@@ -353,17 +341,10 @@ func (h *ConfigHandler) HandleUpdateRouting(w http.ResponseWriter, r *http.Reque
 	existing.PolicyRef = req.PolicyRef
 	existing.Inspect = req.Inspect
 	existing.Transform = req.Transform
-	if existing.IsCatchAll {
-		// catch-all は match/priority/有効を固定（削除・無効化・条件変更させない）。
-		existing.MatchExpr = "true"
-		existing.Priority = catchAllPriority
-		existing.IsEnabled = true
-	} else {
-		existing.MatchExpr = req.MatchExpr
-		existing.Priority = req.Priority
-		if req.IsEnabled != nil {
-			existing.IsEnabled = *req.IsEnabled
-		}
+	existing.MatchExpr = req.MatchExpr
+	existing.Priority = req.Priority
+	if req.IsEnabled != nil {
+		existing.IsEnabled = *req.IsEnabled
 	}
 	if err := h.repo.UpdateRouting(r.Context(), existing); err != nil {
 		writeConfigWriteError(w, err, "ルーティング更新失敗")
@@ -382,11 +363,6 @@ func (h *ConfigHandler) HandleDeleteRouting(w http.ResponseWriter, r *http.Reque
 	}
 	if existing == nil {
 		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if existing.IsCatchAll {
-		writeErrorResponse(w, http.StatusBadRequest, "CATCHALL_PROTECTED",
-			"catch-all（デフォルト）ルーティングは削除できません。メール消失を防ぐため必ず 1 つ必要です")
 		return
 	}
 	if err := h.repo.DeleteRouting(r.Context(), id); err != nil {

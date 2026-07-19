@@ -190,8 +190,9 @@ func TestCreateConfigVariable_InvalidKey(t *testing.T) {
 	}
 }
 
-func TestListRoutings_AutoCreatesCatchAll(t *testing.T) {
-	repo := &mockConfigRepo{catchAllCnt: 0}
+// 空状態を許容する（catch-all を自動生成しない）。
+func TestListRoutings_EmptyNoAutoCreate(t *testing.T) {
+	repo := &mockConfigRepo{}
 	h := NewConfigHandler(repo, testAuditLogger)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/config/routings", nil)
 	req = req.WithContext(middleware.WithSession(req.Context(), adminSession()))
@@ -200,19 +201,20 @@ func TestListRoutings_AutoCreatesCatchAll(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d", rr.Code)
 	}
-	if len(repo.createdRts) != 1 || !repo.createdRts[0].IsCatchAll || repo.createdRts[0].MatchExpr != "true" {
-		t.Errorf("catch-all が自動作成されていない: %+v", repo.createdRts)
+	if len(repo.createdRts) != 0 {
+		t.Errorf("ルーティングを自動作成すべきでない: %+v", repo.createdRts)
 	}
 }
 
-func TestDeleteRouting_CatchAllProtected(t *testing.T) {
-	repo := &mockConfigRepo{getRt: &domain.Routing{ID: "rt-c", IsCatchAll: true}}
+// どのルーティングも削除できる（catch-all の特別扱いは廃止）。
+func TestDeleteRouting_Works(t *testing.T) {
+	repo := &mockConfigRepo{getRt: &domain.Routing{ID: "rt-1"}}
 	h := NewConfigHandler(repo, testAuditLogger)
-	req := requestWithSessionAndURLParam(http.MethodDelete, "/api/v1/config/routings/rt-c", "id", "rt-c", adminSession())
+	req := requestWithSessionAndURLParam(http.MethodDelete, "/api/v1/config/routings/rt-1", "id", "rt-1", adminSession())
 	rr := httptest.NewRecorder()
 	h.HandleDeleteRouting(rr, req)
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("catch-all 削除は 400、実際: %d", rr.Code)
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("削除は 204、実際: %d", rr.Code)
 	}
 }
 

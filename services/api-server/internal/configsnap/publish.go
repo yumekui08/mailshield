@@ -95,11 +95,8 @@ func Validate(snap *domain.ConfigSnapshot) error {
 		varSet[v.Key] = true
 	}
 
-	catchAll := 0
+	// ルーティングはすべてデータ。空状態も正当（catch-all は必須ではない）。
 	for _, rt := range snap.Routings {
-		if rt.IsCatchAll {
-			catchAll++
-		}
 		if err := validateBindings(rt, rt.Inspect, domain.WorkerKindInspect, instByAlias); err != nil {
 			return err
 		}
@@ -111,9 +108,6 @@ func Validate(snap *domain.ConfigSnapshot) error {
 				return fmt.Errorf("ルーティング %q の match_expr が未定義の変数 ${%s} を参照しています", routingLabel(rt), v)
 			}
 		}
-	}
-	if catchAll != 1 {
-		return fmt.Errorf("catch-all ルーティングはちょうど 1 つ必要です（現在 %d 個）", catchAll)
 	}
 
 	for _, in := range snap.WorkerInstances {

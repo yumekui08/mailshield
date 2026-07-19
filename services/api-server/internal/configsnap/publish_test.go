@@ -34,17 +34,15 @@ func TestValidate_OK(t *testing.T) {
 	}
 }
 
-func TestValidate_MissingCatchAll(t *testing.T) {
-	s := snap(nil, nil, []domain.Routing{{Name: "inbound", MatchExpr: "true"}})
-	if err := Validate(s); err == nil || !strings.Contains(err.Error(), "catch-all") {
-		t.Errorf("catch-all 欠如が検出されない: %v", err)
+// 空状態・catch-all 無しは正当（マッチしないメールは拒否＝安全）。
+func TestValidate_EmptyIsOK(t *testing.T) {
+	if err := Validate(snap(nil, nil, nil)); err != nil {
+		t.Errorf("空スナップショットは正当であるべき: %v", err)
 	}
-}
-
-func TestValidate_TwoCatchAll(t *testing.T) {
-	s := snap(nil, nil, []domain.Routing{catchAll(), catchAll()})
-	if err := Validate(s); err == nil || !strings.Contains(err.Error(), "catch-all") {
-		t.Errorf("catch-all 重複が検出されない: %v", err)
+	// catch-all（match=true）が無くてもエラーにしない
+	s := snap(nil, nil, []domain.Routing{{Name: "inbound", MatchExpr: "true"}})
+	if err := Validate(s); err != nil {
+		t.Errorf("catch-all 無しでもエラーにしない: %v", err)
 	}
 }
 

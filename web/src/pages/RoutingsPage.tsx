@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Route as RouteIcon, ArrowUp, ArrowDown, X, Lock } from "lucide-react";
+import { Plus, Pencil, Trash2, Route as RouteIcon, ArrowUp, ArrowDown, X } from "lucide-react";
 import {
   useRoutings,
   useCreateRouting,
@@ -184,7 +184,6 @@ export function RoutingsPage() {
 
   const routings = data?.data ?? [];
   const instances = instData?.data ?? [];
-  const editingCatchAll = dialog?.type === "edit" && dialog.routing.is_catchall;
 
   function openCreate() {
     setForm(emptyForm);
@@ -301,16 +300,11 @@ export function RoutingsPage() {
                 routings.map((rt) => (
                   <TableRow key={rt.id}>
                     <TableCell className="text-sm tabular-nums text-gray-500">
-                      {rt.is_catchall ? "—" : rt.priority}
+                      {rt.priority}
                     </TableCell>
                     <TableCell className="text-sm font-medium">
                       <div className="flex items-center gap-1.5">
                         {rt.name || <span className="text-gray-400">（無名）</span>}
-                        {rt.is_catchall && (
-                          <Badge variant="default" className="gap-1">
-                            <Lock className="h-3 w-3" />catch-all
-                          </Badge>
-                        )}
                       </div>
                     </TableCell>
                     <TableCell className="text-sm font-mono text-gray-600 max-w-64 truncate">{rt.match_expr}</TableCell>
@@ -331,8 +325,6 @@ export function RoutingsPage() {
                         <Button
                           variant="destructive"
                           size="sm"
-                          disabled={rt.is_catchall}
-                          title={rt.is_catchall ? "catch-all は削除できません" : undefined}
                           onClick={() => setDialog({ type: "delete", routing: rt })}
                         >
                           <Trash2 className="h-3.5 w-3.5 mr-1" />削除
@@ -352,9 +344,7 @@ export function RoutingsPage() {
         <DialogHeader>
           <DialogTitle>{dialog?.type === "edit" ? "ルーティングを編集" : "ルーティングを追加"}</DialogTitle>
           <DialogDescription>
-            {editingCatchAll
-              ? "catch-all（デフォルト）は必ず最後に全メールを受けます。マッチ条件・優先度は固定です。"
-              : "priority が小さいほど先に評価され、最初に一致した 1 つだけを通します。"}
+            priority が小さいほど先に評価され、最初に一致した 1 つだけを通します。すべてに一致させるには match_expr を true にします。
           </DialogDescription>
         </DialogHeader>
         <div className="px-5 py-4 space-y-3 max-h-[64vh] overflow-y-auto">
@@ -369,7 +359,6 @@ export function RoutingsPage() {
                 type="number"
                 value={form.priority}
                 onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}
-                disabled={editingCatchAll}
               />
             </div>
           </div>
@@ -391,7 +380,6 @@ export function RoutingsPage() {
               className="font-mono text-sm"
               value={form.match_expr}
               onChange={(e) => setForm({ ...form, match_expr: e.target.value })}
-              disabled={editingCatchAll}
               placeholder='mail.to endswith ${INTERNAL_DOMAIN}'
             />
             <p className="text-xs text-gray-400">
@@ -412,7 +400,6 @@ export function RoutingsPage() {
               <Select
                 value={String(form.is_enabled)}
                 onChange={(e) => setForm({ ...form, is_enabled: e.target.value === "true" })}
-                disabled={editingCatchAll}
               >
                 <option value="true">有効</option>
                 <option value="false">無効</option>
