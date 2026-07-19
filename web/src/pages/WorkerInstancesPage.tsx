@@ -30,12 +30,35 @@ import {
 } from "../components/ui/dialog";
 import type { WorkerInstance, WorkerKind } from "../types";
 
-// コード側で登録済みの代表的なワーカー型（datalist 候補・自由入力も可）
-const KNOWN_TYPES = [
-  "av-worker", "dlp-worker", "header-inspector", "url-worker", "qr-worker",
-  "attachment-inspector", "sanitize-worker", "macro-strip", "url-rewrite-worker",
-  "disclaimer-worker", "filesep-worker", "arc-sealer",
-];
+// コード側で登録済みの代表的なワーカー型と、その kind・デフォルト設定。
+// 型を選ぶと kind とデフォルト設定を自動で埋める（白紙から書かせない）。
+interface WorkerTypeDef {
+  kind: WorkerKind;
+  config: Record<string, unknown>;
+}
+const WORKER_TYPES: Record<string, WorkerTypeDef> = {
+  "av-worker": { kind: "inspect", config: { host: "clamav", port: 3310, timeout_seconds: 30 } },
+  "dlp-worker": { kind: "inspect", config: { tika_url: "http://tika:9998", threshold: 70 } },
+  "header-inspector": { kind: "inspect", config: { score_spoofed_from: 40, score_auth_fail: 30 } },
+  "url-worker": { kind: "inspect", config: { threshold: 50, timeout_seconds: 15 } },
+  "qr-worker": { kind: "inspect", config: { threshold: 50, timeout_seconds: 15 } },
+  "attachment-inspector": {
+    kind: "inspect",
+    config: { threshold: 50, score_multi_extension: 40, score_encrypted: 30, score_macro: 50 },
+  },
+  "subject-virus-inspector": { kind: "inspect", config: { keywords: ["virus"], score: 100 } },
+  "sanitize-worker": { kind: "transform", config: { strip_scripts: true, strip_event_handlers: true } },
+  "macro-strip": { kind: "transform", config: {} },
+  "url-rewrite-worker": { kind: "transform", config: { proxy_base: "https://proxy.example.com/r?u=" } },
+  "disclaimer-worker": { kind: "transform", config: { text: "" } },
+  "subject-virus-transformer": { kind: "transform", config: { keywords: ["virus"], prefix: "[迷惑メール注意] " } },
+  "filesep-worker": { kind: "transform", config: { link_ttl_hours: 72, min_size_bytes: 0 } },
+  "arc-sealer": {
+    kind: "transform",
+    config: { signing_domain: "arc.example.com", selector: "mailshield", private_key_path: "/app/config/arc/private.pem" },
+  },
+};
+const KNOWN_TYPES = Object.keys(WORKER_TYPES);
 
 const kindLabel: Record<WorkerKind, string> = {
   inspect: "検査（inspect）",
@@ -264,7 +287,21 @@ export function WorkerInstancesPage() {
                 list="worker-types"
                 placeholder="av-worker"
                 value={form.worker_type}
-                onChange={(e) => setForm({ ...form, worker_type: e.target.value })}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  const def = WORKER_TYPES[t];
+                  // 既知の型を選んだら kind とデフォルト設定を自動で埋める（未編集の config のみ上書き）。
+                  if (def) {
+                    setForm((f) => ({
+                      ...f,
+                      worker_type: t,
+                      kind: def.kind,
+                      configText: JSON.stringify(def.config, null, 2),
+                    }));
+                  } else {
+                    setForm((f) => ({ ...f, worker_type: t }));
+                  }
+                }}
               />
               <datalist id="worker-types">
                 {KNOWN_TYPES.map((t) => <option key={t} value={t} />)}

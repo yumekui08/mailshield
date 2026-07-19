@@ -1,0 +1,62 @@
+{
+  "version": "mailshield.config/v1",
+  "docs": [
+    {
+      "kind": "ConfigVariable",
+      "name": "INTERNAL_DOMAIN",
+      "spec": { "value": "@internal.test", "description": "自組織ドメイン。受信/送信判定の match に使う（本番の値に変更すること）" }
+    },
+    {
+      "kind": "WorkerInstance",
+      "name": "av_inbound",
+      "spec": { "display_name": "受信ウイルス検査", "worker_type": "av-worker", "kind": "inspect", "config": { "host": "clamav", "port": 3310, "timeout_seconds": 30 }, "default_timeout_seconds": 30, "is_enabled": true }
+    },
+    {
+      "kind": "WorkerInstance",
+      "name": "sanitize_inbound",
+      "spec": { "display_name": "受信 HTML 無害化", "worker_type": "sanitize-worker", "kind": "transform", "config": { "strip_scripts": true, "strip_event_handlers": true }, "default_timeout_seconds": 10, "is_enabled": true }
+    },
+    {
+      "kind": "WorkerInstance",
+      "name": "filesep_inbound",
+      "spec": { "display_name": "受信添付分離", "worker_type": "filesep-worker", "kind": "transform", "config": { "link_ttl_hours": 72 }, "default_timeout_seconds": 20, "is_enabled": true }
+    },
+    {
+      "kind": "PolicyInstance",
+      "name": "standard_inbound",
+      "spec": { "display_name": "標準受信ポリシー", "content": "rules:\n  - name: virus_block\n    condition: \"av_inbound.detected == true\"\n    action: reject\n  - name: default_deliver\n    condition: \"true\"\n    action: deliver\n" }
+    },
+    {
+      "kind": "PolicyInstance",
+      "name": "standard_outbound",
+      "spec": { "display_name": "標準送信ポリシー", "content": "rules:\n  - name: default_deliver\n    condition: \"true\"\n    action: deliver\n" }
+    },
+    {
+      "kind": "Routing",
+      "name": "inbound",
+      "spec": {
+        "priority": 20,
+        "match_expr": "mail.to ends_with ${INTERNAL_DOMAIN}",
+        "direction": "inbound",
+        "is_enabled": true,
+        "policy_ref": "standard_inbound",
+        "inspect": [{ "alias": "av_inbound", "enabled": true }],
+        "transform": [{ "alias": "sanitize_inbound", "enabled": true }, { "alias": "filesep_inbound", "enabled": true }]
+      }
+    },
+    {
+      "kind": "Routing",
+      "name": "outbound",
+      "spec": {
+        "priority": 30,
+        "match_expr": "mail.from ends_with ${INTERNAL_DOMAIN}",
+        "direction": "outbound",
+        "is_enabled": true,
+        "policy_ref": "standard_outbound",
+        "inspect": [],
+        "transform": []
+      }
+    }
+  ],
+  "requires_variables": ["INTERNAL_DOMAIN"]
+}
