@@ -18,7 +18,7 @@
 
 **GitHub Private Vulnerability Reporting** を使用してください:
 
-1. [Security タブ](https://github.com/koizumib/mailshield/security) を開く
+1. [Security タブ](https://github.com/yumekui08/mailshield/security) を開く
 2. "Report a vulnerability" をクリック
 3. 詳細を記入して送信
 

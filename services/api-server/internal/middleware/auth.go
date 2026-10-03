@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/auth"
-	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/auth"
+	"github.com/yumekui08/mailshield/services/api-server/internal/config"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 type contextKey string

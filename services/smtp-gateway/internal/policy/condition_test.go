@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 func TestBuildFacts_MailAttributes(t *testing.T) {

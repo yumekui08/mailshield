@@ -8,7 +8,7 @@ import (
 
 	"github.com/jhillyerd/enmime"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/eml"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/eml"
 )
 
 const sampleEML = "Received: from mx.example.com by gw.example.com; Mon, 1 Jan 2026 00:00:00 +0000\r\n" +

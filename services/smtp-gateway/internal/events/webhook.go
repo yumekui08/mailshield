@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 // WebhookPublisher は mail.received イベントを HTTP POST で外部システムへ通知する。

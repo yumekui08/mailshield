@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/middleware"
 )
 
 // TestAuthenticate_NoCookie はCookieなしのリクエストが401 Unauthorizedを返すことを確認する。

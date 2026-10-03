@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/configseed"
+	"github.com/yumekui08/mailshield/services/api-server/internal/configseed"
 )
 
 // ADR 008 のインポート/エクスポート: k8s マニフェスト風バンドル。

@@ -13,9 +13,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/configsnap"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/configsnap"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 const (

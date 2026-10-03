@@ -46,7 +46,7 @@ export MINIO_PUBLIC_ENDPOINT=192.168.1.100:9000
 ## Step 1: リポジトリのクローン
 
 ```bash
-git clone https://github.com/koizumib/mailshield.git
+git clone https://github.com/yumekui08/mailshield.git
 cd mailshield
 ```
 

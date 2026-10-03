@@ -32,7 +32,7 @@ Docker を使わず、ソースからビルドしたバイナリを systemd で�
 ## 1. ビルド
 
 ```bash
-git clone https://github.com/koizumib/mailshield.git
+git clone https://github.com/yumekui08/mailshield.git
 cd mailshield
 
 # smtp-gateway と api-server をビルドする（go.work ワークスペース使用）

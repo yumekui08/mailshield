@@ -1,6 +1,6 @@
 package directory
 
-import "github.com/koizumib/mailshield/services/api-server/internal/domain"
+import "github.com/yumekui08/mailshield/services/api-server/internal/domain"
 
 // GroupRoleMapper はグループ名の集合から MailShield ロールを解決する。
 // OIDC の groups claim・LDAP の memberOf など、グループ所属でロールを表現する

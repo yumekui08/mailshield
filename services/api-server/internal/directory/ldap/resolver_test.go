@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/directory"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/directory"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 // countingSearcher は検索回数を記録するフェイク Searcher（キャッシュ検証用）。

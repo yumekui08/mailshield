@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/config"
 )
 
 type compiledRoute struct {

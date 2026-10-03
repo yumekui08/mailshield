@@ -13,11 +13,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/audit"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
-	"github.com/koizumib/mailshield/services/api-server/internal/policyfile"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/audit"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/middleware"
+	"github.com/yumekui08/mailshield/services/api-server/internal/policyfile"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // PolicyHandler はポリシー（routes.d/<route>/policy.yaml）の閲覧・編集 API を提供する。

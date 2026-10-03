@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 // Repository はDBへのアクセスを抽象化するインターフェースである。

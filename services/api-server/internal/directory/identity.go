@@ -8,7 +8,7 @@
 // （権威の優先順位 manual > ldap/scim > oidc は repository.UpsertFederatedUser 側で解決）。
 package directory
 
-import "github.com/koizumib/mailshield/services/api-server/internal/domain"
+import "github.com/yumekui08/mailshield/services/api-server/internal/domain"
 
 // ExternalIdentity は外部ディレクトリ・IdP から得られる、プロビジョニング前に
 // 正規化されたユーザー情報を表す。

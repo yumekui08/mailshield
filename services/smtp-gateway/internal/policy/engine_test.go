@@ -10,7 +10,7 @@ import (
 
 	"github.com/jhillyerd/enmime"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 // evaluate と buildFacts はパッケージ内関数のためパッケージ内テストとする

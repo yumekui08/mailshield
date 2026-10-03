@@ -8,11 +8,11 @@ import (
 
 	goldap "github.com/go-ldap/ldap/v3"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	"github.com/koizumib/mailshield/services/api-server/internal/directory"
-	ldapsync "github.com/koizumib/mailshield/services/api-server/internal/directory/ldap"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/config"
+	"github.com/yumekui08/mailshield/services/api-server/internal/directory"
+	ldapsync "github.com/yumekui08/mailshield/services/api-server/internal/directory/ldap"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // dialer は LDAPBindProvider が必要とする接続確立操作。

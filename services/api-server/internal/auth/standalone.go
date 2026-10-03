@@ -7,9 +7,9 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/config"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // StandaloneProvider はメール+パスワードによるスタンドアロン認証を提供する。

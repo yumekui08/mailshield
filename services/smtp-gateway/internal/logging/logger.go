@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/config"
 )
 
 // Setup は cfg.Log の設定に従って slog のデフォルトロガーを初期化する。

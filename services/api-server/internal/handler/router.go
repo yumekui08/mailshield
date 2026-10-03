@@ -7,17 +7,17 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/audit"
-	"github.com/koizumib/mailshield/services/api-server/internal/auth"
-	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	"github.com/koizumib/mailshield/services/api-server/internal/delay"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
-	"github.com/koizumib/mailshield/services/api-server/internal/otp"
-	"github.com/koizumib/mailshield/services/api-server/internal/policyfile"
-	"github.com/koizumib/mailshield/services/api-server/internal/pwreset"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
-	"github.com/koizumib/mailshield/services/api-server/internal/storage"
+	"github.com/yumekui08/mailshield/services/api-server/internal/audit"
+	"github.com/yumekui08/mailshield/services/api-server/internal/auth"
+	"github.com/yumekui08/mailshield/services/api-server/internal/config"
+	"github.com/yumekui08/mailshield/services/api-server/internal/delay"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/middleware"
+	"github.com/yumekui08/mailshield/services/api-server/internal/otp"
+	"github.com/yumekui08/mailshield/services/api-server/internal/policyfile"
+	"github.com/yumekui08/mailshield/services/api-server/internal/pwreset"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/storage"
 )
 
 // NewRouter はchiルーターを組み立てて返す。

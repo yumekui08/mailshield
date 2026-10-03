@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 func TestExtractSubject(t *testing.T) {

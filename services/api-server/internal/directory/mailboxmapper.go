@@ -1,6 +1,6 @@
 package directory
 
-import "github.com/koizumib/mailshield/services/api-server/internal/domain"
+import "github.com/yumekui08/mailshield/services/api-server/internal/domain"
 
 // MailboxAssignmentTuple は「あるユーザーがどのメールボックスに、どの role で
 // 所属するか」を表す。解決方式（user_attribute / group_search / fixed）によらず、

@@ -1,4 +1,4 @@
-module github.com/koizumib/mailshield/services/smtp-gateway
+module github.com/yumekui08/mailshield/services/smtp-gateway
 
 go 1.24.0
 

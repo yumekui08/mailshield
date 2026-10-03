@@ -8,8 +8,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/config"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 func newTestStore(t *testing.T) (*RedisSessionStore, *miniredis.Miniredis) {

@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/jhillyerd/enmime"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/officefile"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/officefile"
 )
 
 func buildOOXML(t *testing.T, withMacro bool) []byte {

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	"github.com/koizumib/mailshield/services/api-server/internal/directory"
-	ldapsync "github.com/koizumib/mailshield/services/api-server/internal/directory/ldap"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/config"
+	"github.com/yumekui08/mailshield/services/api-server/internal/directory"
+	ldapsync "github.com/yumekui08/mailshield/services/api-server/internal/directory/ldap"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // fakeLDAPConn はテスト用の ldapsync.Searcher 実装。

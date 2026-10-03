@@ -6,7 +6,7 @@ import (
 
 	glua "github.com/yuin/gopher-lua"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 type transformWorker struct {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/config"
 )
 
 // TestRegistry_ResolveByName は deliverer 名で解決できることを確認する。

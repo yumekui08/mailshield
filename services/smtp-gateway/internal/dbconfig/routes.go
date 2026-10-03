@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/pipeline"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/policy"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/pipeline"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/policy"
 )
 
 // CompiledRoute は 1 ルーティングを実行可能な形にしたもの。

@@ -16,9 +16,9 @@ import (
 	"github.com/jhillyerd/enmime"
 	"gopkg.in/yaml.v3"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/eml"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/officefile"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/eml"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/officefile"
 )
 
 const workerName = "macro-strip"

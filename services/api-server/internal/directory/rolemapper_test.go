@@ -3,7 +3,7 @@ package directory
 import (
 	"testing"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 func TestGroupRoleMapper_Resolve(t *testing.T) {

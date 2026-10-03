@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/jhillyerd/enmime"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/filesep"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/worker/builtin/filesep"
 )
 
 // ─── スタブ AttachmentStorage ─────────────────────────────────

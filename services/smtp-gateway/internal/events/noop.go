@@ -7,7 +7,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 type noopPublisher struct{}

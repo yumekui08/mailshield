@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	"github.com/koizumib/mailshield/services/api-server/internal/directory"
-	ldapsync "github.com/koizumib/mailshield/services/api-server/internal/directory/ldap"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/config"
+	"github.com/yumekui08/mailshield/services/api-server/internal/directory"
+	ldapsync "github.com/yumekui08/mailshield/services/api-server/internal/directory/ldap"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 // BuildLDAPConnConfig は config.LDAPConfig から接続設定と同期設定を組み立てる。

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/directory"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/directory"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // fakeSearcher はテスト用の Searcher 実装。

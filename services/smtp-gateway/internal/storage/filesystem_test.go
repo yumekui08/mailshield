@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/storage"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/storage"
 )
 
 func newTestFilesystem(t *testing.T) *storage.FilesystemStorage {

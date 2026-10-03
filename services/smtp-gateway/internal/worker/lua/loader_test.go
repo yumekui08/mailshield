@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	luaworker "github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/lua"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	luaworker "github.com/yumekui08/mailshield/services/smtp-gateway/internal/worker/lua"
 )
 
 // ─── テスト用スクリプト ──────────────────────────────────────

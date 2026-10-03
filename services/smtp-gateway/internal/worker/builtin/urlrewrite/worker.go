@@ -19,8 +19,8 @@ import (
 	"github.com/jhillyerd/enmime"
 	"gopkg.in/yaml.v3"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/eml"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/eml"
 )
 
 const workerName = "url-rewrite-worker"

@@ -1,4 +1,4 @@
-module github.com/koizumib/mailshield/services/api-server
+module github.com/yumekui08/mailshield/services/api-server
 
 go 1.24.0
 

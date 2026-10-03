@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 // buildEMLWithAttachment は単一添付の EML を組み立てる。

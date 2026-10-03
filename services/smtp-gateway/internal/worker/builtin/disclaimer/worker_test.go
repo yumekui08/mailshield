@@ -9,7 +9,7 @@ import (
 
 	"github.com/jhillyerd/enmime"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 func makeTextMail(subject, body string) *domain.Mail {

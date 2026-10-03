@@ -11,13 +11,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/audit"
-	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/middleware"
-	"github.com/koizumib/mailshield/services/api-server/internal/reinject"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
-	"github.com/koizumib/mailshield/services/api-server/internal/storage"
+	"github.com/yumekui08/mailshield/services/api-server/internal/audit"
+	"github.com/yumekui08/mailshield/services/api-server/internal/config"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/middleware"
+	"github.com/yumekui08/mailshield/services/api-server/internal/reinject"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/storage"
 )
 
 // ApprovalHandler は承認フロー関連の API ハンドラーである。

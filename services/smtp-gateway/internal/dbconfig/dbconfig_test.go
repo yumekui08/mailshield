@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/policy"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/policy"
 )
 
 type fakeInspect struct{ name string }

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 // 条件式の評価。

@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	luaworker "github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/lua"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/config"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	luaworker "github.com/yumekui08/mailshield/services/smtp-gateway/internal/worker/lua"
 )
 
 // Manager は有効なワーカーの一覧を管理する。

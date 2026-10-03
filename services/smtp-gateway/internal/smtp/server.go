@@ -18,7 +18,7 @@ import (
 	gosmtp "github.com/emersion/go-smtp"
 	"github.com/google/uuid"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 // Handler はメール受信後の処理を担うインターフェース。

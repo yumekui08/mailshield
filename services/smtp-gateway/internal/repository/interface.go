@@ -2,7 +2,7 @@
 // コンシューマーはこのパッケージを import してインターフェースを参照する。
 package repository
 
-import "github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+import "github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 
 // MailRepository は domain.MailRepository の再エクスポート。
 type MailRepository = domain.MailRepository

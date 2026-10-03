@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 func testEvent() *domain.MailEvent {

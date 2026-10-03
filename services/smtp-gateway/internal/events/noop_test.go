@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/events"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/events"
 )
 
 func TestNoopPublisher_PublishMailReceived(t *testing.T) {

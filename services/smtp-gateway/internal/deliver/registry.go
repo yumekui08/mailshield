@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/config"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 // DefaultName は destination 未指定のルールに使われる予約 deliverer 名。

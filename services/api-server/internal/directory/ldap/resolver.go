@@ -7,8 +7,8 @@ import (
 
 	goldap "github.com/go-ldap/ldap/v3"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/directory"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/directory"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 // valuePlaceholder は search ステップの filter 内で前段の値に置換されるプレースホルダ。

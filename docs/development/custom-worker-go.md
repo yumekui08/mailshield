@@ -51,7 +51,7 @@ import (
     "context"
     "strings"
 
-    "github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+    "github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 type Worker struct {
@@ -101,7 +101,7 @@ func (w *Worker) Inspect(ctx context.Context, mail *domain.Mail) (*domain.Inspec
 ```go
 // cmd/server/main.go
 import (
-    "github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/myworker"
+    "github.com/yumekui08/mailshield/services/smtp-gateway/internal/worker/builtin/myworker"
 )
 
 // ...

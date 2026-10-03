@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 // TestLive_ChainResolution は実 LDAP（環境変数 MAILSHIELD_TEST_LDAP=1 のときのみ）に対して

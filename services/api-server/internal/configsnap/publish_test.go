@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 func snap(vars []domain.ConfigVariable, insts []domain.WorkerInstance, rts []domain.Routing) *domain.ConfigSnapshot {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/reinject"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/reinject"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // stubRepo は Service が使う repository.Repository メソッドのみ実装するスタブ。

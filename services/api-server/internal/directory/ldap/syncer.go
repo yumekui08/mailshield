@@ -8,9 +8,9 @@ import (
 
 	goldap "github.com/go-ldap/ldap/v3"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/directory"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/directory"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // UserDeactivator は Syncer が必要とする repository.Repository のサブセット。

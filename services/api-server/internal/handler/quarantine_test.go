@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/audit"
-	"github.com/koizumib/mailshield/services/api-server/internal/config"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/audit"
+	"github.com/yumekui08/mailshield/services/api-server/internal/config"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 var testAuditLogger = audit.New(nil)

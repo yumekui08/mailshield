@@ -36,7 +36,7 @@ sudo dnf install swaks
 ### 1. リポジトリをクローンする
 
 ```bash
-git clone https://github.com/koizumib/mailshield.git
+git clone https://github.com/yumekui08/mailshield.git
 cd mailshield
 ```
 

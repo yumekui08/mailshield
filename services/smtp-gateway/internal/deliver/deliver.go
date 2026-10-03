@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 // TLSMode は SMTP 接続の TLS 方式。

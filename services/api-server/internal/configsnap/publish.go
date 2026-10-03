@@ -11,8 +11,8 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // Publisher は現在の設定エンティティからスナップショットを組み立て、検証・publish する。

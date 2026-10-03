@@ -24,7 +24,7 @@ MailShield への貢献を歓迎します。バグ報告・機能提案・ドキ
 
 ### バグ報告
 
-バグを発見した場合は [GitHub Issues](https://github.com/koizumib/mailshield/issues) から報告してください。
+バグを発見した場合は [GitHub Issues](https://github.com/yumekui08/mailshield/issues) から報告してください。
 テンプレートに従って以下の情報を含めてください:
 
 - 再現手順（具体的なコマンドや設定ファイル）

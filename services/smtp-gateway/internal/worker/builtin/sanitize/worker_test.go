@@ -10,8 +10,8 @@ import (
 
 	"github.com/jhillyerd/enmime"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/worker/builtin/sanitize"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/worker/builtin/sanitize"
 )
 
 // buildEML はテスト用の EML バイト列を生成する。htmlBody が空の場合は text/plain のみ。

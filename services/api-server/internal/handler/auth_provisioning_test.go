@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/directory"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/directory"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // TestProvisionFederatedUser_NewUser は初回 OIDC ログインで users 行が作成され、

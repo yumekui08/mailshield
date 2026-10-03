@@ -6,8 +6,8 @@ import (
 
 	glua "github.com/yuin/gopher-lua"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/directory"
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/directory"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 // LuaHook はチェーンで表現できない変則ディレクトリ向けの escape hatch。

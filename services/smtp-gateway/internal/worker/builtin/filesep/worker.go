@@ -15,8 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jhillyerd/enmime"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/eml"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/eml"
 )
 
 // DownloadModeFn はメールの方向からダウンロードモードを解決する関数型。

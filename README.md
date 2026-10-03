@@ -24,7 +24,7 @@ MariaDB が用意できていれば Docker なしで動作します。
 
 ```bash
 # 1. クローン
-git clone https://github.com/koizumib/mailshield.git
+git clone https://github.com/yumekui08/mailshield.git
 cd mailshield
 
 # 2. ビルド
@@ -56,7 +56,7 @@ swaks --to test@internal.test --from sender@external.test \
 
 ```bash
 # 1. クローン・.env 作成（パスワード・配送先を設定）
-git clone https://github.com/koizumib/mailshield.git
+git clone https://github.com/yumekui08/mailshield.git
 cd mailshield
 cp .env.example .env
 # .env のパスワード類を変更し、評価環境では配送先を Mailpit に向ける:

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 func newTestWorker(threshold int, scores ScoresConfig, brands []string) *Worker {

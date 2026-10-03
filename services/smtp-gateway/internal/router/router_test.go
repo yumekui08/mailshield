@@ -3,7 +3,7 @@ package router
 import (
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/config"
 )
 
 func makeRoutes() []config.RouteConfig {

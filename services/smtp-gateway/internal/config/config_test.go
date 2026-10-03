@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/config"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/config"
 )
 
 // makeRouteDir は routesDir 配下にルートディレクトリと route.yaml を作成するヘルパー。

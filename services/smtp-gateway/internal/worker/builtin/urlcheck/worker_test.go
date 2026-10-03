@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/koizumib/mailshield/services/smtp-gateway/internal/domain"
+	"github.com/yumekui08/mailshield/services/smtp-gateway/internal/domain"
 )
 
 // mockChecker は reputationChecker のテスト用モック。

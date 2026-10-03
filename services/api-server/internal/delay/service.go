@@ -8,10 +8,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/reinject"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
-	"github.com/koizumib/mailshield/services/api-server/internal/storage"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/reinject"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/storage"
 )
 
 // Service は遅延送信の自動配送ワーカーと配送実行を担う。

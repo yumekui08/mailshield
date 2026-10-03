@@ -12,8 +12,8 @@ import (
 	_ "github.com/go-sql-driver/mysql" // MariaDB/MySQL ドライバー
 	"github.com/google/uuid"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
-	"github.com/koizumib/mailshield/services/api-server/internal/repository"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/repository"
 )
 
 // Config はDB接続プールの設定を保持する。

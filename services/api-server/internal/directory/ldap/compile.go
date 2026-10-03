@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/koizumib/mailshield/services/api-server/internal/domain"
+	"github.com/yumekui08/mailshield/services/api-server/internal/domain"
 )
 
 // CompileChainRule は設定のステップ列（各要素は 1 キーのマップ）を検証・コンパイルして
